@@ -10,7 +10,6 @@ pub enum MyStates {
     Next,
 }
 
-
 #[derive(Resource, AssetCollection)]
 pub struct GameAssets {
     #[asset(path = "stones.png")]
@@ -109,16 +108,27 @@ fn prepare_assets(
 
 /// Create a fire particle effect
 fn create_fire_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<EffectAsset> {
+    // More realistic fire color gradient:
+    // - White/yellow hot core at base (intense heat)
+    // - Orange/yellow in the middle (main flame)
+    // - Red-orange as it cools
+    // - Dark red/black smoke as it fades
     let mut color_gradient = bevy_hanabi::Gradient::new();
-    color_gradient.add_key(0.0, Vec4::new(1.0, 1.0, 0.0, 1.0)); // Yellow
-    color_gradient.add_key(0.3, Vec4::new(1.0, 0.5, 0.0, 1.0)); // Orange
-    color_gradient.add_key(0.6, Vec4::new(1.0, 0.2, 0.0, 0.8)); // Red-orange
-    color_gradient.add_key(1.0, Vec4::new(0.3, 0.0, 0.0, 0.0)); // Dark red, fading out
+    color_gradient.add_key(0.0, Vec4::new(1.0, 1.0, 0.9, 1.0)); // White-hot core
+    color_gradient.add_key(0.15, Vec4::new(1.0, 0.95, 0.5, 1.0)); // Bright yellow
+    color_gradient.add_key(0.35, Vec4::new(1.0, 0.7, 0.2, 0.7)); // Orange-yellow
+    color_gradient.add_key(0.55, Vec4::new(1.0, 0.4, 0.1, 0.55)); // Orange
+    color_gradient.add_key(0.75, Vec4::new(0.8, 0.2, 0.05, 0.3)); // Red-orange
+    color_gradient.add_key(0.9, Vec4::new(0.4, 0.1, 0.0, 0.1)); // Dark red
+    color_gradient.add_key(1.0, Vec4::new(0.1, 0.05, 0.0, 0.1)); // Black smoke, fully transparent
 
+    // Realistic size gradient: particles expand as hot air rises, then shrink as they cool
     let mut size_gradient = bevy_hanabi::Gradient::new();
-    size_gradient.add_key(0.0, Vec3::splat(0.05));
-    size_gradient.add_key(0.5, Vec3::splat(0.08));
-    size_gradient.add_key(1.0, Vec3::splat(0.02));
+    size_gradient.add_key(0.0, Vec3::splat(0.03)); // Small at base
+    size_gradient.add_key(0.2, Vec3::splat(0.06)); // Growing
+    size_gradient.add_key(0.5, Vec3::splat(0.12)); // Peak size (expanding hot air)
+    size_gradient.add_key(0.8, Vec3::splat(0.08)); // Shrinking as cooling
+    size_gradient.add_key(1.0, Vec3::splat(0.02)); // Very small at end
 
     let writer = ExprWriter::new();
 
@@ -126,47 +136,62 @@ fn create_fire_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<Effec
     let age = writer.lit(0.).expr();
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
-    let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
+    // More varied lifetime for natural fire behavior
+    let lifetime = writer.lit(0.6).uniform(writer.lit(0.4)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
-    // Spawn particles in a small circle at the base
+    // Spawn particles in a small circle at the base (fire source)
     let init_pos = SetPositionCircleModifier {
         center: writer.lit(Vec3::ZERO).expr(),
         axis: writer.lit(Vec3::Y).expr(),
-        radius: writer.lit(0.05).expr(),
+        radius: writer.lit(0.06).expr(), // Slightly larger spawn area
         dimension: ShapeDimension::Surface,
     };
 
-    // Initial upward velocity with small random horizontal offset
-    // Create a mostly upward direction with slight randomness in X and Z
-    let random_x = writer.lit(-0.2).uniform(writer.lit(0.2));
-    let random_z = writer.lit(-0.2).uniform(writer.lit(0.2));
-    let upward_speed = writer.lit(1.5).uniform(writer.lit(0.5));
-    // Velocity is mostly upward with small horizontal variation
+    // More realistic initial velocity:
+    // - Strong upward component (hot air rises)
+    // - More horizontal variation for flickering/turbulence
+    // - Variable upward speed for natural variation
+    let random_x = writer.lit(-0.4).uniform(writer.lit(0.4)); // More horizontal turbulence
+    let random_z = writer.lit(-0.4).uniform(writer.lit(0.4));
+    let upward_speed = writer.lit(2.0).uniform(writer.lit(1.0)); // Variable upward speed
     let velocity = random_x.vec3(upward_speed, random_z);
     let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, velocity.expr());
 
-    // Add drag to make particles slow down - reduced for higher rise
-    let drag = writer.lit(0.8).expr();
+    // Add upward acceleration (buoyancy) - hot air accelerates upward
+    let accel = writer.lit(Vec3::new(0.0, 2.3, 0.0)).expr();
+    let update_accel = AccelModifier::new(accel);
+
+    // Add drag to simulate air resistance (less drag = particles rise higher)
+    let drag = writer.lit(0.6).expr(); // Reduced drag for more buoyant effect
     let update_drag = LinearDragModifier::new(drag);
 
     effects.add(
-        EffectAsset::new(32768, SpawnerSettings::rate(50.0.into()), writer.finish())
-            .with_name("fire")
-            .init(init_pos)
-            .init(init_vel)
-            .init(init_age)
-            .init(init_lifetime)
-            .update(update_drag)
-            .render(ColorOverLifetimeModifier {
-                gradient: color_gradient,
-                blend: ColorBlendMode::Modulate,
-                mask: ColorBlendMask::RGBA,
-            })
-            .render(SizeOverLifetimeModifier {
-                gradient: size_gradient,
-                screen_space_size: false,
-            }),
+        EffectAsset::new(
+            32768,
+            SpawnerSettings::rate(80.0.into()), // Higher spawn rate for denser fire
+            writer.finish(),
+        )
+        .with_name("fire")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(update_accel) // Buoyancy
+        .update(update_drag) // Air resistance
+        .render(ColorOverLifetimeModifier {
+            gradient: color_gradient,
+            blend: ColorBlendMode::Modulate, // Modulate blending (Additive not available in this version)
+            mask: ColorBlendMask::RGBA,
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient,
+            screen_space_size: false,
+        })
+        .render(OrientModifier {
+            mode: OrientMode::FaceCameraPosition,
+            rotation: None,
+        }),
     )
 }
 

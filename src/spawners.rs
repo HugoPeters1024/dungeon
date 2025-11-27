@@ -12,13 +12,13 @@ pub struct SpawnPlugin;
 
 #[derive(Component)]
 pub struct Torch {
-    flikker_offset: f32,
+    flicker_offset: f32,
 }
 
 impl Plugin for SpawnPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_spawn_torch);
-        app.add_systems(Update, torch_flikkers);
+        app.add_systems(Update, torch_flickers);
     }
 }
 
@@ -75,17 +75,17 @@ fn on_spawn_torch(
             ..default()
         },
         Torch {
-            flikker_offset: rand::random::<f32>() * 100.0,
+            flicker_offset: rand::random::<f32>() * 100.0,
         },
         Transform::from_xyz(0.0, 0.0, -0.5),
         ChildOf(fire_effect),
     ));
 }
 
-fn torch_flikkers(mut q: Query<(&mut PointLight, &Torch)>, time: Res<Time>) {
+fn torch_flickers(mut q: Query<(&mut PointLight, &Torch)>, time: Res<Time>) {
     for (mut p, t) in q.iter_mut() {
-        let t = time.elapsed_secs() * 4.0 + t.flikker_offset;
+        let t = time.elapsed_secs() * 3.0 + t.flicker_offset;
         let noise = (t * 2.0).sin() * (t * 3.7).cos();
-        p.intensity = light_consts::lumens::LUMENS_PER_LED_WATTS * (450.0 + 40.0 * noise)
+        p.intensity = light_consts::lumens::LUMENS_PER_LED_WATTS * (450.0 + 140.0 * noise)
     }
 }
