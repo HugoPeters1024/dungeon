@@ -75,12 +75,12 @@ impl Plugin for AssetPlugin {
 fn prepare_assets(
     mut commands: Commands,
     mut assets: ResMut<GameAssets>,
-    mut effects: ResMut<Assets<EffectAsset>>,
+    //mut effects: ResMut<Assets<EffectAsset>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut state: ResMut<NextState<MyStates>>,
 ) {
-    assets.fire = create_fire_effect(&mut effects);
-    assets.void = create_void_effect(&mut effects);
+    //assets.fire = create_fire_effect(&mut effects);
+    //assets.void = create_void_effect(&mut effects);
 
     let mut graph = AnimationGraph::new();
     let defeated = graph.add_clip(assets.player_animations[0].clone(), 1.0, graph.root);

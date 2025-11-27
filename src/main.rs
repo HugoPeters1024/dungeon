@@ -1,8 +1,10 @@
 use avian3d::prelude::*;
 use bevy::ecs::system::NonSendMarker;
 use bevy::math::Affine2;
+#[cfg(not(target_arch = "wasm32"))]
 use bevy::post_process::motion_blur::MotionBlur;
 use bevy::prelude::*;
+use bevy::window::CursorOptions;
 use bevy::window::PrimaryWindow;
 use bevy::winit::WINIT_WINDOWS;
 use bevy_hanabi::prelude::*;
@@ -35,45 +37,51 @@ pub enum AnimationState {
 }
 
 fn main() {
-    App::new()
-        .add_plugins(
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "Dungeon".to_string(), // ToDo
-                        // Bind to canvas included in `index.html`
-                        canvas: Some("#bevy".to_owned()),
-                        fit_canvas_to_parent: true,
-                        // Tells wasm not to override default event handling, like F5 and Ctrl+R
-                        prevent_default_event_handling: false,
-                        ..default()
-                    }),
-                    ..default()
-                })
-                .set(bevy::asset::AssetPlugin {
-                    meta_check: bevy::asset::AssetMetaCheck::Never,
+    let mut app = App::new();
+
+    app.add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Dungeon".to_string(), // ToDo
+                    // Bind to canvas included in `index.html`
+                    canvas: Some("#bevy".to_owned()),
+                    fit_canvas_to_parent: true,
+                    // Tells wasm not to override default event handling, like F5 and Ctrl+R
+                    prevent_default_event_handling: false,
                     ..default()
                 }),
-        )
-        .add_plugins(avian3d::prelude::PhysicsPlugins::default())
-        .insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 5.0))
-        //.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default())
-        .add_plugins(TnuaControllerPlugin::new(FixedUpdate))
-        .add_plugins(TnuaAvian3dPlugin::new(FixedUpdate))
-        .add_plugins(EguiPlugin::default())
-        .add_plugins(WorldInspectorPlugin::new())
-        .add_plugins(HanabiPlugin)
-        .add_plugins(crate::assets::AssetPlugin)
-        .add_plugins(crate::spawners::SpawnPlugin)
-        .add_plugins(crate::player::PlayerPlugin)
-        .insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0))) // Very dark black background
-        .add_systems(Startup, set_window_icon)
-        .add_systems(OnEnter(MyStates::Next), setup)
-        .add_systems(
-            Update,
-            (handle_mouse_look, update_camera_position).run_if(in_state(MyStates::Next)),
-        )
-        .run();
+                ..default()
+            })
+            .set(bevy::asset::AssetPlugin {
+                meta_check: bevy::asset::AssetMetaCheck::Never,
+                ..default()
+            }),
+    );
+
+    app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
+    app.insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 5.0));
+    //app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
+    app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
+    app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
+    app.add_plugins(EguiPlugin::default());
+
+    #[cfg(not(target_arch = "wasm32"))]
+    app.add_plugins(WorldInspectorPlugin::new());
+
+    //app.add_plugins(HanabiPlugin);
+    app.add_plugins(crate::assets::AssetPlugin);
+    app.add_plugins(crate::spawners::SpawnPlugin);
+    app.add_plugins(crate::player::PlayerPlugin);
+    app.insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0))); // Very dark black background
+    app.add_systems(Startup, set_window_icon);
+    app.add_systems(OnEnter(MyStates::Next), setup);
+    app.add_systems(
+        Update,
+        (handle_mouse_look, update_camera_position).run_if(in_state(MyStates::Next)),
+    );
+
+    app.run();
 }
 
 // Sets the icon on windows and X11
@@ -124,12 +132,8 @@ fn setup(
     ));
 
     // Player-following camera
-    commands.spawn((
+    let mut camera_entity = commands.spawn((
         Camera3d::default(),
-        MotionBlur {
-            shutter_angle: 1.25,
-            samples: 2,
-        },
         PlayerCamera {
             pitch: -0.5, // Look slightly down
             yaw: 0.0,
@@ -138,6 +142,15 @@ fn setup(
         },
         Transform::from_xyz(0.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
     ));
+
+    // Motion blur is not supported in WebGL (requires multisample textures)
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        camera_entity.insert(MotionBlur {
+            shutter_angle: 1.25,
+            samples: 2,
+        });
+    }
 
     commands.spawn((PlayerRoot::default(), Name::new("Player")));
 
@@ -149,15 +162,11 @@ fn setup(
 }
 
 fn handle_mouse_look(
+    mut cursor_options: Single<&mut CursorOptions>,
     mut camera_query: Query<&mut PlayerCamera>,
-    mut windows: Query<&mut Window>,
     mut cursor_events: MessageReader<bevy::input::mouse::MouseMotion>,
 ) {
     let Ok(mut camera) = camera_query.single_mut() else {
-        return;
-    };
-
-    let Ok(mut window) = windows.single_mut() else {
         return;
     };
 
@@ -167,32 +176,23 @@ fn handle_mouse_look(
     // Use cursor delta from mouse motion events
     let mut delta = Vec2::ZERO;
     for event in cursor_events.read() {
+        dbg!(&event);
         delta += event.delta;
     }
 
-    // Reset cursor to center of window
-    let window_size = &window.resolution;
-    let center = Vec2::new(window_size.width() / 2.0, window_size.height() / 2.0);
-    if let Some(current_pos) = window.cursor_position() {
-        let offset_from_center = current_pos - center;
-        if offset_from_center.length() > 1.0 {
-            // Only reset if cursor has moved away from center
-            window.set_cursor_position(Some(center));
-        }
+    // Lock cursor for better camera control
+    cursor_options.grab_mode = bevy::window::CursorGrabMode::Locked;
+    cursor_options.visible = false;
 
-        // Use the offset as delta for camera rotation
-        if offset_from_center.length() > 0.0 {
-            // Update camera rotation with different sensitivities
-            camera.yaw -= offset_from_center.x * MOUSE_SENSITIVITY_HORIZONTAL;
-            camera.pitch += offset_from_center.y * MOUSE_SENSITIVITY_VERTICAL;
+    // Update camera rotation with different sensitivities
+    camera.yaw -= delta.x * MOUSE_SENSITIVITY_HORIZONTAL;
+    camera.pitch += delta.y * MOUSE_SENSITIVITY_VERTICAL;
 
-            // Clamp pitch to prevent flipping
-            camera.pitch = camera.pitch.clamp(
-                -std::f32::consts::FRAC_PI_2 + 0.1,
-                std::f32::consts::FRAC_PI_2 - 0.1,
-            );
-        }
-    }
+    // Clamp pitch to prevent flipping
+    camera.pitch = camera.pitch.clamp(
+        -std::f32::consts::FRAC_PI_2 + 0.1,
+        std::f32::consts::FRAC_PI_2 - 0.1,
+    );
 }
 
 fn update_camera_position(
