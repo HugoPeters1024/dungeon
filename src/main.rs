@@ -69,7 +69,7 @@ fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     app.add_plugins(WorldInspectorPlugin::new());
 
-    //app.add_plugins(HanabiPlugin);
+    app.add_plugins(HanabiPlugin);
     app.add_plugins(crate::assets::AssetPlugin);
     app.add_plugins(crate::spawners::SpawnPlugin);
     app.add_plugins(crate::player::PlayerPlugin);
