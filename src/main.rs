@@ -1,7 +1,6 @@
 use avian3d::prelude::*;
 use bevy::ecs::system::NonSendMarker;
 use bevy::math::Affine2;
-#[cfg(not(target_arch = "wasm32"))]
 use bevy::post_process::motion_blur::MotionBlur;
 use bevy::prelude::*;
 use bevy::window::CursorOptions;
@@ -143,14 +142,10 @@ fn setup(
         Transform::from_xyz(0.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
     ));
 
-    // Motion blur is not supported in WebGL (requires multisample textures)
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        camera_entity.insert(MotionBlur {
-            shutter_angle: 1.25,
-            samples: 2,
-        });
-    }
+    camera_entity.insert(MotionBlur {
+        shutter_angle: 1.25,
+        samples: 2,
+    });
 
     commands.spawn((PlayerRoot::default(), Name::new("Player")));
 
@@ -176,7 +171,6 @@ fn handle_mouse_look(
     // Use cursor delta from mouse motion events
     let mut delta = Vec2::ZERO;
     for event in cursor_events.read() {
-        dbg!(&event);
         delta += event.delta;
     }
 
