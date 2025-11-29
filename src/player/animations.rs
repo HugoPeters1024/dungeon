@@ -91,9 +91,18 @@ pub fn update_animation_state(
         let mut new_state = AnimationState::Idle;
         if c_snapshot.desired_velocity.length() > 0.01 {
             new_state = AnimationState::Moving {
-                forward: c_snapshot.desired_velocity.length(),
-                left: 0.0,
-                right: 0.0,
+                forward: c_snapshot
+                    .actual_velocity
+                    .dot(c_snapshot.facing_direction)
+                    .max(0.0),
+                left: c_snapshot
+                    .actual_velocity
+                    .dot(c_snapshot.facing_direction.cross(Vec3::NEG_Y))
+                    .max(0.0),
+                right: c_snapshot
+                    .actual_velocity
+                    .dot(c_snapshot.facing_direction.cross(Vec3::Y))
+                    .max(0.0),
             }
         }
 
@@ -142,7 +151,6 @@ pub fn apply_animation_weights(
     mut q: Query<(&AnimationWeights, &AnimationClips, &mut AnimationPlayer)>,
 ) {
     for (weights, clips, mut player) in q.iter_mut() {
-        dbg!(&weights);
         player
             .play(clips.defeated)
             .repeat()

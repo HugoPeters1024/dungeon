@@ -15,6 +15,7 @@ pub struct PlayerRoot;
 pub struct ControllerSnapshot {
     pub desired_velocity: Vec3,
     pub actual_velocity: Vec3,
+    pub facing_direction: Vec3,
     pub standing_on_ground: bool,
     pub distance_to_ground: f32,
     pub jump_state: Option<TnuaBuiltinJumpState>,
@@ -40,23 +41,27 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
 
 pub fn take_controller_snapshot(
     mut commands: Commands,
-    mut q: Query<(Entity, &TnuaController, &RayHits)>,
+    mut q: Query<(Entity, &TnuaController, &RayHits, &Transform, &LinearVelocity)>,
 ) {
-    for (entity, controller, hits) in q.iter_mut() {
-        let mut snapshot = ControllerSnapshot::default();
-
-        snapshot.distance_to_ground = hits.iter_sorted().next().map_or(0.0, |h| h.distance);
+    for (entity, controller, hits, transform, velocity) in q.iter_mut() {
+        // Initialize all fields as local bindings
+        let distance_to_ground = hits.iter_sorted().next().map_or(0.0, |h| h.distance);
+        let mut desired_velocity = Vec3::ZERO;
+        let actual_velocity = velocity.0;
+        let facing_direction = transform.rotation * Vec3::Z;
+        let mut standing_on_ground = false;
+        let mut jump_state = None;
 
         match controller.action_name() {
             Some(TnuaBuiltinJump::NAME) => {
                 // In case of jump, we want to cast it so that we can get the concrete jump
                 // state.
-                let (_, jump_state) = controller
+                let (_, jump_state_inner) = controller
                     .concrete_action::<TnuaBuiltinJump>()
                     .expect("action name mismatch");
                 // Depending on the state of the jump, we need to decide if we want to play the
                 // jump animation or the fall animation.
-                snapshot.jump_state = Some(jump_state.clone());
+                jump_state = Some(jump_state_inner.clone());
             }
             Some(other) => {
                 warn!("Unknown action: {other}");
@@ -65,13 +70,22 @@ pub fn take_controller_snapshot(
                 // If there is no action going on, we'll base the animation on the state of the
                 // basis.
                 if let Some((_, basis_state)) = controller.concrete_basis::<TnuaBuiltinWalk>() {
-                    snapshot.standing_on_ground = basis_state.standing_on_entity().is_some();
-                    snapshot.desired_velocity = basis_state.running_velocity;
+                    standing_on_ground = basis_state.standing_on_entity().is_some();
+                    desired_velocity = basis_state.running_velocity;
                 }
             }
         };
 
-        dbg!(&snapshot);
+        // Construct the struct at the end - this will error if any field is missing
+        let snapshot = ControllerSnapshot {
+            desired_velocity,
+            actual_velocity,
+            facing_direction,
+            standing_on_ground,
+            distance_to_ground,
+            jump_state,
+        };
+
         commands.entity(entity).insert(snapshot);
     }
 }
