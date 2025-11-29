@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_tnua::{TnuaAnimatingState, builtins::TnuaBuiltinJumpState, prelude::*};
@@ -7,7 +5,7 @@ use bevy_tnua_avian3d::prelude::*;
 
 use crate::{
     animations_utils::{HasAnimationPlayer, LinkAnimationsPluginFor},
-    assets::{CharacterAnimations, GameAssets, MyStates},
+    assets::{GameAssets, MyStates},
 };
 
 use super::PlayerCamera;
@@ -19,10 +17,50 @@ pub struct PlayerRoot;
 #[derive(Debug)]
 pub enum AnimationState {
     Standing,
-    Running(f32),
+    Running(Vec3),
     Jumping,
     Falling,
     Landing,
+}
+
+#[derive(Component, Default, Debug)]
+pub struct PlayerAnimations<T> {
+    pub running: T,
+    pub defeated: T,
+    pub right_strafe: T,
+    pub left_strafe: T,
+    pub a180: T,
+    pub jump: T,
+    pub falling_landing: T,
+}
+
+impl PlayerAnimations<f32> {
+    fn new() -> Self {
+        Self {
+            running: 0.0,
+            defeated: 1.0,
+            right_strafe: 0.0,
+            left_strafe: 0.0,
+            a180: 0.0,
+            jump: 0.0,
+            falling_landing: 0.0,
+        }
+    }
+}
+
+impl<T> PlayerAnimations<T> {
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        [
+            &self.running,
+            &self.defeated,
+            &self.right_strafe,
+            &self.left_strafe,
+            &self.a180,
+            &self.jump,
+            &self.falling_landing,
+        ]
+        .into_iter()
+    }
 }
 
 pub struct PlayerPlugin;
@@ -34,15 +72,35 @@ impl Plugin for PlayerPlugin {
         app.add_systems(
             Update,
             (
-                print_hits,
                 setup_animation,
-                //update_animation_weights,
+                update_animation_weights,
                 update_animation_state,
                 apply_controls,
                 rotate_character_to_camera,
             )
                 .run_if(in_state(MyStates::Next)),
         );
+    }
+}
+
+fn update_animation_weights(
+    mut q: Query<(
+        &PlayerAnimations<AnimationNodeIndex>,
+        &PlayerAnimations<f32>,
+        &mut AnimationPlayer,
+    )>,
+    time: Res<Time>,
+) {
+    const WEIGHT_INTERPOLATION_SPEED: f32 = 6.0;
+
+    for (nodes, weights, mut player) in q.iter_mut() {
+        for (&node, &target_weight) in nodes.iter().zip(weights.iter()) {
+            let animation = player.play(node).repeat();
+            let current_weight = animation.weight();
+            let new_weight = current_weight
+                + (target_weight - current_weight) * WEIGHT_INTERPOLATION_SPEED * time.delta_secs();
+            animation.set_weight(new_weight);
+        }
     }
 }
 
@@ -62,41 +120,32 @@ fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<
         TnuaAvian3dSensorShape(Collider::cylinder(0.29, 0.0)),
         TnuaAnimatingState::<AnimationState>::default(),
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
-        // Lock all rotation - we'll manually control Y rotation for facing direction
-        //LockedAxes::ROTATION_LOCKED,
     ));
 }
 
 fn setup_animation(
-    mut on: Query<(Entity, &mut AnimationPlayer), Added<AnimationPlayer>>,
+    mut on: Query<(&HasAnimationPlayer, &PlayerRoot), Added<HasAnimationPlayer>>,
     mut commands: Commands,
-    character_animations: Res<CharacterAnimations>,
-    graphs: Res<Assets<AnimationGraph>>,
+    assets: Res<GameAssets>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
-    let Some((target, mut animation_player)) = on.iter_mut().next() else {
-        return;
-    };
+    for (player_ref, _) in on.iter_mut() {
+        let mut graph = AnimationGraph::new();
+        let animations = PlayerAnimations {
+            running: graph.add_clip(assets.player_animations[1].clone(), 1.0, graph.root),
+            defeated: graph.add_clip(assets.player_animations[0].clone(), 1.0, graph.root),
+            right_strafe: graph.add_clip(assets.player_animations[2].clone(), 1.0, graph.root),
+            left_strafe: graph.add_clip(assets.player_animations[3].clone(), 1.0, graph.root),
+            a180: graph.add_clip(assets.player_animations[4].clone(), 1.0, graph.root),
+            jump: graph.add_clip(assets.player_animations[5].clone(), 1.0, graph.root),
+            falling_landing: graph.add_clip(assets.player_animations[6].clone(), 1.0, graph.root),
+        };
 
-    let graph = graphs.get(&character_animations.graph).unwrap();
-    //for idx in graph.nodes() {
-    //    animation_player.play(idx).repeat();
-    //}
-
-    commands
-        .entity(target)
-        .insert(AnimationGraphHandle(character_animations.graph.clone()))
-        .insert(AnimationTransitions::new());
-
-    //animation_player.play(character_animations.running).repeat();
-    //animation_player
-    //    .play(character_animations.defeated)
-    //    .repeat();
-}
-
-fn print_hits(query: Query<(&RayCaster, &RayHits)>) {
-    for (ray, hits) in &query {
-        // For the faster iterator that isn't sorted, use `.iter()`
-        for hit in hits.iter_sorted() {}
+        commands
+            .entity(player_ref.target_entity())
+            .insert(AnimationGraphHandle(graphs.add(graph)))
+            .insert(animations)
+            .insert(PlayerAnimations::<f32>::new());
     }
 }
 
@@ -107,13 +156,20 @@ fn update_animation_state(
         &HasAnimationPlayer,
         &RayCaster,
         &RayHits,
+        &Transform,
     )>,
-    mut animation_players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    character_animations: Res<CharacterAnimations>,
+    mut animation_players: Query<(
+        &mut AnimationPlayer,
+        &PlayerAnimations<AnimationNodeIndex>,
+        &mut PlayerAnimations<f32>,
+    )>,
 ) {
-    for (mut state, controller, has_player, ray, hits) in q.iter_mut() {
-        let Ok((mut animation_player, mut animation_transitions)) =
-            animation_players.get_mut(has_player.target_entity())
+    for (mut state, controller, has_player, ray, hits, player_transform) in q.iter_mut() {
+        let Ok((
+            mut animation_player,
+            character_animations,
+            mut animation_weights,
+        )) = animation_players.get_mut(has_player.target_entity())
         else {
             continue;
         };
@@ -137,7 +193,7 @@ fn update_animation_state(
                     TnuaBuiltinJumpState::StoppedMaintainingJump => AnimationState::Jumping,
                     TnuaBuiltinJumpState::FallSection => {
                         if let Some(hit) = hits.iter_sorted().next()
-                            && hit.distance < 1.2
+                            && hit.distance < 1.4
                         {
                             AnimationState::Landing
                         } else {
@@ -161,7 +217,7 @@ fn update_animation_state(
                 } else {
                     let speed = basis_state.running_velocity.length();
                     if 0.01 < speed {
-                        AnimationState::Running(0.1 * speed)
+                        AnimationState::Running(basis_state.running_velocity)
                     } else {
                         AnimationState::Standing
                     }
@@ -170,45 +226,77 @@ fn update_animation_state(
         };
 
         match state.update_by_discriminant(new_state) {
-            bevy_tnua::TnuaAnimatingStateDirective::Maintain { state } => {}
-            bevy_tnua::TnuaAnimatingStateDirective::Alter { old_state, state } => {
+            bevy_tnua::TnuaAnimatingStateDirective::Maintain { state } => {
                 match state {
-                    AnimationState::Standing => animation_transitions
-                        .play(
-                            &mut animation_player,
-                            character_animations.defeated,
-                            Duration::from_millis(300),
-                        )
-                        .repeat(),
-                    AnimationState::Running(_) => animation_transitions
-                        .play(
-                            &mut animation_player,
-                            character_animations.running,
-                            Duration::from_millis(300),
-                        )
-                        .repeat(),
-                    AnimationState::Jumping => animation_transitions
-                        .play(
-                            &mut animation_player,
-                            character_animations.jump,
-                            Duration::from_millis(200),
-                        )
-                        .set_seek_time(0.6),
-                    AnimationState::Falling => animation_transitions
-                        .play(
-                            &mut animation_player,
-                            character_animations.falling_landing,
-                            Duration::from_millis(300),
-                        )
-                        .set_speed(0.05),
-                    AnimationState::Landing => animation_transitions
-                        .play(
-                            &mut animation_player,
-                            character_animations.falling_landing,
-                            Duration::from_millis(100),
-                        )
-                        .set_speed(1.0),
+                    AnimationState::Running(velocity) => {
+                        // Get the forward and right directions in world space
+                        let forward = player_transform.rotation * Vec3::Z;
+                        let right = player_transform.rotation * Vec3::NEG_X;
+
+                        // Normalize velocity to get direction
+                        let velocity_dir = velocity.normalize_or_zero();
+
+                        // Calculate how much we're moving forward vs sideways
+                        let forward_amount = velocity_dir.dot(forward).max(0.0);
+                        let right_amount = velocity_dir.dot(right);
+
+                        // Determine strafe weights (only one should be active at a time)
+                        let left_strafe = (-right_amount).max(0.0);
+                        let right_strafe = right_amount.max(0.0);
+
+                        *animation_weights = PlayerAnimations {
+                            running: forward_amount,
+                            left_strafe,
+                            right_strafe,
+                            ..default()
+                        };
+                    },
+                    _ => {}
                 };
+            }
+            bevy_tnua::TnuaAnimatingStateDirective::Alter { old_state, state } => {
+                let weights = match state {
+                    AnimationState::Standing => PlayerAnimations {
+                        defeated: 1.0,
+                        ..default()
+                    },
+                    AnimationState::Running(_) => PlayerAnimations {
+                        running: 1.0,
+                        ..default()
+                    },
+                    AnimationState::Jumping => {
+                        animation_player
+                            .play(character_animations.jump)
+                            .set_seek_time(0.5)
+                            .set_speed(1.6);
+
+                        PlayerAnimations {
+                            jump: 1.0,
+                            ..default()
+                        }
+                    }
+                    AnimationState::Falling => {
+                        animation_player
+                            .play(character_animations.falling_landing)
+                            .set_seek_time(0.0)
+                            .set_speed(0.1);
+                        PlayerAnimations {
+                            falling_landing: 1.0,
+                            ..default()
+                        }
+                    }
+                    AnimationState::Landing => {
+                        animation_player
+                            .play(character_animations.falling_landing)
+                            .set_speed(1.3);
+                        PlayerAnimations {
+                            falling_landing: 1.0,
+                            ..default()
+                        }
+                    }
+                };
+
+                *animation_weights = weights;
             }
         };
     }
@@ -225,24 +313,32 @@ fn apply_controls(
     // Get the character's forward direction from its rotation
     // In Bevy, -Z is forward, so we rotate Vec3::NEG_Z by the character's rotation
     let forward = transform.rotation * Vec3::Z;
+    let sideways = transform.rotation * Vec3::X;
+    const FORWARD_SPEED: f32 = 5.0;
+    const SIDEWAYS_SPEED: f32 = 2.0;
 
     // W/S move forward/backward relative to character's rotation
     let mut direction = Vec3::ZERO;
     if keyboard.pressed(KeyCode::KeyW) {
-        direction += forward;
+        direction += forward * FORWARD_SPEED;
     }
     if keyboard.pressed(KeyCode::KeyS) {
-        direction -= forward;
+        direction -= forward * FORWARD_SPEED;
+    }
+    if keyboard.pressed(KeyCode::KeyA) {
+        direction += sideways * SIDEWAYS_SPEED;
+    }
+    if keyboard.pressed(KeyCode::KeyD) {
+        direction -= sideways * SIDEWAYS_SPEED;
     }
 
-    const MOVEMENT_SPEED: f32 = 6.0;
 
     // Feed the basis every frame. Even if the player doesn't move - just use `desired_velocity:
     // Vec3::ZERO`. `TnuaController` starts without a basis, which will make the character collider
     // just fall.
     controller.basis(TnuaBuiltinWalk {
         // The `desired_velocity` determines how the character will move.
-        desired_velocity: direction.normalize_or_zero() * MOVEMENT_SPEED,
+        desired_velocity: direction,
         // The `float_height` must be greater (even if by little) from the distance between the
         // character's center and the lowest point of its collider.
         // Capsule: radius 0.3, height 1.0 -> total height 1.6, center to bottom = 0.8
@@ -259,7 +355,7 @@ fn apply_controls(
         controller.action(TnuaBuiltinJump {
             // The height is the only mandatory field of the jump button.
             height: 2.5,
-            fall_extra_gravity: 0.0,
+            fall_extra_gravity: 10.5,
             // `TnuaBuiltinJump` also has customization fields with sensible defaults.
             ..Default::default()
         });

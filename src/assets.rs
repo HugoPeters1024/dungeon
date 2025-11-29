@@ -44,19 +44,6 @@ pub struct GameAssets {
     pub void: Handle<EffectAsset>,
 }
 
-#[derive(Resource)]
-pub struct CharacterAnimations {
-    pub graph: Handle<AnimationGraph>,
-    pub root: AnimationNodeIndex,
-    pub running: AnimationNodeIndex,
-    pub defeated: AnimationNodeIndex,
-    pub right_strafe: AnimationNodeIndex,
-    pub left_strafe: AnimationNodeIndex,
-    pub a180: AnimationNodeIndex,
-    pub jump: AnimationNodeIndex,
-    pub falling_landing: AnimationNodeIndex,
-}
-
 pub struct AssetPlugin;
 
 impl Plugin for AssetPlugin {
@@ -72,36 +59,12 @@ impl Plugin for AssetPlugin {
 }
 
 fn prepare_assets(
-    mut commands: Commands,
     mut assets: ResMut<GameAssets>,
     mut effects: ResMut<Assets<EffectAsset>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
     mut state: ResMut<NextState<MyStates>>,
 ) {
     assets.fire = create_fire_effect(&mut effects);
     assets.void = create_void_effect(&mut effects);
-
-    let mut graph = AnimationGraph::new();
-    let defeated = graph.add_clip(assets.player_animations[0].clone(), 1.0, graph.root);
-    let running = graph.add_clip(assets.player_animations[1].clone(), 1.0, graph.root);
-    let right_strafe = graph.add_clip(assets.player_animations[2].clone(), 1.0, graph.root);
-    let left_strafe = graph.add_clip(assets.player_animations[3].clone(), 1.0, graph.root);
-    let a180 = graph.add_clip(assets.player_animations[4].clone(), 1.0, graph.root);
-    let jump = graph.add_clip(assets.player_animations[5].clone(), 1.0, graph.root);
-    let falling_landing = graph.add_clip(assets.player_animations[6].clone(), 1.0, graph.root);
-    let graph_handle = graphs.add(graph.clone());
-
-    commands.insert_resource(CharacterAnimations {
-        graph: graph_handle,
-        root: graph.root,
-        running,
-        defeated,
-        right_strafe,
-        left_strafe,
-        a180,
-        jump,
-        falling_landing,
-    });
 
     state.set(MyStates::Next);
 }
