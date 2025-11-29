@@ -141,7 +141,7 @@ fn setup(
             height: 2.5,
         },
         Transform::from_xyz(0.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
-        Bloom::NATURAL
+        Bloom::NATURAL,
     ));
 
     camera_entity.insert(MotionBlur {

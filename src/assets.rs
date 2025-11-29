@@ -35,6 +35,7 @@ pub struct GameAssets {
             "player.glb#Animation4",
             "player.glb#Animation5",
             "player.glb#Animation6",
+            "player.glb#Animation7",
         ),
         collection(typed)
     )]

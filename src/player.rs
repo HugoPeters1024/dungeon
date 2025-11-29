@@ -21,6 +21,7 @@ pub enum AnimationState {
     Jumping,
     Falling,
     Landing,
+    Walking(Vec3),
 }
 
 #[derive(Component, Default, Debug)]
@@ -32,6 +33,7 @@ pub struct PlayerAnimations<T> {
     pub a180: T,
     pub jump: T,
     pub falling_landing: T,
+    pub walking: T,
 }
 
 impl PlayerAnimations<f32> {
@@ -44,6 +46,7 @@ impl PlayerAnimations<f32> {
             a180: 0.0,
             jump: 0.0,
             falling_landing: 0.0,
+            walking: 0.0,
         }
     }
 }
@@ -58,6 +61,7 @@ impl<T> PlayerAnimations<T> {
             &self.a180,
             &self.jump,
             &self.falling_landing,
+            &self.walking,
         ]
         .into_iter()
     }
@@ -139,6 +143,7 @@ fn setup_animation(
             a180: graph.add_clip(assets.player_animations[4].clone(), 1.0, graph.root),
             jump: graph.add_clip(assets.player_animations[5].clone(), 1.0, graph.root),
             falling_landing: graph.add_clip(assets.player_animations[6].clone(), 1.0, graph.root),
+            walking: graph.add_clip(assets.player_animations[7].clone(), 1.0, graph.root),
         };
 
         commands
@@ -165,11 +170,8 @@ fn update_animation_state(
     )>,
 ) {
     for (mut state, controller, has_player, ray, hits, player_transform) in q.iter_mut() {
-        let Ok((
-            mut animation_player,
-            character_animations,
-            mut animation_weights,
-        )) = animation_players.get_mut(has_player.target_entity())
+        let Ok((mut animation_player, character_animations, mut animation_weights)) =
+            animation_players.get_mut(has_player.target_entity())
         else {
             continue;
         };
@@ -216,8 +218,10 @@ fn update_animation_state(
                     AnimationState::Falling
                 } else {
                     let speed = basis_state.running_velocity.length();
-                    if 0.01 < speed {
+                    if speed > 2.5 {
                         AnimationState::Running(basis_state.running_velocity)
+                    } else if speed > 0.01 {
+                        AnimationState::Walking(basis_state.running_velocity)
                     } else {
                         AnimationState::Standing
                     }
@@ -228,7 +232,7 @@ fn update_animation_state(
         match state.update_by_discriminant(new_state) {
             bevy_tnua::TnuaAnimatingStateDirective::Maintain { state } => {
                 match state {
-                    AnimationState::Running(velocity) => {
+                    AnimationState::Running(velocity) | AnimationState::Walking(velocity) => {
                         // Get the forward and right directions in world space
                         let forward = player_transform.rotation * Vec3::Z;
                         let right = player_transform.rotation * Vec3::NEG_X;
@@ -245,12 +249,21 @@ fn update_animation_state(
                         let right_strafe = right_amount.max(0.0);
 
                         *animation_weights = PlayerAnimations {
-                            running: forward_amount,
+                            running: if matches!(state, AnimationState::Running(_)) {
+                                forward_amount
+                            } else {
+                                0.0
+                            },
+                            walking: if matches!(state, AnimationState::Walking(_)) {
+                                forward_amount
+                            } else {
+                                0.0
+                            },
                             left_strafe,
                             right_strafe,
                             ..default()
                         };
-                    },
+                    }
                     _ => {}
                 };
             }
@@ -294,6 +307,10 @@ fn update_animation_state(
                             ..default()
                         }
                     }
+                    AnimationState::Walking(vec3) => PlayerAnimations {
+                        walking: 1.0,
+                        ..default()
+                    },
                 };
 
                 *animation_weights = weights;
@@ -314,13 +331,19 @@ fn apply_controls(
     // In Bevy, -Z is forward, so we rotate Vec3::NEG_Z by the character's rotation
     let forward = transform.rotation * Vec3::Z;
     let sideways = transform.rotation * Vec3::X;
-    const FORWARD_SPEED: f32 = 5.0;
+    const FORWARD_SPEED: f32 = 2.0;
     const SIDEWAYS_SPEED: f32 = 2.0;
+
+    let sprint_factor = if keyboard.pressed(KeyCode::ShiftLeft) {
+        1.8
+    } else {
+        1.0
+    };
 
     // W/S move forward/backward relative to character's rotation
     let mut direction = Vec3::ZERO;
     if keyboard.pressed(KeyCode::KeyW) {
-        direction += forward * FORWARD_SPEED;
+        direction += forward * FORWARD_SPEED * sprint_factor;
     }
     if keyboard.pressed(KeyCode::KeyS) {
         direction -= forward * FORWARD_SPEED;
@@ -331,7 +354,6 @@ fn apply_controls(
     if keyboard.pressed(KeyCode::KeyD) {
         direction -= sideways * SIDEWAYS_SPEED;
     }
-
 
     // Feed the basis every frame. Even if the player doesn't move - just use `desired_velocity:
     // Vec3::ZERO`. `TnuaController` starts without a basis, which will make the character collider
