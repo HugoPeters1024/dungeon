@@ -4,11 +4,11 @@ use bevy_tnua::{TnuaAnimatingState, builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::{
-    animations_utils::{HasAnimationPlayer, LinkAnimationsPluginFor},
-    assets::{GameAssets, MyStates},
+    animations_utils::{HasAnimationPlayer},
+    assets::{GameAssets},
 };
 
-use super::PlayerCamera;
+use crate::game::PlayerCamera;
 
 #[derive(Component, Default)]
 #[require(Transform, InheritedVisibility)]
@@ -67,27 +67,7 @@ impl<T> PlayerAnimations<T> {
     }
 }
 
-pub struct PlayerPlugin;
-
-impl Plugin for PlayerPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_plugins(LinkAnimationsPluginFor::<PlayerRoot>::default());
-        app.add_observer(on_player_spawn);
-        app.add_systems(
-            Update,
-            (
-                setup_animation,
-                update_animation_weights,
-                update_animation_state,
-                apply_controls,
-                rotate_character_to_camera,
-            )
-                .run_if(in_state(MyStates::Next)),
-        );
-    }
-}
-
-fn update_animation_weights(
+pub fn update_animation_weights(
     mut q: Query<(
         &PlayerAnimations<AnimationNodeIndex>,
         &PlayerAnimations<f32>,
@@ -108,7 +88,7 @@ fn update_animation_weights(
     }
 }
 
-fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<GameAssets>) {
+pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<GameAssets>) {
     commands.entity(on.event_target()).insert((
         children![(
             SceneRoot(assets.player.clone()),
@@ -127,7 +107,7 @@ fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<
     ));
 }
 
-fn setup_animation(
+pub fn setup_animation(
     mut on: Query<(&HasAnimationPlayer, &PlayerRoot), Added<HasAnimationPlayer>>,
     mut commands: Commands,
     assets: Res<GameAssets>,
@@ -154,12 +134,11 @@ fn setup_animation(
     }
 }
 
-fn update_animation_state(
+pub fn update_animation_state(
     mut q: Query<(
         &mut TnuaAnimatingState<AnimationState>,
         &TnuaController,
         &HasAnimationPlayer,
-        &RayCaster,
         &RayHits,
         &Transform,
     )>,
@@ -169,7 +148,7 @@ fn update_animation_state(
         &mut PlayerAnimations<f32>,
     )>,
 ) {
-    for (mut state, controller, has_player, ray, hits, player_transform) in q.iter_mut() {
+    for (mut state, controller, has_player, hits, player_transform) in q.iter_mut() {
         let Ok((mut animation_player, character_animations, mut animation_weights)) =
             animation_players.get_mut(has_player.target_entity())
         else {
@@ -267,7 +246,7 @@ fn update_animation_state(
                     _ => {}
                 };
             }
-            bevy_tnua::TnuaAnimatingStateDirective::Alter { old_state, state } => {
+            bevy_tnua::TnuaAnimatingStateDirective::Alter { old_state: _, state } => {
                 let weights = match state {
                     AnimationState::Standing => PlayerAnimations {
                         defeated: 1.0,
@@ -307,7 +286,7 @@ fn update_animation_state(
                             ..default()
                         }
                     }
-                    AnimationState::Walking(vec3) => PlayerAnimations {
+                    AnimationState::Walking(_) => PlayerAnimations {
                         walking: 1.0,
                         ..default()
                     },
@@ -319,7 +298,7 @@ fn update_animation_state(
     }
 }
 
-fn apply_controls(
+pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut controller_query: Query<(&mut TnuaController, &Transform)>,
 ) {
@@ -385,7 +364,7 @@ fn apply_controls(
 }
 
 /// Rotates the character to always face away from the camera (like Elden Ring)
-fn rotate_character_to_camera(
+pub fn rotate_character_to_camera(
     mut query: Query<&mut Transform, With<TnuaController>>,
     camera_query: Query<&PlayerCamera>,
     time: Res<Time>,
