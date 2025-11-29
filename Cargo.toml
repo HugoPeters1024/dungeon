@@ -105,6 +105,8 @@ winit = { version = "0.30", default-features = false }
 image = { version = "0.25.2", default-features = false }
 ## This greatly improves WGPU's performance due to its heavy use of trace! calls
 log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }
+strum = "0.27.2"
+strum_macros = "0.27.2"
 
 # Native-only dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

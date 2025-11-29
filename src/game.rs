@@ -102,6 +102,8 @@ fn handle_mouse_look(
     mut cursor_options: Single<&mut CursorOptions>,
     mut camera_query: Query<&mut PlayerCamera>,
     mut cursor_events: MessageReader<bevy::input::mouse::MouseMotion>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
 ) {
     let Ok(mut camera) = camera_query.single_mut() else {
         return;
@@ -117,18 +119,27 @@ fn handle_mouse_look(
     }
 
     // Lock cursor for better camera control
-    cursor_options.grab_mode = bevy::window::CursorGrabMode::Locked;
-    cursor_options.visible = false;
+    if mouse.just_pressed(MouseButton::Left) {
+        cursor_options.grab_mode = bevy::window::CursorGrabMode::Locked;
+        cursor_options.visible = false;
+    }
 
-    // Update camera rotation with different sensitivities
-    camera.yaw -= delta.x * MOUSE_SENSITIVITY_HORIZONTAL;
-    camera.pitch += delta.y * MOUSE_SENSITIVITY_VERTICAL;
+    if keyboard.just_pressed(KeyCode::Escape) {
+        cursor_options.grab_mode = bevy::window::CursorGrabMode::None;
+        cursor_options.visible = true;
+    }
 
-    // Clamp pitch to prevent flipping
-    camera.pitch = camera.pitch.clamp(
-        -std::f32::consts::FRAC_PI_2 + 0.1,
-        std::f32::consts::FRAC_PI_2 - 0.1,
-    );
+    if cursor_options.grab_mode == bevy::window::CursorGrabMode::Locked {
+        // Update camera rotation with different sensitivities
+        camera.yaw -= delta.x * MOUSE_SENSITIVITY_HORIZONTAL;
+        camera.pitch += delta.y * MOUSE_SENSITIVITY_VERTICAL;
+
+        // Clamp pitch to prevent flipping
+        camera.pitch = camera.pitch.clamp(
+            -std::f32::consts::FRAC_PI_2 + 0.1,
+            std::f32::consts::FRAC_PI_2 - 0.1,
+        );
+    }
 }
 
 fn update_camera_position(

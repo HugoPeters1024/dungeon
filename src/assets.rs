@@ -39,7 +39,7 @@ pub struct GameAssets {
         ),
         collection(typed)
     )]
-    pub player_animations: Vec<Handle<AnimationClip>>,
+    pub player_clips: Vec<Handle<AnimationClip>>,
 
     pub fire: Handle<EffectAsset>,
     pub void: Handle<EffectAsset>,

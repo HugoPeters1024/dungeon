@@ -17,9 +17,9 @@ impl HasAnimationPlayer {
 }
 
 #[derive(Default)]
-pub struct LinkAnimationsPluginFor<T: Component>(PhantomData<T>);
+pub struct LinkAnimationPlayerPluginFor<T: Component>(PhantomData<T>);
 
-impl<T: Component> Plugin for LinkAnimationsPluginFor<T> {
+impl<T: Component> Plugin for LinkAnimationPlayerPluginFor<T> {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, link_animation_player_for::<T>);
     }
