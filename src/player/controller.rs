@@ -1,27 +1,36 @@
+use std::ops::DerefMut;
+
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
-use crate::animations_utils::HasAnimationPlayer;
 use crate::assets::GameAssets;
 
 use crate::game::PlayerCamera;
-use crate::player::animations::AnimationInfluence;
 
 #[derive(Component, Default)]
 #[require(Transform, InheritedVisibility)]
 pub struct PlayerRoot;
 
 #[derive(Component, Default, Debug)]
-pub struct ControllerSnapshot {
+pub struct ControllerSensors {
     pub desired_velocity: Vec3,
     pub actual_velocity: Vec3,
     pub facing_direction: Vec3,
     pub standing_on_ground: bool,
     pub distance_to_ground: f32,
     pub jump_state: Option<TnuaBuiltinJumpState>,
-    pub wants_to_jump: bool,
+}
+
+#[derive(Component, Debug, Default, Clone)]
+pub enum ControllerState {
+    #[default]
+    Idle,
+    Moving,
+    PreparingJump(Timer),
+    Jumping(TnuaBuiltinJump),
+    Falling,
 }
 
 pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<GameAssets>) {
@@ -39,35 +48,28 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         TnuaController::default(),
         TnuaAvian3dSensorShape(Collider::cylinder(0.29, 0.0)),
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
+        ControllerSensors::default(),
+        ControllerState::Idle,
     ));
 }
 
-pub fn take_controller_snapshot(
+pub fn controller_update_sensors(
     mut commands: Commands,
-    mut q: Query<(
+    q: Query<(
         Entity,
-        &mut TnuaController,
+        &TnuaController,
         &RayHits,
         &Transform,
         &LinearVelocity,
-        &HasAnimationPlayer
     )>,
-    a: Query<&AnimationInfluence>,
-    keyboard: Res<ButtonInput<KeyCode>>,
 ) {
-    for (entity, mut controller, hits, transform, velocity, has_player) in q.iter_mut() {
-        let Ok(influence) = a.get(has_player.target_entity()) else {
-            warn!("player has not animation player");
-            continue;
-        };
-        // Initialize all fields as local bindings
+    for (entity, controller, hits, transform, velocity) in q.iter() {
         let distance_to_ground = hits.iter_sorted().next().map_or(0.0, |h| h.distance);
         let mut desired_velocity = Vec3::ZERO;
         let actual_velocity = velocity.0;
         let facing_direction = transform.rotation * Vec3::Z;
         let mut standing_on_ground = false;
         let mut jump_state = None;
-        let mut wants_to_jump = false;
 
         match controller.action_name() {
             Some(TnuaBuiltinJump::NAME) => {
@@ -93,39 +95,87 @@ pub fn take_controller_snapshot(
             }
         };
 
-        if keyboard.pressed(KeyCode::Space) {
-            wants_to_jump = true;
-        }
-
-        if let Some(jump) = &influence.jump_action {
-            controller.action(jump.clone());
-        }
-
         // Construct the struct at the end - this will error if any field is missing
-        let snapshot = ControllerSnapshot {
+        let snapshot = ControllerSensors {
             desired_velocity,
             actual_velocity,
             facing_direction,
             standing_on_ground,
             distance_to_ground,
             jump_state,
-            wants_to_jump,
         };
 
         commands.entity(entity).insert(snapshot);
     }
 }
 
+pub fn update_controller_state(
+    mut q: Query<(&mut ControllerState, &ControllerSensors)>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+) {
+    for (mut state, sensors) in q.iter_mut() {
+        use ControllerState::*;
+        match state.deref_mut() {
+            Moving => {
+                if sensors.actual_velocity.length() < 0.1 {
+                    *state = Idle;
+                }
+
+                if keyboard.pressed(KeyCode::Space) {
+                    *state = PreparingJump(Timer::from_seconds(0.2, TimerMode::Once));
+                }
+            }
+            Idle => {
+                if sensors.actual_velocity.xz().length() > 0.1 {
+                    *state = Moving;
+                }
+
+                if keyboard.pressed(KeyCode::Space) {
+                    *state = PreparingJump(Timer::from_seconds(0.2, TimerMode::Once));
+                }
+            }
+            PreparingJump(timer) => {
+                timer.tick(time.delta());
+                if timer.is_finished() {
+                    *state = Jumping(TnuaBuiltinJump {
+                        // The height is the only mandatory field of the jump button.
+                        height: 2.5,
+                        fall_extra_gravity: 10.5,
+                        // `TnuaBuiltinJump` also has customization fields with sensible defaults.
+                        ..Default::default()
+                    });
+                }
+            }
+            Jumping(_) => {
+                match sensors.jump_state {
+                    Some(TnuaBuiltinJumpState::FallSection) => {
+                        *state = Falling;
+                    }
+                    Some(TnuaBuiltinJumpState::NoJump) => {
+                        *state = Idle;
+                    }
+                    _ => {}
+                };
+            }
+            Falling => {
+                if sensors.standing_on_ground {
+                    *state = Idle;
+                }
+            }
+        };
+
+    }
+}
+
 pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut controller_query: Query<(&mut TnuaController, &Transform)>,
+    mut controller_query: Query<(&mut TnuaController, &ControllerState, &Transform)>,
 ) {
-    let Ok((mut controller, transform)) = controller_query.single_mut() else {
+    let Ok((mut controller, state, transform)) = controller_query.single_mut() else {
         return;
     };
 
-    // Get the character's forward direction from its rotation
-    // In Bevy, -Z is forward, so we rotate Vec3::NEG_Z by the character's rotation
     let forward = transform.rotation * Vec3::Z;
     let sideways = transform.rotation * Vec3::X;
     const FORWARD_SPEED: f32 = 2.0;
@@ -137,7 +187,6 @@ pub fn apply_controls(
         1.0
     };
 
-    // W/S move forward/backward relative to character's rotation
     let mut direction = Vec3::ZERO;
     if keyboard.pressed(KeyCode::KeyW) {
         direction += forward * FORWARD_SPEED * sprint_factor;
@@ -167,6 +216,10 @@ pub fn apply_controls(
         // sensible defaults. Refer to the `TnuaBuiltinWalk`'s documentation to learn what they do.
         ..Default::default()
     });
+
+    if let ControllerState::Jumping(jump) = state {
+        controller.action(jump.clone());
+    }
 }
 
 /// Rotates the character to always face away from the camera (like Elden Ring)

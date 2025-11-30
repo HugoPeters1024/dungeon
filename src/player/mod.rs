@@ -17,18 +17,16 @@ impl Plugin for PlayerPlugin {
         app.add_observer(on_animation_player_loaded);
         app.add_systems(
             Update,
-            (apply_controls, rotate_character_to_camera).run_if(in_state(MyStates::Next)),
+            (rotate_character_to_camera).run_if(in_state(MyStates::Next)),
         );
         app.add_systems(
             Update,
             (
-                take_controller_snapshot,
-                save_animation_state,
-                tick_animation_state,
-                update_animation_state,
-                update_animation_weights,
+                controller_update_sensors,
+                update_controller_state,
+                apply_controls,
+                animations_from_controller,
                 apply_animation_weights,
-                on_animation_state_transitions
             )
                 .chain()
                 .run_if(in_state(MyStates::Next)),

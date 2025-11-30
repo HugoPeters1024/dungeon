@@ -1,10 +1,11 @@
-use std::ops::DerefMut;
+use std::ops::Deref;
 
 use bevy::prelude::*;
-use bevy_tnua::prelude::TnuaBuiltinJump;
 
 use crate::{
-    animations_utils::AnimationPlayerOf, assets::GameAssets, player::controller::ControllerSnapshot,
+    animations_utils::AnimationPlayerOf,
+    assets::GameAssets,
+    player::controller::{ControllerSensors, ControllerState},
 };
 
 #[derive(Debug, Default, Component)]
@@ -38,40 +39,9 @@ impl<T> AnimationsT<T> {
 type AnimationClips = AnimationsT<AnimationNodeIndex>;
 type AnimationWeights = AnimationsT<f32>;
 
-#[derive(Component, Debug, Clone)]
-pub enum AnimationState {
-    Moving { forward: f32, left: f32, right: f32 },
-    Idle,
-    PreparingJump(Timer),
-    Jumping,
-}
-
-impl AnimationState {
-    pub fn is_valid_transition(&self, other: &AnimationState, s: &ControllerSnapshot) -> bool {
-        use AnimationState::*;
-        match (self, other) {
-            (Moving { .. } | Idle, Moving { .. }) => true,
-            (Moving { .. }, Idle { .. }) => true,
-            (Jumping { .. }, Idle { .. } | Moving { .. }) => s.standing_on_ground,
-            (Moving { .. } | Idle, PreparingJump { .. }) => true,
-            (PreparingJump { .. }, Jumping { .. }) => true,
-            _ => false,
-        }
-    }
-}
-
-#[derive(Component)]
-pub struct OldAnimationState(AnimationState);
-
 #[derive(Debug, Clone)]
 pub enum MovementLock {
     Full,
-}
-
-#[derive(Component, Default)]
-pub struct AnimationInfluence {
-    pub movement_lock: Option<MovementLock>,
-    pub jump_action: Option<TnuaBuiltinJump>,
 }
 
 pub fn on_animation_player_loaded(
@@ -96,110 +66,88 @@ pub fn on_animation_player_loaded(
         .entity(on.event_target())
         .insert(AnimationGraphHandle(graphs.add(graph)))
         .insert(clips)
-        .insert(AnimationState::Idle)
-        .insert(AnimationInfluence::default());
+        .insert(AnimationWeights::default());
 }
 
-pub fn save_animation_state(mut commands: Commands, q: Query<(Entity, &AnimationState)>) {
-    for (entity, state) in q.iter() {
-        dbg!(&state);
-        commands
-            .entity(entity)
-            .insert(OldAnimationState(state.clone()));
-    }
-}
-
-pub fn tick_animation_state(
-    mut commands: Commands,
-    mut q: Query<(Entity, &mut AnimationState)>,
-    time: Res<Time>,
+pub fn animations_from_controller(
+    mut q: Query<(
+        &mut AnimationPlayer,
+        &AnimationClips,
+        &mut AnimationWeights,
+        &AnimationPlayerOf,
+    )>,
+    c: Query<(&ControllerState, &ControllerSensors)>,
+    mut prev_state: Local<ControllerState>,
 ) {
-    for (entity, mut state) in q.iter_mut() {
-        let next_state = match state.deref_mut() {
-            AnimationState::PreparingJump(timer) => {
-                if timer.tick(time.delta()).is_finished() {
-                    Some(AnimationState::Jumping)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        if let Some(next_state) = next_state {
-            commands.entity(entity).insert(next_state);
-        }
-    }
-}
-
-pub fn update_animation_state(
-    mut commands: Commands,
-    q: Query<(Entity, &AnimationState, &AnimationPlayerOf)>,
-    c: Query<&ControllerSnapshot>,
-) {
-    for (anim_entity, anim_state, AnimationPlayerOf(c_entity)) in q.iter() {
-        let Ok(c_snapshot) = c.get(*c_entity) else {
+    for (mut player, clips, mut weights, AnimationPlayerOf(controller_entity)) in q.iter_mut() {
+        let Ok((state, sensors)) = c.get(*controller_entity) else {
             continue;
         };
 
-        let mut new_state = AnimationState::Idle;
-        if c_snapshot.desired_velocity.length() > 0.01 {
-            new_state = AnimationState::Moving {
-                forward: c_snapshot
-                    .actual_velocity
-                    .dot(c_snapshot.facing_direction)
-                    .max(0.0),
-                left: c_snapshot
-                    .actual_velocity
-                    .dot(c_snapshot.facing_direction.cross(Vec3::NEG_Y))
-                    .max(0.0),
-                right: c_snapshot
-                    .actual_velocity
-                    .dot(c_snapshot.facing_direction.cross(Vec3::Y))
-                    .max(0.0),
+        let state_transioned =
+            std::mem::discriminant(state) != std::mem::discriminant(prev_state.deref());
+
+        use ControllerState::*;
+        match state {
+            Idle => {
+                *weights = AnimationWeights {
+                    defeated: 1.0,
+                    ..default()
+                };
             }
-        }
+            Moving => {
+                let forward = sensors
+                    .actual_velocity
+                    .dot(sensors.facing_direction)
+                    .max(0.0);
+                let left = sensors
+                    .actual_velocity
+                    .dot(sensors.facing_direction.cross(Vec3::NEG_Y))
+                    .max(0.0);
+                let right = sensors
+                    .actual_velocity
+                    .dot(sensors.facing_direction.cross(Vec3::Y))
+                    .max(0.0);
 
-        if c_snapshot.wants_to_jump {
-            new_state = AnimationState::PreparingJump(Timer::from_seconds(0.5, TimerMode::Once));
-        }
-
-        if anim_state.is_valid_transition(&new_state, &c_snapshot) {
-            commands.entity(anim_entity).insert(new_state);
-        }
-    }
-}
-
-pub fn update_animation_weights(mut commands: Commands, mut q: Query<(Entity, &AnimationState)>) {
-    for (entity, anim_state) in q.iter_mut() {
-        let mut weights = AnimationWeights::default();
-        match anim_state {
-            AnimationState::Moving {
-                forward,
-                left,
-                right,
-            } => {
-                if *forward > 2.22 {
-                    weights.running = 1.0;
-                } else if *forward > 0.01 {
-                    weights.walking = 1.0;
+                let mut w = AnimationWeights::default();
+                if forward > 2.2 {
+                    w.running = forward
+                } else {
+                    w.walking = forward
+                };
+                w.left_strafe = left;
+                w.right_strafe = right;
+                *weights = w;
+            }
+            PreparingJump(_) => {
+                if state_transioned {
+                    player.play(clips.jump).set_seek_time(0.26);
                 }
 
-                weights.left_strafe = *left;
-                weights.right_strafe = *right;
+                *weights = AnimationWeights {
+                    jump: 1.0,
+                    running: sensors.actual_velocity.length().max(1.0),
+                    ..default()
+                }
             }
-            AnimationState::Idle => {
-                weights.defeated = 1.0;
+            Jumping(_) => {
+                *weights = AnimationWeights {
+                    jump: 1.0,
+                    ..default()
+                }
             }
-            AnimationState::PreparingJump(_timer) => {
-                weights.jump = 1.0;
+            Falling => {
+                if state_transioned {
+                    player.play(clips.landing).set_seek_time(0.0).set_speed(0.6);
+                }
+                *weights = AnimationWeights {
+                    landing: 1.0,
+                    ..default()
+                }
             }
-            AnimationState::Jumping => {
-                weights.jump = 1.0;
-            }
-        };
+        }
 
-        commands.entity(entity).insert(weights);
+        *prev_state = state.clone();
     }
 }
 
@@ -215,40 +163,6 @@ pub fn apply_animation_weights(
             let new_weight = current_weight
                 + (target_weight - current_weight) * interpolation_speed * time.delta_secs();
             player.play(clip).repeat().set_weight(new_weight);
-        }
-    }
-}
-
-pub fn on_animation_state_transitions(
-    mut q: Query<(
-        &OldAnimationState,
-        &AnimationState,
-        &mut AnimationPlayer,
-        &AnimationClips,
-        &mut AnimationInfluence,
-    )>,
-) {
-    for (OldAnimationState(old_state), new_state, mut player, clips, mut influence) in q.iter_mut()
-    {
-        if std::mem::discriminant(new_state) == std::mem::discriminant(old_state) {
-            continue;
-        }
-        influence.jump_action = None;
-
-        match new_state {
-            AnimationState::PreparingJump(_) => {
-                player.play(clips.jump).set_seek_time(0.0);
-            }
-            AnimationState::Jumping => {
-                influence.jump_action = Some(TnuaBuiltinJump {
-                    // The height is the only mandatory field of the jump button.
-                    height: 2.5,
-                    fall_extra_gravity: 10.5,
-                    // `TnuaBuiltinJump` also has customization fields with sensible defaults.
-                    ..Default::default()
-                });
-            }
-            _ => {}
         }
     }
 }
