@@ -23,9 +23,12 @@ impl Plugin for PlayerPlugin {
             Update,
             (
                 take_controller_snapshot,
+                save_animation_state,
+                tick_animation_state,
                 update_animation_state,
                 update_animation_weights,
                 apply_animation_weights,
+                on_animation_state_transitions
             )
                 .chain()
                 .run_if(in_state(MyStates::Next)),

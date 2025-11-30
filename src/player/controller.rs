@@ -3,9 +3,11 @@ use bevy::prelude::*;
 use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
+use crate::animations_utils::HasAnimationPlayer;
 use crate::assets::GameAssets;
 
 use crate::game::PlayerCamera;
+use crate::player::animations::AnimationInfluence;
 
 #[derive(Component, Default)]
 #[require(Transform, InheritedVisibility)]
@@ -19,6 +21,7 @@ pub struct ControllerSnapshot {
     pub standing_on_ground: bool,
     pub distance_to_ground: f32,
     pub jump_state: Option<TnuaBuiltinJumpState>,
+    pub wants_to_jump: bool,
 }
 
 pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<GameAssets>) {
@@ -41,9 +44,22 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
 
 pub fn take_controller_snapshot(
     mut commands: Commands,
-    mut q: Query<(Entity, &TnuaController, &RayHits, &Transform, &LinearVelocity)>,
+    mut q: Query<(
+        Entity,
+        &mut TnuaController,
+        &RayHits,
+        &Transform,
+        &LinearVelocity,
+        &HasAnimationPlayer
+    )>,
+    a: Query<&AnimationInfluence>,
+    keyboard: Res<ButtonInput<KeyCode>>,
 ) {
-    for (entity, controller, hits, transform, velocity) in q.iter_mut() {
+    for (entity, mut controller, hits, transform, velocity, has_player) in q.iter_mut() {
+        let Ok(influence) = a.get(has_player.target_entity()) else {
+            warn!("player has not animation player");
+            continue;
+        };
         // Initialize all fields as local bindings
         let distance_to_ground = hits.iter_sorted().next().map_or(0.0, |h| h.distance);
         let mut desired_velocity = Vec3::ZERO;
@@ -51,6 +67,7 @@ pub fn take_controller_snapshot(
         let facing_direction = transform.rotation * Vec3::Z;
         let mut standing_on_ground = false;
         let mut jump_state = None;
+        let mut wants_to_jump = false;
 
         match controller.action_name() {
             Some(TnuaBuiltinJump::NAME) => {
@@ -76,6 +93,14 @@ pub fn take_controller_snapshot(
             }
         };
 
+        if keyboard.pressed(KeyCode::Space) {
+            wants_to_jump = true;
+        }
+
+        if let Some(jump) = &influence.jump_action {
+            controller.action(jump.clone());
+        }
+
         // Construct the struct at the end - this will error if any field is missing
         let snapshot = ControllerSnapshot {
             desired_velocity,
@@ -84,6 +109,7 @@ pub fn take_controller_snapshot(
             standing_on_ground,
             distance_to_ground,
             jump_state,
+            wants_to_jump,
         };
 
         commands.entity(entity).insert(snapshot);
@@ -141,18 +167,6 @@ pub fn apply_controls(
         // sensible defaults. Refer to the `TnuaBuiltinWalk`'s documentation to learn what they do.
         ..Default::default()
     });
-
-    // Feed the jump action every frame as long as the player holds the jump button. If the player
-    // stops holding the jump button, simply stop feeding the action.
-    if keyboard.pressed(KeyCode::Space) {
-        controller.action(TnuaBuiltinJump {
-            // The height is the only mandatory field of the jump button.
-            height: 2.5,
-            fall_extra_gravity: 10.5,
-            // `TnuaBuiltinJump` also has customization fields with sensible defaults.
-            ..Default::default()
-        });
-    }
 }
 
 /// Rotates the character to always face away from the camera (like Elden Ring)
