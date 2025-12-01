@@ -119,18 +119,11 @@ pub fn animations_from_controller(
                 w.right_strafe = right;
                 *weights = w;
             }
-            PreparingJump(_) => {
+            Jumping(_) => {
                 if state_transioned {
-                    player.play(clips.jump).set_seek_time(0.26);
+                    player.play(clips.jump).set_seek_time(0.66);
                 }
 
-                *weights = AnimationWeights {
-                    jump: 1.0,
-                    running: sensors.actual_velocity.length().max(1.0),
-                    ..default()
-                }
-            }
-            Jumping(_) => {
                 *weights = AnimationWeights {
                     jump: 1.0,
                     ..default()
@@ -159,7 +152,7 @@ pub fn apply_animation_weights(
         for (&weight, &clip) in weights.iter().zip(clips.iter()) {
             let current_weight = player.animation(clip).map(|a| a.weight()).unwrap_or(0.0);
             let target_weight = weight;
-            let interpolation_speed = 5.0;
+            let interpolation_speed = 8.0;
             let new_weight = current_weight
                 + (target_weight - current_weight) * interpolation_speed * time.delta_secs();
             player.play(clip).repeat().set_weight(new_weight);

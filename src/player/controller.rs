@@ -28,7 +28,6 @@ pub enum ControllerState {
     #[default]
     Idle,
     Moving,
-    PreparingJump(Timer),
     Jumping(TnuaBuiltinJump),
     Falling,
 }
@@ -112,8 +111,13 @@ pub fn controller_update_sensors(
 pub fn update_controller_state(
     mut q: Query<(&mut ControllerState, &ControllerSensors)>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
 ) {
+    let jump_action = TnuaBuiltinJump {
+        height: 2.5,
+        fall_extra_gravity: 10.5,
+        ..default()
+    };
+
     for (mut state, sensors) in q.iter_mut() {
         use ControllerState::*;
         match state.deref_mut() {
@@ -122,8 +126,8 @@ pub fn update_controller_state(
                     *state = Idle;
                 }
 
-                if keyboard.pressed(KeyCode::Space) {
-                    *state = PreparingJump(Timer::from_seconds(0.2, TimerMode::Once));
+                if keyboard.just_pressed(KeyCode::Space) {
+                    *state = Jumping(jump_action.clone());
                 }
             }
             Idle => {
@@ -131,20 +135,8 @@ pub fn update_controller_state(
                     *state = Moving;
                 }
 
-                if keyboard.pressed(KeyCode::Space) {
-                    *state = PreparingJump(Timer::from_seconds(0.2, TimerMode::Once));
-                }
-            }
-            PreparingJump(timer) => {
-                timer.tick(time.delta());
-                if timer.is_finished() {
-                    *state = Jumping(TnuaBuiltinJump {
-                        // The height is the only mandatory field of the jump button.
-                        height: 2.5,
-                        fall_extra_gravity: 10.5,
-                        // `TnuaBuiltinJump` also has customization fields with sensible defaults.
-                        ..Default::default()
-                    });
+                if keyboard.just_pressed(KeyCode::Space) {
+                    *state = Jumping(jump_action.clone());
                 }
             }
             Jumping(_) => {
@@ -164,7 +156,6 @@ pub fn update_controller_state(
                 }
             }
         };
-
     }
 }
 
@@ -217,7 +208,9 @@ pub fn apply_controls(
         ..Default::default()
     });
 
-    if let ControllerState::Jumping(jump) = state {
+    if let ControllerState::Jumping(jump) = state
+        && keyboard.pressed(KeyCode::Space)
+    {
         controller.action(jump.clone());
     }
 }
