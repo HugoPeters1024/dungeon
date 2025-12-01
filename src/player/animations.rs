@@ -47,9 +47,10 @@ pub enum MovementLock {
 pub fn on_animation_player_loaded(
     on: On<Add, AnimationPlayerOf>,
     assets: Res<GameAssets>,
+    mut players: Query<&mut AnimationPlayer>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut commands: Commands,
-) {
+) -> Result {
     let mut graph = AnimationGraph::new();
     let clips = AnimationClips {
         defeated: graph.add_clip(assets.player_clips[0].clone(), 1.0, graph.root),
@@ -62,11 +63,22 @@ pub fn on_animation_player_loaded(
         walking: graph.add_clip(assets.player_clips[7].clone(), 1.0, graph.root),
     };
 
+    let mut player = players.get_mut(on.event_target())?;
+
+    // Play all the loop continious animations
+    player.play(clips.defeated).repeat();
+    player.play(clips.running).repeat();
+    player.play(clips.left_strafe).repeat();
+    player.play(clips.right_strafe).repeat();
+    player.play(clips.walking).repeat();
+
     commands
         .entity(on.event_target())
         .insert(AnimationGraphHandle(graphs.add(graph)))
         .insert(clips)
         .insert(AnimationWeights::default());
+
+    Ok(())
 }
 
 pub fn animations_from_controller(
@@ -121,7 +133,7 @@ pub fn animations_from_controller(
             }
             Jumping(_) => {
                 if state_transioned {
-                    player.play(clips.jump).set_seek_time(0.66);
+                    player.start(clips.jump).set_seek_time(0.66);
                 }
 
                 *weights = AnimationWeights {
@@ -131,7 +143,7 @@ pub fn animations_from_controller(
             }
             Falling => {
                 if state_transioned {
-                    player.play(clips.landing).set_seek_time(0.0).set_speed(0.6);
+                    player.start(clips.landing).set_seek_time(0.0).set_speed(0.6);
                 }
                 *weights = AnimationWeights {
                     landing: 1.0,
@@ -140,6 +152,7 @@ pub fn animations_from_controller(
             }
         }
 
+        dbg!(&state);
         *prev_state = state.clone();
     }
 }
@@ -150,12 +163,15 @@ pub fn apply_animation_weights(
 ) {
     for (weights, clips, mut player) in q.iter_mut() {
         for (&weight, &clip) in weights.iter().zip(clips.iter()) {
-            let current_weight = player.animation(clip).map(|a| a.weight()).unwrap_or(0.0);
-            let target_weight = weight;
-            let interpolation_speed = 8.0;
-            let new_weight = current_weight
-                + (target_weight - current_weight) * interpolation_speed * time.delta_secs();
-            player.play(clip).repeat().set_weight(new_weight);
+            if let Some(clip) = player.animation_mut(clip) {
+                let current_weight = clip.weight();
+                let target_weight = weight;
+                let interpolation_speed = 7.0;
+                let new_weight = current_weight
+                    + (target_weight - current_weight) * interpolation_speed * time.delta_secs();
+
+                clip.set_weight(new_weight);
+            }
         }
     }
 }
