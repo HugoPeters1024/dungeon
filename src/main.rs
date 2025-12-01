@@ -57,4 +57,3 @@ fn set_window_icon(
         Ok(())
     })
 }
-

@@ -168,7 +168,12 @@ pub fn update_controller_state(
 
 pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut controller_query: Query<(&mut TnuaController, &ControllerState, &Transform, &ControllerSensors)>,
+    mut controller_query: Query<(
+        &mut TnuaController,
+        &ControllerState,
+        &Transform,
+        &ControllerSensors,
+    )>,
 ) {
     let Ok((mut controller, state, transform, sensors)) = controller_query.single_mut() else {
         return;

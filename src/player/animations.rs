@@ -143,7 +143,10 @@ pub fn animations_from_controller(
             }
             Falling => {
                 if state_transioned {
-                    player.start(clips.landing).set_seek_time(0.0).set_speed(0.6);
+                    player
+                        .start(clips.landing)
+                        .set_seek_time(0.0)
+                        .set_speed(0.6);
                 }
                 *weights = AnimationWeights {
                     landing: 1.0,

@@ -89,7 +89,7 @@ fn setup(
         samples: 2,
     });
 
-    commands.spawn((PlayerRoot::default(), Name::new("Player")));
+    commands.spawn((PlayerRoot, Name::new("Player")));
 
     commands.spawn((SpawnTorch, Transform::from_xyz(-2.0, 1.0, 0.0)));
 
