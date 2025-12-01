@@ -168,14 +168,9 @@ pub fn update_controller_state(
 
 pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut controller_query: Query<(
-        &mut TnuaController,
-        &ControllerState,
-        &Transform,
-        &ControllerSensors,
-    )>,
+    mut controller_query: Query<(&mut TnuaController, &ControllerState, &Transform)>,
 ) {
-    let Ok((mut controller, state, transform, sensors)) = controller_query.single_mut() else {
+    let Ok((mut controller, state, transform)) = controller_query.single_mut() else {
         return;
     };
 
@@ -204,34 +199,12 @@ pub fn apply_controls(
         direction -= sideways * SIDEWAYS_SPEED;
     }
 
-    // When jumping, check if we're colliding with a wall and prevent movement into it
-    let mut desired_velocity = direction;
-    let is_jumping = matches!(state, ControllerState::Jumping(_));
-
-    if is_jumping {
-        // Check if we're trying to move but not actually moving much laterally (stuck on wall)
-        // Compare desired movement direction with actual velocity from previous frame
-        let desired_lateral_velocity = desired_velocity.xz();
-        let actual_lateral_velocity = sensors.actual_velocity.xz();
-
-        // If we're trying to move significantly but actual lateral velocity is very small,
-        // we're likely stuck on a wall
-        const WALL_STICK_THRESHOLD: f32 = 0.15;
-        if desired_lateral_velocity.length() > WALL_STICK_THRESHOLD
-            && actual_lateral_velocity.length() < WALL_STICK_THRESHOLD * 0.3
-        {
-            // We're stuck on a wall - zero out horizontal movement to prevent sticking
-            desired_velocity.x = 0.0;
-            desired_velocity.z = 0.0;
-        }
-    }
-
     // Feed the basis every frame. Even if the player doesn't move - just use `desired_velocity:
     // Vec3::ZERO`. `TnuaController` starts without a basis, which will make the character collider
     // just fall.
     controller.basis(TnuaBuiltinWalk {
         // The `desired_velocity` determines how the character will move.
-        desired_velocity,
+        desired_velocity: direction,
         // The `float_height` must be greater (even if by little) from the distance between the
         // character's center and the lowest point of its collider.
         // Capsule: radius 0.3, height 1.0 -> total height 1.6, center to bottom = 0.8
