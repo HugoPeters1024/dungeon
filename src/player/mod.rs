@@ -15,6 +15,7 @@ impl Plugin for PlayerPlugin {
         app.add_plugins(LinkAnimationPlayerPluginFor::<PlayerRoot>::default());
         app.add_observer(on_player_spawn);
         app.add_observer(on_animation_player_loaded);
+        app.add_observer(put_in_hand);
         app.add_systems(
             Update,
             (rotate_character_to_camera).run_if(in_state(MyStates::Next)),

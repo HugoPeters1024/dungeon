@@ -155,7 +155,6 @@ pub fn animations_from_controller(
             }
         }
 
-        dbg!(&state);
         *prev_state = state.clone();
     }
 }

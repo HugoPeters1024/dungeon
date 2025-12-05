@@ -20,6 +20,9 @@ pub struct GameAssets {
     #[asset(image(sampler(filter = linear, wrap = repeat)))]
     pub mossy_stones: Handle<Image>,
 
+    #[asset(path = "stairs.glb#Mesh0/Primitive0")]
+    pub stairs: Handle<Mesh>,
+
     #[asset(path = "torch.glb#Scene0")]
     pub torch: Handle<Scene>,
 

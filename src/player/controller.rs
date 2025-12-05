@@ -1,5 +1,6 @@
 use std::ops::DerefMut;
 
+use avian3d::math::PI;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
@@ -44,11 +45,43 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         InheritedVisibility::default(),
         RigidBody::Dynamic,
         Collider::capsule(0.3, 1.0),
+        Friction::new(0.0),
         TnuaController::default(),
         TnuaAvian3dSensorShape(Collider::cylinder(0.29, 0.0)),
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
         ControllerSensors::default(),
         ControllerState::Idle,
+    ));
+}
+
+pub fn put_in_hand(
+    on: On<Add, Name>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    assets: Res<GameAssets>,
+    names: Query<&Name>,
+) {
+    let Ok(name) = names.get(on.entity) else {
+        return;
+    };
+
+    dbg!(&name);
+    if name.as_str() != "mixamorigRightHand" {
+        return;
+    }
+
+    warn!("gottem!");
+
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(1.0, 0.9, 0.9))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color_texture: Some(assets.mossy_stones.clone()),
+            perceptual_roughness: 1.0,
+            ..default()
+        })),
+        ChildOf(on.entity),
+        Name::new("Sword"),
     ));
 }
 
@@ -125,7 +158,7 @@ pub fn update_controller_state(
                 if !sensors.standing_on_ground {
                     *state = Falling;
                 }
-                if sensors.actual_velocity.xz().length() < 0.1 {
+                if sensors.actual_velocity.length() < 0.1 {
                     *state = Idle;
                 }
 
@@ -148,7 +181,10 @@ pub fn update_controller_state(
             }
             Jumping(_) => {
                 match sensors.jump_state {
-                    Some(TnuaBuiltinJumpState::FallSection) => {
+                    Some(
+                        TnuaBuiltinJumpState::FallSection
+                        | TnuaBuiltinJumpState::StoppedMaintainingJump,
+                    ) => {
                         *state = Falling;
                     }
                     Some(TnuaBuiltinJumpState::NoJump) => {
@@ -210,8 +246,9 @@ pub fn apply_controls(
         // Capsule: radius 0.3, height 1.0 -> total height 1.6, center to bottom = 0.8
         // Using 0.85 to be slightly above the bottom point
         float_height: 0.85,
-        // `TnuaBuiltinWalk` has many other fields for customizing the movement - but they have
-        // sensible defaults. Refer to the `TnuaBuiltinWalk`'s documentation to learn what they do.
+        max_slope: PI / 4.0,
+        acceleration: 30.0,
+        spring_strength: 2200.0,
         ..Default::default()
     });
 

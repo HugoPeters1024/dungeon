@@ -1,4 +1,7 @@
+use std::f32::consts::PI;
+
 use avian3d::prelude::*;
+use bevy::light::CascadeShadowConfigBuilder;
 use bevy::post_process::bloom::Bloom;
 use bevy::post_process::motion_blur::MotionBlur;
 use bevy::window::CursorOptions;
@@ -26,7 +29,7 @@ pub struct PlayerCamera {
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
-        app.insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 5.0));
+        app.insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 9.0));
         //app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
         app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
@@ -56,7 +59,29 @@ fn setup(
     mut ambient_light: ResMut<AmbientLight>,
     assets: Res<GameAssets>,
 ) {
-    ambient_light.brightness = 70.0;
+    ambient_light.brightness = 100.0;
+
+    commands.spawn((
+        DirectionalLight {
+            illuminance: light_consts::lux::OVERCAST_DAY,
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform {
+            translation: Vec3::new(0.0, 2.0, 0.0),
+            rotation: Quat::from_rotation_x(-PI / 4.),
+            ..default()
+        },
+        // The default cascade config is designed to handle large scenes.
+        // As this example has a much smaller world, we can tighten the shadow
+        // bounds for better visual quality.
+        CascadeShadowConfigBuilder {
+            first_cascade_far_bound: 4.0,
+            maximum_distance: 100.0,
+            ..default()
+        }
+        .build(),
+    ));
 
     // base
     commands.spawn((
@@ -70,6 +95,22 @@ fn setup(
         RigidBody::Static,
         Collider::cuboid(12.0, 0.1, 12.0),
     ));
+
+    for i in 0..10 {
+        commands.spawn((
+            Mesh3d(assets.stairs.clone()),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color_texture: Some(assets.mossy_stones.clone()),
+                perceptual_roughness: 1.0,
+                ..default()
+            })),
+            Transform::from_xyz(0.0 - i as f32, 0.25 + 0.5 * i as f32, 2.0)
+                .with_scale(Vec3::new(0.5, 0.25, 0.5)),
+            Name::new("Stairs"),
+            RigidBody::Static,
+            ColliderConstructor::TrimeshFromMesh,
+        ));
+    }
 
     // Player-following camera
     let mut camera_entity = commands.spawn((
@@ -119,7 +160,7 @@ fn handle_mouse_look(
     }
 
     // Lock cursor for better camera control
-    if mouse.just_pressed(MouseButton::Left) {
+    if mouse.just_pressed(MouseButton::Middle) {
         cursor_options.grab_mode = bevy::window::CursorGrabMode::Locked;
         cursor_options.visible = false;
     }
