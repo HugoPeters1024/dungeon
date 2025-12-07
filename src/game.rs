@@ -30,7 +30,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
         app.insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 9.0));
-        app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
+        //        app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
         app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
         app.add_plugins(EguiPlugin::default());
@@ -85,7 +85,7 @@ fn setup(
 
     // base
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(12.0, 0.1, 12.0)).into()),
+        Mesh3d(meshes.add(Cuboid::new(12.0, 0.1, 12.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color_texture: Some(assets.mossy_stones.clone()),
             uv_transform: Affine2::from_scale(Vec2::new(3.0, 3.0)),
@@ -112,16 +112,29 @@ fn setup(
         ));
     }
 
-    commands.spawn((
-        Mesh3d(assets.wineglass.clone()),
-        MeshMaterial3d(assets.wineglass_material.clone()),
-        Transform::from_xyz(0.0, 0.1, -2.0).with_scale(Vec3::splat(0.1)),
-        Name::new("Wineglass"),
-        Mass(0.2),
-        Friction::new(0.0),
-        RigidBody::Dynamic,
-        ColliderConstructor::Cuboid { x_length: 2.5, y_length: 4.0, z_length: 2.5 },
-    ));
+    const WIDTH: usize = 5;
+    for y in 0..=WIDTH {
+        for x in 0..=y {
+            commands.spawn((
+                Mesh3d(assets.wineglass.clone()),
+                MeshMaterial3d(assets.wineglass_material.clone()),
+                Transform::from_xyz(
+                    0.3 * (x as f32 - y as f32 / 2.0),
+                    0.32 + 0.44 * (WIDTH as f32 - y as f32),
+                    -2.0,
+                )
+                .with_scale(Vec3::splat(0.1)),
+                Name::new("Wineglass"),
+                Mass(0.00002),
+                RigidBody::Dynamic,
+                ColliderConstructor::Cuboid {
+                    x_length: 2.5,
+                    y_length: 4.0,
+                    z_length: 2.5,
+                },
+            ));
+        }
+    }
 
     // Player-following camera
     let mut camera_entity = commands.spawn((

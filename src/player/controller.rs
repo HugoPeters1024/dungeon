@@ -44,11 +44,11 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         Transform::from_xyz(0.0, 0.85, 0.0),
         InheritedVisibility::default(),
         RigidBody::Dynamic,
-        Collider::cuboid(0.45, 1.5, 0.45),
-        Mass(100.0),
+        Collider::cylinder(0.25, 1.25),
+        Mass(400.0),
         Friction::new(0.0),
         TnuaController::default(),
-        TnuaAvian3dSensorShape(Collider::cylinder(0.25, 0.1)),
+        TnuaAvian3dSensorShape(Collider::cylinder(0.24, 0.1)),
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
         ControllerSensors::default(),
         ControllerState::Idle,
@@ -61,7 +61,6 @@ pub fn put_in_hand(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    assets: Res<GameAssets>,
     names: Query<&Name>,
 ) {
     let Ok(name) = names.get(on.entity) else {
@@ -72,15 +71,14 @@ pub fn put_in_hand(
         return;
     }
 
-    warn!("gottem!");
-
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(1.0, 0.9, 0.9))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color_texture: Some(assets.mossy_stones.clone()),
+            base_color: Color::srgb(0.8, 0.1, 0.1),
             perceptual_roughness: 1.0,
             ..default()
         })),
+        Transform::from_scale(Vec3::splat(30.0)).with_translation(Vec3::new(0.0, 40.0, 0.0)),
         ChildOf(on.entity),
         Name::new("Sword"),
     ));
@@ -247,7 +245,7 @@ pub fn apply_controls(
         float_height: 0.76,
         max_slope: PI / 3.0,
         acceleration: 30.0,
-        //spring_strength: 2200.0,
+        spring_strength: 2700.0,
         ..Default::default()
     });
 
