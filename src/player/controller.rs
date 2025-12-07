@@ -44,13 +44,15 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         Transform::from_xyz(0.0, 0.85, 0.0),
         InheritedVisibility::default(),
         RigidBody::Dynamic,
-        Collider::capsule(0.3, 1.0),
+        Collider::cuboid(0.45, 1.5, 0.45),
+        Mass(100.0),
         Friction::new(0.0),
         TnuaController::default(),
-        TnuaAvian3dSensorShape(Collider::cylinder(0.29, 0.0)),
+        TnuaAvian3dSensorShape(Collider::cylinder(0.25, 0.1)),
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
         ControllerSensors::default(),
         ControllerState::Idle,
+        LockedAxes::ROTATION_LOCKED,
     ));
 }
 
@@ -66,7 +68,6 @@ pub fn put_in_hand(
         return;
     };
 
-    dbg!(&name);
     if name.as_str() != "mixamorigRightHand" {
         return;
     }
@@ -243,12 +244,10 @@ pub fn apply_controls(
         desired_velocity: direction,
         // The `float_height` must be greater (even if by little) from the distance between the
         // character's center and the lowest point of its collider.
-        // Capsule: radius 0.3, height 1.0 -> total height 1.6, center to bottom = 0.8
-        // Using 0.85 to be slightly above the bottom point
-        float_height: 0.85,
-        max_slope: PI / 4.0,
+        float_height: 0.76,
+        max_slope: PI / 3.0,
         acceleration: 30.0,
-        spring_strength: 2200.0,
+        //spring_strength: 2200.0,
         ..Default::default()
     });
 

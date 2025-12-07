@@ -30,7 +30,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
         app.insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 9.0));
-        //app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
+        app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
         app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
         app.add_plugins(EguiPlugin::default());
@@ -63,7 +63,7 @@ fn setup(
 
     commands.spawn((
         DirectionalLight {
-            illuminance: light_consts::lux::OVERCAST_DAY,
+            illuminance: light_consts::lux::CIVIL_TWILIGHT,
             shadows_enabled: true,
             ..default()
         },
@@ -85,7 +85,7 @@ fn setup(
 
     // base
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(12.0, 0.1, 12.0))),
+        Mesh3d(meshes.add(Cuboid::new(12.0, 0.1, 12.0)).into()),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color_texture: Some(assets.mossy_stones.clone()),
             uv_transform: Affine2::from_scale(Vec2::new(3.0, 3.0)),
@@ -111,6 +111,17 @@ fn setup(
             ColliderConstructor::TrimeshFromMesh,
         ));
     }
+
+    commands.spawn((
+        Mesh3d(assets.wineglass.clone()),
+        MeshMaterial3d(assets.wineglass_material.clone()),
+        Transform::from_xyz(0.0, 0.1, -2.0).with_scale(Vec3::splat(0.1)),
+        Name::new("Wineglass"),
+        Mass(0.2),
+        Friction::new(0.0),
+        RigidBody::Dynamic,
+        ColliderConstructor::Cuboid { x_length: 2.5, y_length: 4.0, z_length: 2.5 },
+    ));
 
     // Player-following camera
     let mut camera_entity = commands.spawn((
@@ -160,7 +171,7 @@ fn handle_mouse_look(
     }
 
     // Lock cursor for better camera control
-    if mouse.just_pressed(MouseButton::Middle) {
+    if mouse.just_pressed(MouseButton::Left) {
         cursor_options.grab_mode = bevy::window::CursorGrabMode::Locked;
         cursor_options.visible = false;
     }
