@@ -125,7 +125,7 @@ fn setup(
                 )
                 .with_scale(Vec3::splat(0.1)),
                 Name::new("Wineglass"),
-                Mass(0.00002),
+                Mass(0.2),
                 RigidBody::Dynamic,
                 ColliderConstructor::Cuboid {
                     x_length: 2.5,
@@ -135,6 +135,20 @@ fn setup(
             ));
         }
     }
+
+    commands.spawn((
+        Mesh3d(assets.trophy.clone()),
+        MeshMaterial3d(assets.trophy_material.clone()),
+        Transform::from_xyz(0.0, 4.0, 4.0).with_scale(Vec3::splat(0.1)),
+        Name::new("Trophy"),
+        Mass(0.5),
+        RigidBody::Dynamic,
+        ColliderConstructor::Cuboid {
+            x_length: 2.5,
+            y_length: 4.0,
+            z_length: 2.5,
+        },
+    ));
 
     // Player-following camera
     let mut camera_entity = commands.spawn((
