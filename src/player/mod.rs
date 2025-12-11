@@ -25,6 +25,7 @@ impl Plugin for PlayerPlugin {
             (
                 controller_update_sensors,
                 update_controller_state,
+                pickup_stuff,
                 apply_controls,
                 animations_from_controller,
                 apply_animation_weights,

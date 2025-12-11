@@ -35,6 +35,12 @@ pub struct GameAssets {
     #[asset(path = "trophy.glb#Material0")]
     pub trophy_material: Handle<StandardMaterial>,
 
+    #[asset(path = "bong.glb#Mesh0/Primitive0")]
+    pub bong: Handle<Mesh>,
+
+    #[asset(path = "bong.glb#Material0")]
+    pub bong_material: Handle<StandardMaterial>,
+
     #[asset(path = "torch.glb#Scene0")]
     pub torch: Handle<Scene>,
 

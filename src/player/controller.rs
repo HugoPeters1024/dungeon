@@ -8,7 +8,7 @@ use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::GameAssets;
 
-use crate::game::PlayerCamera;
+use crate::game::{Pickupable, PlayerCamera};
 
 #[derive(Component, Default)]
 #[require(Transform, InheritedVisibility)]
@@ -53,14 +53,28 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         ControllerSensors::default(),
         ControllerState::Idle,
         LockedAxes::ROTATION_LOCKED,
+        CollidingEntities::default(),
     ));
+}
+
+pub fn pickup_stuff(
+    mut commands: Commands,
+    query: Query<&CollidingEntities, With<PlayerRoot>>,
+    pickups: Query<Entity, With<Pickupable>>,
+) {
+    for colliding_entities in &query {
+        for other in colliding_entities.iter() {
+            if let Ok(picked_up) = pickups.get(*other) {
+                commands.entity(picked_up).despawn();
+            }
+        }
+    }
 }
 
 pub fn put_in_hand(
     on: On<Add, Name>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    assets: Res<GameAssets>,
     names: Query<&Name>,
 ) {
     let Ok(name) = names.get(on.entity) else {
@@ -72,15 +86,13 @@ pub fn put_in_hand(
     }
 
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(1.0, 0.9, 0.9))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.1, 0.1),
-            perceptual_roughness: 1.0,
-            ..default()
-        })),
-        Transform::from_scale(Vec3::splat(30.0)).with_translation(Vec3::new(0.0, 40.0, 0.0)),
+        Mesh3d(assets.bong.clone()),
+        MeshMaterial3d(assets.bong_material.clone()),
+        Transform::from_scale(Vec3::splat(30.0))
+            .with_translation(Vec3::new(0.0, 40.0, 0.0))
+            .with_rotation(Quat::from_rotation_x(PI)),
         ChildOf(on.entity),
-        Name::new("Sword"),
+        Name::new("Bong"),
     ));
 }
 

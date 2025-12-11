@@ -9,7 +9,7 @@ use bevy::{math::Affine2, prelude::*};
 use bevy_hanabi::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use bevy_tnua::prelude::*;
+use bevy_tnua::{TnuaNotPlatform, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::*;
@@ -25,6 +25,9 @@ pub struct PlayerCamera {
     pub distance: f32,
     pub height: f32,
 }
+
+#[derive(Component)]
+pub struct Pickupable;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
@@ -108,7 +111,8 @@ fn setup(
                 .with_scale(Vec3::new(0.5, 0.25, 0.5)),
             Name::new("Stairs"),
             RigidBody::Static,
-            ColliderConstructor::TrimeshFromMesh,
+            //ColliderConstructor::TrimeshFromMesh,
+            ColliderConstructor::ConvexHullFromMesh,
         ));
     }
 
@@ -116,6 +120,7 @@ fn setup(
     for y in 0..=WIDTH {
         for x in 0..=y {
             commands.spawn((
+                Pickupable,
                 Mesh3d(assets.wineglass.clone()),
                 MeshMaterial3d(assets.wineglass_material.clone()),
                 Transform::from_xyz(
@@ -127,6 +132,7 @@ fn setup(
                 Name::new("Wineglass"),
                 Mass(0.2),
                 RigidBody::Dynamic,
+                TnuaNotPlatform,
                 ColliderConstructor::Cuboid {
                     x_length: 2.5,
                     y_length: 4.0,
@@ -143,6 +149,22 @@ fn setup(
         Name::new("Trophy"),
         Mass(0.5),
         RigidBody::Dynamic,
+        TnuaNotPlatform,
+        ColliderConstructor::Cuboid {
+            x_length: 2.5,
+            y_length: 4.0,
+            z_length: 2.5,
+        },
+    ));
+
+    commands.spawn((
+        Mesh3d(assets.bong.clone()),
+        MeshMaterial3d(assets.bong_material.clone()),
+        Transform::from_xyz(2.0, 4.0, 4.0).with_scale(Vec3::splat(0.3)),
+        Name::new("Trophy"),
+        Mass(0.5),
+        RigidBody::Dynamic,
+        TnuaNotPlatform,
         ColliderConstructor::Cuboid {
             x_length: 2.5,
             y_length: 4.0,
