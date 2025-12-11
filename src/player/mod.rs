@@ -33,5 +33,9 @@ impl Plugin for PlayerPlugin {
                 .chain()
                 .run_if(in_state(MyStates::Next)),
         );
+        app.add_systems(
+            Update,
+            cleanup_pickup_particles.run_if(in_state(MyStates::Next)),
+        );
     }
 }

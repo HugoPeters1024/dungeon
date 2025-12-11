@@ -7,12 +7,26 @@ use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::GameAssets;
+use bevy_hanabi::prelude::*;
 
 use crate::game::{Pickupable, PlayerCamera};
 
 #[derive(Component, Default)]
 #[require(Transform, InheritedVisibility)]
 pub struct PlayerRoot;
+
+#[derive(PhysicsLayer, Default)]
+enum GameLayer {
+    #[default]
+    Default,
+    Player,
+}
+
+fn ALL_EXCEPT_PLAYER() -> LayerMask {
+    let mut x = LayerMask::ALL;
+    x &= !GameLayer::Player.to_bits();
+    x
+}
 
 #[derive(Component, Default, Debug)]
 pub struct ControllerSensors {
@@ -31,6 +45,7 @@ pub enum ControllerState {
     Moving,
     Jumping(TnuaBuiltinJump),
     Falling,
+    DropKicking(Timer),
 }
 
 pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<GameAssets>) {
@@ -45,6 +60,7 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         InheritedVisibility::default(),
         RigidBody::Dynamic,
         Collider::cylinder(0.25, 1.25),
+        CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
         Mass(400.0),
         Friction::new(0.0),
         TnuaController::default(),
@@ -57,16 +73,50 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
     ));
 }
 
+#[derive(Component)]
+pub struct PickupParticleEffect {
+    pub spawn_time: f32,
+}
+
 pub fn pickup_stuff(
     mut commands: Commands,
-    query: Query<&CollidingEntities, With<PlayerRoot>>,
-    pickups: Query<Entity, With<Pickupable>>,
+    query: Query<(&CollidingEntities, &Transform), With<PlayerRoot>>,
+    pickups: Query<(Entity, &Transform), With<Pickupable>>,
+    assets: Res<GameAssets>,
+    time: Res<Time>,
 ) {
-    for colliding_entities in &query {
+    for (colliding_entities, _) in &query {
         for other in colliding_entities.iter() {
-            if let Ok(picked_up) = pickups.get(*other) {
+            if let Ok((picked_up, picked_up_transform)) = pickups.get(*other) {
+                // Spawn golden particle effect relative to player position
+                commands.spawn((
+                    ParticleEffect {
+                        handle: assets.golden_pickup.clone(),
+                        prng_seed: Some(time.elapsed().as_millis() as u32),
+                    },
+                    Transform::from_translation(picked_up_transform.translation),
+                    PickupParticleEffect {
+                        spawn_time: time.elapsed_secs(),
+                    },
+                ));
+
+                // Despawn the picked up item
                 commands.entity(picked_up).despawn();
             }
+        }
+    }
+}
+
+pub fn cleanup_pickup_particles(
+    mut commands: Commands,
+    query: Query<(Entity, &PickupParticleEffect)>,
+    time: Res<Time>,
+) {
+    const DURATION: f32 = 2.5; // Despawn after 2.5 seconds (longer for slow fade)
+
+    for (entity, effect) in query.iter() {
+        if time.elapsed_secs() - effect.spawn_time > DURATION {
+            commands.entity(entity).despawn();
         }
     }
 }
@@ -76,6 +126,7 @@ pub fn put_in_hand(
     mut commands: Commands,
     assets: Res<GameAssets>,
     names: Query<&Name>,
+    player: Single<Entity, With<PlayerRoot>>,
 ) {
     let Ok(name) = names.get(on.entity) else {
         return;
@@ -93,6 +144,9 @@ pub fn put_in_hand(
             .with_rotation(Quat::from_rotation_x(PI)),
         ChildOf(on.entity),
         Name::new("Bong"),
+        ColliderOf { body: *player },
+        Collider::cuboid(0.007, 0.007, 0.007),
+        CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
     ));
 }
 
@@ -155,6 +209,7 @@ pub fn controller_update_sensors(
 pub fn update_controller_state(
     mut q: Query<(&mut ControllerState, &ControllerSensors)>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
 ) {
     let jump_action = TnuaBuiltinJump {
         height: 2.5,
@@ -189,6 +244,10 @@ pub fn update_controller_state(
                 if keyboard.just_pressed(KeyCode::Space) {
                     *state = Jumping(jump_action.clone());
                 }
+
+                if keyboard.just_pressed(KeyCode::KeyO) {
+                    *state = DropKicking(Timer::from_seconds(2.0, TimerMode::Once));
+                }
             }
             Jumping(_) => {
                 match sensors.jump_state {
@@ -206,6 +265,12 @@ pub fn update_controller_state(
             }
             Falling => {
                 if sensors.standing_on_ground {
+                    *state = Idle;
+                }
+            }
+            DropKicking(timer) => {
+                timer.tick(time.delta());
+                if timer.is_finished() {
                     *state = Idle;
                 }
             }

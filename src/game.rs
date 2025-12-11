@@ -33,7 +33,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
         app.insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 9.0));
-        //        app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
+                app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
         app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
         app.add_plugins(EguiPlugin::default());
@@ -141,12 +141,30 @@ fn setup(
             ));
         }
     }
+    for x in 0..40 {
+        commands.spawn((
+            Pickupable,
+            Mesh3d(assets.wineglass.clone()),
+            MeshMaterial3d(assets.wineglass_material.clone()),
+            Transform::from_xyz(0.3 * x as f32, 1.32, -2.0).with_scale(Vec3::splat(0.1)),
+            Name::new("Wineglass"),
+            Mass(0.2),
+            RigidBody::Dynamic,
+            TnuaNotPlatform,
+            ColliderConstructor::Cuboid {
+                x_length: 2.5,
+                y_length: 4.0,
+                z_length: 2.5,
+            },
+        ));
+    }
 
     commands.spawn((
         Mesh3d(assets.trophy.clone()),
         MeshMaterial3d(assets.trophy_material.clone()),
         Transform::from_xyz(0.0, 4.0, 4.0).with_scale(Vec3::splat(0.1)),
         Name::new("Trophy"),
+        Pickupable,
         Mass(0.5),
         RigidBody::Dynamic,
         TnuaNotPlatform,
@@ -161,7 +179,8 @@ fn setup(
         Mesh3d(assets.bong.clone()),
         MeshMaterial3d(assets.bong_material.clone()),
         Transform::from_xyz(2.0, 4.0, 4.0).with_scale(Vec3::splat(0.3)),
-        Name::new("Trophy"),
+        Name::new("Bong"),
+        Pickupable,
         Mass(0.5),
         RigidBody::Dynamic,
         TnuaNotPlatform,

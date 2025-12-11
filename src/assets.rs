@@ -57,6 +57,7 @@ pub struct GameAssets {
             "player.glb#Animation5",
             "player.glb#Animation6",
             "player.glb#Animation7",
+            "player.glb#Animation8",
         ),
         collection(typed)
     )]
@@ -64,6 +65,7 @@ pub struct GameAssets {
 
     pub fire: Handle<EffectAsset>,
     pub void: Handle<EffectAsset>,
+    pub golden_pickup: Handle<EffectAsset>,
 }
 
 pub struct AssetPlugin;
@@ -87,6 +89,7 @@ fn prepare_assets(
 ) {
     assets.fire = create_fire_effect(&mut effects);
     assets.void = create_void_effect(&mut effects);
+    assets.golden_pickup = create_golden_pickup_effect(&mut effects);
 
     state.set(MyStates::Next);
 }
@@ -241,6 +244,86 @@ fn create_void_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<Effec
         .render(SizeOverLifetimeModifier {
             gradient: size_gradient,
             screen_space_size: false,
+        }),
+    )
+}
+
+/// Create a golden flakes/stars particle effect for item pickups
+fn create_golden_pickup_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<EffectAsset> {
+    // Golden color gradient: bright gold to yellow, fading out smoothly to 0 opacity
+    let mut color_gradient = bevy_hanabi::Gradient::new();
+    color_gradient.add_key(0.0, Vec4::new(1.0, 0.85, 0.0, 0.7)); // Bright gold - full opacity
+    color_gradient.add_key(0.2, Vec4::new(1.0, 0.9, 0.3, 0.6)); // Golden yellow - start fading
+    color_gradient.add_key(0.4, Vec4::new(1.0, 0.95, 0.5, 0.3)); // Light yellow - continue fading
+    color_gradient.add_key(0.6, Vec4::new(1.0, 0.97, 0.6, 0.2)); // Continue fading
+    color_gradient.add_key(0.8, Vec4::new(1.0, 0.98, 0.7, 0.1)); // Almost transparent
+    color_gradient.add_key(1.0, Vec4::new(1.0, 1.0, 0.9, 0.0)); // Fully transparent at end
+
+    // Size gradient: particles start small, grow slightly, then shrink
+    let mut size_gradient = bevy_hanabi::Gradient::new();
+    size_gradient.add_key(0.0, Vec3::splat(0.020)); // Small flakes (2x smaller)
+    size_gradient.add_key(0.2, Vec3::splat(0.025)); // Grow (2x smaller)
+    size_gradient.add_key(0.5, Vec3::splat(0.03)); // Peak size (2x smaller)
+    size_gradient.add_key(0.8, Vec3::splat(0.02)); // Shrink (2x smaller)
+    size_gradient.add_key(1.0, Vec3::splat(0.00)); // Very small at end (2x smaller)
+
+    let writer = ExprWriter::new();
+
+    // Initialize particles
+    let age = writer.lit(0.).expr();
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
+
+    // Longer lifetime for slow fade-out effect
+    let lifetime = writer.lit(1.0).uniform(writer.lit(2.0)).expr();
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    // Spawn particles in a sphere around the pickup location
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(0.2).mul(writer.rand(VectorType::VEC3F)).expr(),
+        radius: writer.lit(0.25).expr(),
+        dimension: ShapeDimension::Surface,
+    };
+
+    // Velocity: particles move mostly upward with slight horizontal spread
+    let random_x = writer.lit(-0.5).uniform(writer.lit(0.5)); // Small horizontal spread
+    let random_y = writer.lit(2.0).uniform(writer.lit(4.0)); // Strong upward movement
+    let random_z = writer.lit(-0.5).uniform(writer.lit(0.5)); // Small horizontal spread
+    let velocity = random_x.vec3(random_y, random_z);
+    let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, velocity.expr());
+
+    // Reduced gravity so particles move mostly upward
+    let accel = writer.lit(Vec3::new(0.0, -0.3, 0.0)).expr();
+    let update_accel = AccelModifier::new(accel);
+
+    // Drag to slow particles down
+    let drag = writer.lit(1.2).expr();
+    let update_drag = LinearDragModifier::new(drag);
+
+    effects.add(
+        EffectAsset::new(
+            512,                                // Smaller capacity for fewer particles
+            SpawnerSettings::once(20.0.into()), // Fewer particles (30)
+            writer.finish(),
+        )
+        .with_name("golden_pickup")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(update_accel) // Gravity
+        .update(update_drag) // Air resistance
+        .render(ColorOverLifetimeModifier {
+            gradient: color_gradient,
+            blend: ColorBlendMode::Modulate,
+            mask: ColorBlendMask::RGBA,
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient,
+            screen_space_size: false,
+        })
+        .render(OrientModifier {
+            mode: OrientMode::FaceCameraPosition,
+            rotation: None,
         }),
     )
 }
