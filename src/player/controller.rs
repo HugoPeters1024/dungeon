@@ -30,8 +30,8 @@ fn ALL_EXCEPT_PLAYER() -> LayerMask {
 
 #[derive(Component, Default, Debug)]
 pub struct ControllerSensors {
-    pub desired_velocity: Vec3,
     pub actual_velocity: Vec3,
+    pub running_velocity: Vec3,
     pub facing_direction: Vec3,
     pub standing_on_ground: bool,
     pub distance_to_ground: f32,
@@ -55,11 +55,8 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         Transform::from_xyz(0.0, 0.85, 0.0),
         InheritedVisibility::default(),
         RigidBody::Dynamic,
-        MassPropertiesBundle {
-            mass: Mass(400.0),
-            ..default()
-        },
-        Friction::new(0.0),
+        //Collider::cuboid(0.1, 0.1, 0.1),
+        Friction::new(0.1),
         TnuaController::default(),
         TnuaAvian3dSensorShape(Collider::cylinder(0.25, 0.1)),
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
@@ -134,18 +131,24 @@ pub fn cleanup_pickup_particles(
 
 pub fn put_in_hand(on: Query<(Entity, &Name), Added<Name>>, mut commands: Commands) {
     for (entity, name) in on.iter() {
-        if name.as_str() == "mixamorigRightHand" || name.as_str() == "mixamorigLeftHand" {
+        if name.as_str().contains("mixamo") {
+            warn!("{}", name.as_str());
+        }
+
+        if name.as_str() == "mixamorigLeftUpLeg" || name.as_str() == "mixamorigRightUpLeg" {
             commands.entity(entity).insert((
-                Collider::cuboid(21.0, 21.0, 21.0),
+                Collider::capsule(15.0, 40.0),
                 CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
                 CollidingEntities::default(),
             ));
         }
 
-        if name.as_str() == "mixamorigLeftFoot" || name.as_str() == "mixamorigRightFoot" {
-            commands.entity(entity).insert((
-                Collider::cuboid(11.0, 11.0, 11.0),
+        if name.as_str() == "mixamorigLeftLeg" || name.as_str() == "mixamorigRightLeg" {
+            commands.entity(entity).with_child((
+                Collider::capsule(13.0, 40.0),
                 CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
+                Transform::from_xyz(0.0, 15.0, 0.0),
+                CollidingEntities::default(),
             ));
         }
 
@@ -159,7 +162,7 @@ pub fn put_in_hand(on: Query<(Entity, &Name), Added<Name>>, mut commands: Comman
 
         if name.as_str() == "mixamorigHead" {
             commands.entity(entity).with_child((
-                Collider::cuboid(40.0, 40.0, 40.0),
+                Collider::cuboid(30.0, 30.0, 30.0),
                 CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
                 CollidingEntities::default(),
                 Transform::from_xyz(0.0, 15.0, 0.0)
@@ -188,9 +191,9 @@ pub fn controller_update_sensors(
 ) {
     for (entity, controller, hits, transform, velocity) in q.iter() {
         let distance_to_ground = hits.iter_sorted().next().map_or(0.0, |h| h.distance);
-        let mut desired_velocity = Vec3::ZERO;
         let actual_velocity = velocity.0;
         let facing_direction = transform.rotation * Vec3::Z;
+        let mut running_velocity = Vec3::default();
         let mut standing_on_ground = false;
         let mut jump_state = None;
 
@@ -213,19 +216,19 @@ pub fn controller_update_sensors(
                 // basis.
                 if let Some((_, basis_state)) = controller.concrete_basis::<TnuaBuiltinWalk>() {
                     standing_on_ground = basis_state.standing_on_entity().is_some();
-                    desired_velocity = basis_state.running_velocity;
+                    running_velocity = basis_state.running_velocity;
                 }
             }
         };
 
         // Construct the struct at the end - this will error if any field is missing
         let snapshot = ControllerSensors {
-            desired_velocity,
             actual_velocity,
             facing_direction,
             standing_on_ground,
             distance_to_ground,
             jump_state,
+            running_velocity
         };
 
         commands.entity(entity).insert(snapshot);
@@ -239,6 +242,7 @@ pub fn update_controller_state(
 ) {
     let jump_action = TnuaBuiltinJump {
         height: 4.5,
+        fall_extra_gravity: 8.5,
         ..default()
     };
 
@@ -249,7 +253,7 @@ pub fn update_controller_state(
                 if !sensors.standing_on_ground {
                     *state = Falling;
                 }
-                if sensors.actual_velocity.length() < 0.1 {
+                if sensors.running_velocity.length() < 0.1 {
                     *state = Idle;
                 }
 
@@ -344,7 +348,7 @@ pub fn apply_controls(
         desired_velocity: direction,
         // The `float_height` must be greater (even if by little) from the distance between the
         // character's center and the lowest point of its collider.
-        float_height: 0.76,
+        float_height: 0.80,
         max_slope: PI / 3.0,
         acceleration: 30.0,
         spring_strength: 2700.0,

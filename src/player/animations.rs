@@ -112,15 +112,15 @@ pub fn animations_from_controller(
             }
             Moving => {
                 let forward = sensors
-                    .actual_velocity
+                    .running_velocity
                     .dot(sensors.facing_direction)
                     .max(0.0);
                 let left = sensors
-                    .actual_velocity
+                    .running_velocity
                     .dot(sensors.facing_direction.cross(Vec3::NEG_Y))
                     .max(0.0);
                 let right = sensors
-                    .actual_velocity
+                    .running_velocity
                     .dot(sensors.facing_direction.cross(Vec3::Y))
                     .max(0.0);
 

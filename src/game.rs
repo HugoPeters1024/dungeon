@@ -13,6 +13,7 @@ use bevy_tnua::{TnuaNotPlatform, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::*;
+use crate::platform::PlatformPath;
 use crate::player::controller::PlayerRoot;
 use crate::spawners::*;
 
@@ -45,6 +46,7 @@ impl Plugin for GamePlugin {
         app.add_plugins(crate::assets::AssetPlugin);
         app.add_plugins(crate::spawners::SpawnPlugin);
         app.add_plugins(crate::player::PlayerPlugin);
+        app.add_plugins(crate::platform::PlatformPlugin);
         app.insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0))); // Very dark black background
         app.add_systems(OnEnter(MyStates::Next), setup);
         app.add_systems(
@@ -97,6 +99,24 @@ fn setup(
         })),
         RigidBody::Static,
         Collider::cuboid(12.0, 0.1, 12.0),
+    ));
+
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(2.0, 0.5, 2.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color_texture: Some(assets.mossy_stones.clone()),
+            uv_transform: Affine2::from_scale(Vec2::new(3.0, 3.0)),
+            perceptual_roughness: 1.0,
+            ..default()
+        })),
+        RigidBody::Kinematic,
+        Collider::cuboid(2.0, 0.5, 2.0),
+        Name::new("Platform"),
+        Transform::from_xyz(0.0, 1.0, 10.0),
+        PlatformPath {
+            path: vec![Vec3::new(0.0, 1.0, 1.0), Vec3::new(0.0, 1.0, 10.0), Vec3::new(0.0, 10.0, 5.0)],
+            speed: 1.0,
+        }
     ));
 
     for i in 0..10 {
