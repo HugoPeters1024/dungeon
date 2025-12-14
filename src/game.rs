@@ -33,7 +33,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
         app.insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 9.0));
-                app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
+        app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
         app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
         app.add_plugins(EguiPlugin::default());
@@ -131,6 +131,7 @@ fn setup(
                 .with_scale(Vec3::splat(0.1)),
                 Name::new("Wineglass"),
                 Mass(0.2),
+                CenterOfMass(Vec3::new(0.0, 0.25, 0.0)),
                 RigidBody::Dynamic,
                 TnuaNotPlatform,
                 ColliderConstructor::Cuboid {

@@ -2,7 +2,7 @@ use std::ops::DerefMut;
 
 use avian3d::math::PI;
 use avian3d::prelude::*;
-use bevy::prelude::*;
+use bevy::{platform::collections::HashSet, prelude::*};
 use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
@@ -50,26 +50,26 @@ pub enum ControllerState {
 
 pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<GameAssets>) {
     commands.entity(on.event_target()).insert((
-        children![(
-            SceneRoot(assets.player.clone()),
-            Transform::from_scale(Vec3::splat(0.008)),
-        )],
         // Spawn at appropriate height: ground is at Y=0.05 (top of 0.1 thick floor)
         // Capsule bottom should be at ground level, so center at 0.05 + 0.8 = 0.85
         Transform::from_xyz(0.0, 0.85, 0.0),
         InheritedVisibility::default(),
         RigidBody::Dynamic,
-        Collider::cylinder(0.25, 1.25),
-        CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
-        Mass(400.0),
+        MassPropertiesBundle {
+            mass: Mass(400.0),
+            ..default()
+        },
         Friction::new(0.0),
         TnuaController::default(),
-        TnuaAvian3dSensorShape(Collider::cylinder(0.24, 0.1)),
+        TnuaAvian3dSensorShape(Collider::cylinder(0.25, 0.1)),
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
         ControllerSensors::default(),
         ControllerState::Idle,
         LockedAxes::ROTATION_LOCKED,
-        CollidingEntities::default(),
+        children![(
+            SceneRoot(assets.player.clone()),
+            Transform::from_scale(Vec3::splat(0.008)),
+        )],
     ));
 }
 
@@ -80,28 +80,39 @@ pub struct PickupParticleEffect {
 
 pub fn pickup_stuff(
     mut commands: Commands,
-    query: Query<(&CollidingEntities, &Transform), With<PlayerRoot>>,
+    players: Query<Entity, With<PlayerRoot>>,
+    children: Query<&Children>,
+    colliders: Query<(&CollidingEntities, &Transform)>,
     pickups: Query<(Entity, &Transform), With<Pickupable>>,
     assets: Res<GameAssets>,
     time: Res<Time>,
 ) {
-    for (colliding_entities, _) in &query {
-        for other in colliding_entities.iter() {
-            if let Ok((picked_up, picked_up_transform)) = pickups.get(*other) {
-                // Spawn golden particle effect relative to player position
-                commands.spawn((
-                    ParticleEffect {
-                        handle: assets.golden_pickup.clone(),
-                        prng_seed: Some(time.elapsed().as_millis() as u32),
-                    },
-                    Transform::from_translation(picked_up_transform.translation),
-                    PickupParticleEffect {
-                        spawn_time: time.elapsed_secs(),
-                    },
-                ));
+    for player in players.iter() {
+        let mut seen: HashSet<Entity> = HashSet::new();
+        for (colliding_entities, _) in children
+            .iter_descendants(player)
+            .filter_map(|e| colliders.get(e).ok())
+        {
+            for other in colliding_entities.iter() {
+                if let Ok((picked_up, picked_up_transform)) = pickups.get(*other) {
+                    // Spawn golden particle effect relative to player position
+                    commands.spawn((
+                        ParticleEffect {
+                            handle: assets.golden_pickup.clone(),
+                            prng_seed: Some(time.elapsed().as_micros() as u32),
+                        },
+                        Transform::from_translation(picked_up_transform.translation),
+                        PickupParticleEffect {
+                            spawn_time: time.elapsed_secs(),
+                        },
+                    ));
 
-                // Despawn the picked up item
-                commands.entity(picked_up).despawn();
+                    // Despawn the picked up item
+                    if !seen.contains(&picked_up) {
+                        commands.entity(picked_up).despawn();
+                        seen.insert(picked_up);
+                    }
+                }
             }
         }
     }
@@ -121,33 +132,48 @@ pub fn cleanup_pickup_particles(
     }
 }
 
-pub fn put_in_hand(
-    on: On<Add, Name>,
-    mut commands: Commands,
-    assets: Res<GameAssets>,
-    names: Query<&Name>,
-    player: Single<Entity, With<PlayerRoot>>,
-) {
-    let Ok(name) = names.get(on.entity) else {
-        return;
-    };
+pub fn put_in_hand(on: Query<(Entity, &Name), Added<Name>>, mut commands: Commands) {
+    for (entity, name) in on.iter() {
+        if name.as_str() == "mixamorigRightHand" || name.as_str() == "mixamorigLeftHand" {
+            commands.entity(entity).insert((
+                Collider::cuboid(21.0, 21.0, 21.0),
+                CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
+                CollidingEntities::default(),
+            ));
+        }
 
-    if name.as_str() != "mixamorigRightHand" {
-        return;
+        if name.as_str() == "mixamorigLeftFoot" || name.as_str() == "mixamorigRightFoot" {
+            commands.entity(entity).insert((
+                Collider::cuboid(11.0, 11.0, 11.0),
+                CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
+            ));
+        }
+
+        if name.as_str() == "mixamorigHips" {
+            commands.entity(entity).insert((
+                Collider::cylinder(30.25, 30.25),
+                CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
+                CollidingEntities::default(),
+            ));
+        }
+
+        if name.as_str() == "mixamorigHead" {
+            commands.entity(entity).with_child((
+                Collider::cuboid(40.0, 40.0, 40.0),
+                CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
+                CollidingEntities::default(),
+                Transform::from_xyz(0.0, 15.0, 0.0)
+            ));
+        }
+
+        if name.as_str() == "mixamorigSpine"  {
+            commands.entity(entity).insert((
+                Collider::cylinder(30.25, 50.25),
+                CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
+                CollidingEntities::default(),
+            ));
+        }
     }
-
-    commands.spawn((
-        Mesh3d(assets.bong.clone()),
-        MeshMaterial3d(assets.bong_material.clone()),
-        Transform::from_scale(Vec3::splat(30.0))
-            .with_translation(Vec3::new(0.0, 40.0, 0.0))
-            .with_rotation(Quat::from_rotation_x(PI)),
-        ChildOf(on.entity),
-        Name::new("Bong"),
-        ColliderOf { body: *player },
-        Collider::cuboid(0.007, 0.007, 0.007),
-        CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
-    ));
 }
 
 pub fn controller_update_sensors(
@@ -212,8 +238,7 @@ pub fn update_controller_state(
     time: Res<Time>,
 ) {
     let jump_action = TnuaBuiltinJump {
-        height: 2.5,
-        fall_extra_gravity: 10.5,
+        height: 4.5,
         ..default()
     };
 
