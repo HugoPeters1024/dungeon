@@ -2,7 +2,10 @@ use std::ops::DerefMut;
 
 use avian3d::math::PI;
 use avian3d::prelude::*;
-use bevy::{platform::collections::HashSet, prelude::*};
+use bevy::{
+    platform::collections::{HashMap, HashSet},
+    prelude::*,
+};
 use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
@@ -58,7 +61,7 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         //Collider::cuboid(0.1, 0.1, 0.1),
         Friction::new(0.1),
         TnuaController::default(),
-        TnuaAvian3dSensorShape(Collider::cylinder(0.25, 0.1)),
+        TnuaAvian3dSensorShape(Collider::cylinder(0.20, 0.1)),
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
         ControllerSensors::default(),
         ControllerState::Idle,
@@ -129,49 +132,65 @@ pub fn cleanup_pickup_particles(
     }
 }
 
-pub fn put_in_hand(on: Query<(Entity, &Name), Added<Name>>, mut commands: Commands) {
+pub fn add_mixamo_colliders(on: Query<(Entity, &Name), Added<Name>>, mut commands: Commands) {
+    let index: HashMap<&str, (Collider, Transform)> = HashMap::from_iter([
+        (
+            "mixamorigLeftUpLeg",
+            (
+                Collider::capsule(15.0, 30.0),
+                Transform::from_xyz(0.0, 15.0, 0.0),
+            ),
+        ),
+        (
+            "mixamorigRightUpLeg",
+            (
+                Collider::capsule(15.0, 30.0),
+                Transform::from_xyz(0.0, 15.0, 0.0),
+            ),
+        ),
+        (
+            "mixamorigLeftLeg",
+            (
+                Collider::capsule(13.0, 30.0),
+                Transform::from_xyz(0.0, 15.0, 0.0),
+            ),
+        ),
+        (
+            "mixamorigRightLeg",
+            (
+                Collider::capsule(13.0, 30.0),
+                Transform::from_xyz(0.0, 15.0, 0.0),
+            ),
+        ),
+        (
+            "mixamorigHips",
+            (Collider::cylinder(30.25, 30.25), Transform::default()),
+        ),
+        (
+            "mixamorigHead",
+            (
+                Collider::cuboid(30.0, 30.0, 30.0),
+                Transform::from_xyz(0.0, 15.0, 0.0),
+            ),
+        ),
+        (
+            "mixamorigSpine",
+            (
+                Collider::cylinder(30.25, 50.25),
+                Transform::default(),
+            ),
+        ),
+    ]);
+
     for (entity, name) in on.iter() {
         if name.as_str().contains("mixamo") {
             warn!("{}", name.as_str());
         }
 
-        if name.as_str() == "mixamorigLeftUpLeg" || name.as_str() == "mixamorigRightUpLeg" {
-            commands.entity(entity).insert((
-                Collider::capsule(15.0, 40.0),
-                CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
-                CollidingEntities::default(),
-            ));
-        }
-
-        if name.as_str() == "mixamorigLeftLeg" || name.as_str() == "mixamorigRightLeg" {
+        if let Some(collider) = index.get(name.as_str()) {
+            dbg!(name.as_str());
             commands.entity(entity).with_child((
-                Collider::capsule(13.0, 40.0),
-                CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
-                Transform::from_xyz(0.0, 15.0, 0.0),
-                CollidingEntities::default(),
-            ));
-        }
-
-        if name.as_str() == "mixamorigHips" {
-            commands.entity(entity).insert((
-                Collider::cylinder(30.25, 30.25),
-                CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
-                CollidingEntities::default(),
-            ));
-        }
-
-        if name.as_str() == "mixamorigHead" {
-            commands.entity(entity).with_child((
-                Collider::cuboid(30.0, 30.0, 30.0),
-                CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
-                CollidingEntities::default(),
-                Transform::from_xyz(0.0, 15.0, 0.0)
-            ));
-        }
-
-        if name.as_str() == "mixamorigSpine"  {
-            commands.entity(entity).insert((
-                Collider::cylinder(30.25, 50.25),
+                collider.clone(),
                 CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
                 CollidingEntities::default(),
             ));
@@ -228,7 +247,7 @@ pub fn controller_update_sensors(
             standing_on_ground,
             distance_to_ground,
             jump_state,
-            running_velocity
+            running_velocity,
         };
 
         commands.entity(entity).insert(snapshot);
