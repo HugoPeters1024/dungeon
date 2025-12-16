@@ -114,9 +114,13 @@ fn setup(
         Name::new("Platform"),
         Transform::from_xyz(0.0, 1.0, 10.0),
         PlatformPath {
-            path: vec![Vec3::new(0.0, 1.0, 1.0), Vec3::new(0.0, 1.0, 10.0), Vec3::new(0.0, 10.0, 5.0)],
+            path: vec![
+                Vec3::new(0.0, 1.0, 1.0),
+                Vec3::new(0.0, 1.0, 10.0),
+                Vec3::new(0.0, 10.0, 5.0),
+            ],
             speed: 1.0,
-        }
+        },
     ));
 
     for i in 0..10 {
@@ -260,7 +264,7 @@ fn handle_mouse_look(
     }
 
     // Lock cursor for better camera control
-    if mouse.just_pressed(MouseButton::Left) {
+    if mouse.just_pressed(MouseButton::Left) && !keyboard.pressed(KeyCode::ControlRight) {
         cursor_options.grab_mode = bevy::window::CursorGrabMode::Locked;
         cursor_options.visible = false;
     }

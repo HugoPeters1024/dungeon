@@ -17,13 +17,14 @@ impl Plugin for PlayerPlugin {
         app.add_observer(on_animation_player_loaded);
         app.add_systems(
             Update,
-            (rotate_character_to_camera, add_mixamo_colliders).run_if(in_state(MyStates::Next)),
+            (rotate_character_to_movement, add_mixamo_colliders).run_if(in_state(MyStates::Next)),
         );
         app.add_systems(PostUpdate, pickup_stuff.run_if(in_state(MyStates::Next)));
         app.add_systems(
             Update,
             (
                 controller_update_sensors,
+                debug_foot_raycaster,
                 update_controller_state,
                 pickup_stuff,
                 apply_controls,

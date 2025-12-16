@@ -2,17 +2,14 @@ use std::ops::DerefMut;
 
 use avian3d::math::PI;
 use avian3d::prelude::*;
-use bevy::{
-    platform::collections::{HashMap, HashSet},
-    prelude::*,
-};
+use bevy::{platform::collections::HashSet, prelude::*};
 use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::GameAssets;
 use bevy_hanabi::prelude::*;
 
-use crate::game::{Pickupable, PlayerCamera};
+use crate::game::Pickupable;
 
 #[derive(Component, Default)]
 #[require(Transform, InheritedVisibility)]
@@ -25,7 +22,7 @@ enum GameLayer {
     Player,
 }
 
-fn ALL_EXCEPT_PLAYER() -> LayerMask {
+fn all_except_player() -> LayerMask {
     let mut x = LayerMask::ALL;
     x &= !GameLayer::Player.to_bits();
     x
@@ -48,8 +45,11 @@ pub enum ControllerState {
     Moving,
     Jumping(TnuaBuiltinJump),
     Falling,
-    DropKicking(Timer),
+    DropKicking(Timer, Timer),
 }
+
+#[derive(Component)]
+pub struct FootRayCaster;
 
 pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<GameAssets>) {
     commands.entity(on.event_target()).insert((
@@ -133,68 +133,48 @@ pub fn cleanup_pickup_particles(
 }
 
 pub fn add_mixamo_colliders(on: Query<(Entity, &Name), Added<Name>>, mut commands: Commands) {
-    let index: HashMap<&str, (Collider, Transform)> = HashMap::from_iter([
-        (
-            "mixamorigLeftUpLeg",
-            (
-                Collider::capsule(15.0, 30.0),
-                Transform::from_xyz(0.0, 15.0, 0.0),
-            ),
-        ),
-        (
-            "mixamorigRightUpLeg",
-            (
-                Collider::capsule(15.0, 30.0),
-                Transform::from_xyz(0.0, 15.0, 0.0),
-            ),
-        ),
-        (
-            "mixamorigLeftLeg",
-            (
-                Collider::capsule(13.0, 30.0),
-                Transform::from_xyz(0.0, 15.0, 0.0),
-            ),
-        ),
-        (
-            "mixamorigRightLeg",
-            (
-                Collider::capsule(13.0, 30.0),
-                Transform::from_xyz(0.0, 15.0, 0.0),
-            ),
-        ),
-        (
-            "mixamorigHips",
-            (Collider::cylinder(30.25, 30.25), Transform::default()),
-        ),
-        (
-            "mixamorigHead",
-            (
-                Collider::cuboid(30.0, 30.0, 30.0),
-                Transform::from_xyz(0.0, 15.0, 0.0),
-            ),
-        ),
-        (
-            "mixamorigSpine",
-            (
-                Collider::cylinder(30.25, 50.25),
-                Transform::default(),
-            ),
-        ),
-    ]);
+    #[rustfmt::skip]
+    let index = |name: &str| -> Option<(Collider, Transform)> {
+        match name {
+            "mixamorigLeftUpLeg" | "mixamorigRightUpLeg" => Some((Collider::capsule(15.0, 30.0), Transform::from_xyz(0.0, 15.0, 0.0))),
+            "mixamorigLeftLeg" | "mixamorigRightLeg" => Some((Collider::capsule(13.0, 30.0), Transform::from_xyz(0.0, 15.0, 0.0))),
+            "mixamorigHips" => Some((Collider::cylinder(27.25, 30.25), Transform::default())),
+            "mixamorigHead" => Some((Collider::sphere(20.0), Transform::from_xyz(0.0, 15.0, 0.0))),
+            "mixamorigSpine" => Some((Collider::cylinder(24.25, 50.25), Transform::default())),
+            "mixamorigLeftArm" | "mixamorigRightArm" => Some((Collider::capsule(13.0, 30.0), Transform::from_xyz(0.0, 10.0, 0.0))),
+            "mixamorigLeftForeArm" | "mixamorigRightForeArm" => Some((Collider::capsule(13.0, 30.0), Transform::from_xyz(0.0, 10.0, 0.0))),
+            _ => None,
+        }
+    };
 
     for (entity, name) in on.iter() {
         if name.as_str().contains("mixamo") {
             warn!("{}", name.as_str());
         }
 
-        if let Some(collider) = index.get(name.as_str()) {
-            dbg!(name.as_str());
+        if let Some(collider) = index(name.as_str()) {
             commands.entity(entity).with_child((
                 collider.clone(),
-                CollisionLayers::new(GameLayer::Player, ALL_EXCEPT_PLAYER()),
+                CollisionLayers::new(GameLayer::Player, all_except_player()),
                 CollidingEntities::default(),
             ));
         }
+
+        if name.as_str() == "mixamorigLeftFoot" {
+            commands.entity(entity).with_child((
+                RayCaster::new(Vec3::new(0.0, 0.0, 0.0), Dir3::Y)
+                    .with_max_distance(0.4)
+                    .with_query_filter(SpatialQueryFilter::from_mask(all_except_player())),
+                FootRayCaster,
+            ));
+        }
+    }
+}
+
+pub fn debug_foot_raycaster(q: Query<&RayHits, With<FootRayCaster>>) {
+    for hits in q.iter() {
+        let distance_to_ground = hits.iter_sorted().next().map_or(-1.0, |h| h.distance);
+        dbg!(distance_to_ground);
     }
 }
 
@@ -233,12 +213,13 @@ pub fn controller_update_sensors(
             None => {
                 // If there is no action going on, we'll base the animation on the state of the
                 // basis.
-                if let Some((_, basis_state)) = controller.concrete_basis::<TnuaBuiltinWalk>() {
-                    standing_on_ground = basis_state.standing_on_entity().is_some();
-                    running_velocity = basis_state.running_velocity;
-                }
             }
         };
+
+        if let Some((_, basis_state)) = controller.concrete_basis::<TnuaBuiltinWalk>() {
+            standing_on_ground = basis_state.standing_on_entity().is_some();
+            running_velocity = basis_state.running_velocity;
+        }
 
         // Construct the struct at the end - this will error if any field is missing
         let snapshot = ControllerSensors {
@@ -255,17 +236,18 @@ pub fn controller_update_sensors(
 }
 
 pub fn update_controller_state(
-    mut q: Query<(&mut ControllerState, &ControllerSensors)>,
+    mut q: Query<(&mut ControllerState, &ControllerSensors, Forces)>,
+    caster_and_hit: Single<(&RayCaster, &RayHits), With<FootRayCaster>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
 ) {
     let jump_action = TnuaBuiltinJump {
-        height: 4.5,
+        height: 2.5,
         fall_extra_gravity: 8.5,
         ..default()
     };
 
-    for (mut state, sensors) in q.iter_mut() {
+    for (mut state, sensors, mut forces) in q.iter_mut() {
         use ControllerState::*;
         match state.deref_mut() {
             Moving => {
@@ -278,6 +260,13 @@ pub fn update_controller_state(
 
                 if keyboard.just_pressed(KeyCode::Space) {
                     *state = Jumping(jump_action.clone());
+                }
+
+                if keyboard.just_pressed(KeyCode::KeyO) {
+                    *state = DropKicking(
+                        Timer::from_seconds(1.2, TimerMode::Once),
+                        Timer::from_seconds(2.0, TimerMode::Once),
+                    );
                 }
             }
             Idle => {
@@ -294,7 +283,10 @@ pub fn update_controller_state(
                 }
 
                 if keyboard.just_pressed(KeyCode::KeyO) {
-                    *state = DropKicking(Timer::from_seconds(2.0, TimerMode::Once));
+                    *state = DropKicking(
+                        Timer::from_seconds(1.2, TimerMode::Once),
+                        Timer::from_seconds(2.0, TimerMode::Once),
+                    );
                 }
             }
             Jumping(_) => {
@@ -316,9 +308,19 @@ pub fn update_controller_state(
                     *state = Idle;
                 }
             }
-            DropKicking(timer) => {
-                timer.tick(time.delta());
-                if timer.is_finished() {
+            DropKicking(time_to_force, time_to_complete) => {
+                time_to_force.tick(time.delta());
+                time_to_complete.tick(time.delta());
+
+                dbg!(time_to_force.remaining());
+                if time_to_force.just_finished() {
+                    if !caster_and_hit.1.is_empty() {
+                        dbg!(-caster_and_hit.0.global_direction());
+                        forces.apply_force(200.0 * -caster_and_hit.0.global_direction().as_vec3());
+                    }
+                }
+
+                if time_to_complete.is_finished() {
                     *state = Idle;
                 }
             }
@@ -328,35 +330,37 @@ pub fn update_controller_state(
 
 pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut controller_query: Query<(&mut TnuaController, &ControllerState, &Transform)>,
+    mut controller_query: Query<(&mut TnuaController, &ControllerState)>,
+    camera: Single<&Transform, With<Camera>>,
 ) {
-    let Ok((mut controller, state, transform)) = controller_query.single_mut() else {
+    let Ok((mut controller, state)) = controller_query.single_mut() else {
         return;
     };
 
-    let forward = transform.rotation * Vec3::Z;
-    let sideways = transform.rotation * Vec3::X;
-    const FORWARD_SPEED: f32 = 2.0;
-    const SIDEWAYS_SPEED: f32 = 2.0;
+    let forward = (camera.rotation * Vec3::NEG_Z).xz().normalize_or_zero();
+    let forward = Vec3::new(forward.x, 0.0, forward.y);
+    let sideways = (camera.rotation * Vec3::NEG_X).xz().normalize_or_zero();
+    let sideways = Vec3::new(sideways.x, 0.0, sideways.y);
+    const SPEED: f32 = 1.7;
 
     let sprint_factor = if keyboard.pressed(KeyCode::ShiftLeft) {
-        1.8
+        1.6
     } else {
         1.0
     };
 
     let mut direction = Vec3::ZERO;
     if keyboard.pressed(KeyCode::KeyW) {
-        direction += forward * FORWARD_SPEED * sprint_factor;
+        direction += forward;
     }
     if keyboard.pressed(KeyCode::KeyS) {
-        direction -= forward * FORWARD_SPEED;
+        direction -= forward;
     }
     if keyboard.pressed(KeyCode::KeyA) {
-        direction += sideways * SIDEWAYS_SPEED;
+        direction += sideways;
     }
     if keyboard.pressed(KeyCode::KeyD) {
-        direction -= sideways * SIDEWAYS_SPEED;
+        direction -= sideways;
     }
 
     // Feed the basis every frame. Even if the player doesn't move - just use `desired_velocity:
@@ -364,10 +368,10 @@ pub fn apply_controls(
     // just fall.
     controller.basis(TnuaBuiltinWalk {
         // The `desired_velocity` determines how the character will move.
-        desired_velocity: direction,
+        desired_velocity: direction.normalize_or_zero() * SPEED * sprint_factor,
         // The `float_height` must be greater (even if by little) from the distance between the
         // character's center and the lowest point of its collider.
-        float_height: 0.80,
+        float_height: 0.85,
         max_slope: PI / 3.0,
         acceleration: 30.0,
         spring_strength: 2700.0,
@@ -382,28 +386,24 @@ pub fn apply_controls(
 }
 
 /// Rotates the character to always face away from the camera (like Elden Ring)
-pub fn rotate_character_to_camera(
-    mut query: Query<&mut Transform, With<TnuaController>>,
-    camera_query: Query<&PlayerCamera>,
+pub fn rotate_character_to_movement(
+    mut query: Query<(&mut Transform, &mut ControllerSensors), With<TnuaController>>,
     time: Res<Time>,
 ) {
-    let Ok(mut transform) = query.single_mut() else {
-        return;
-    };
+    for (mut transform, sensors) in query.iter_mut() {
+        if sensors.running_velocity.length() > 0.1 {
+            let target_rotation = Quat::from_rotation_y(
+                PI - sensors
+                    .running_velocity
+                    .x
+                    .atan2(-sensors.running_velocity.z),
+            );
 
-    let Ok(camera) = camera_query.single() else {
-        return;
-    };
-
-    // Character should face away from camera (opposite direction)
-    // Camera yaw is the direction camera is looking, so character faces camera_yaw + PI
-    let target_yaw = camera.yaw + std::f32::consts::PI;
-
-    let target_rotation = Quat::from_rotation_y(target_yaw);
-
-    // Smoothly rotate character to match target
-    const ROTATION_SPEED: f32 = 4.0; // radians per second
-    transform.rotation = transform
-        .rotation
-        .slerp(target_rotation, ROTATION_SPEED * time.delta_secs());
+            // Smoothly rotate character to match target
+            const ROTATION_SPEED: f32 = 4.0; // radians per second
+            transform.rotation = transform
+                .rotation
+                .slerp(target_rotation, ROTATION_SPEED * time.delta_secs());
+        }
+    }
 }

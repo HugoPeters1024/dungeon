@@ -149,7 +149,7 @@ pub fn animations_from_controller(
                     player
                         .start(clips.landing)
                         .set_seek_time(0.0)
-                        .set_speed(0.6);
+                        .set_speed(0.3);
                 }
                 *weights = AnimationWeights {
                     landing: 1.0,
@@ -157,7 +157,7 @@ pub fn animations_from_controller(
                 }
             }
 
-            DropKicking(_) => {
+            DropKicking(..) => {
                 if state_transioned {
                     player
                         .start(clips.drop_kick)
