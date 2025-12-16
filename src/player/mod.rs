@@ -24,7 +24,6 @@ impl Plugin for PlayerPlugin {
             Update,
             (
                 controller_update_sensors,
-                debug_foot_raycaster,
                 update_controller_state,
                 pickup_stuff,
                 apply_controls,

@@ -20,6 +20,14 @@ pub struct GameAssets {
     #[asset(image(sampler(filter = linear, wrap = repeat)))]
     pub mossy_stones: Handle<Image>,
 
+    #[asset(path = "outside_grass.jpg")]
+    #[asset(image(sampler(filter = linear, wrap = repeat)))]
+    pub outside_grass: Handle<Image>,
+
+    #[asset(path = "lava.jpg")]
+    #[asset(image(sampler(filter = linear, wrap = repeat)))]
+    pub lava: Handle<Image>,
+
     #[asset(path = "stairs.glb#Mesh0/Primitive0")]
     pub stairs: Handle<Mesh>,
 

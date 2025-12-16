@@ -171,13 +171,6 @@ pub fn add_mixamo_colliders(on: Query<(Entity, &Name), Added<Name>>, mut command
     }
 }
 
-pub fn debug_foot_raycaster(q: Query<&RayHits, With<FootRayCaster>>) {
-    for hits in q.iter() {
-        let distance_to_ground = hits.iter_sorted().next().map_or(-1.0, |h| h.distance);
-        dbg!(distance_to_ground);
-    }
-}
-
 pub fn controller_update_sensors(
     mut commands: Commands,
     q: Query<(
@@ -313,11 +306,9 @@ pub fn update_controller_state(
                 time_to_complete.tick(time.delta());
 
                 dbg!(time_to_force.remaining());
-                if time_to_force.just_finished() {
-                    if !caster_and_hit.1.is_empty() {
-                        dbg!(-caster_and_hit.0.global_direction());
-                        forces.apply_force(200.0 * -caster_and_hit.0.global_direction().as_vec3());
-                    }
+                if time_to_force.just_finished() && !caster_and_hit.1.is_empty() {
+                    dbg!(-caster_and_hit.0.global_direction());
+                    forces.apply_force(200.0 * -caster_and_hit.0.global_direction().as_vec3());
                 }
 
                 if time_to_complete.is_finished() {

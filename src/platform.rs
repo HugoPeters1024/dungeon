@@ -40,5 +40,6 @@ fn progress_path(
             idx.0 += 1;
         }
         linvel.0 = towards.normalize_or_zero() * Vec3::splat(path.speed);
+        linvel.0 = linvel.0.min(towards + Vec3::splat(1.0));
     }
 }

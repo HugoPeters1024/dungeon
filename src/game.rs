@@ -5,12 +5,13 @@ use bevy::light::CascadeShadowConfigBuilder;
 use bevy::post_process::bloom::Bloom;
 use bevy::post_process::motion_blur::MotionBlur;
 use bevy::window::CursorOptions;
-use bevy::{math::Affine2, prelude::*};
+use bevy::{math::Affine2, mesh::Indices, prelude::*};
 use bevy_hanabi::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_tnua::{TnuaNotPlatform, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
+use noise::{NoiseFn, Perlin};
 
 use crate::assets::*;
 use crate::platform::PlatformPath;
@@ -34,7 +35,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
         app.insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 9.0));
-        app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
+        //app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
         app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
         app.add_plugins(EguiPlugin::default());
@@ -54,6 +55,73 @@ impl Plugin for GamePlugin {
             (handle_mouse_look, update_camera_position).run_if(in_state(MyStates::Next)),
         );
     }
+}
+
+/// Generate a heightfield mesh and height data using Perlin noise
+/// Returns (mesh, heights) where heights is a 2D array for the collider
+fn generate_heightfield_mesh(size: f32, resolution: usize) -> (Mesh, Vec<Vec<f32>>) {
+    let perlin = Perlin::new(42); // Seed for reproducibility
+    let scale = 0.1; // Noise scale factor
+    let height_scale = 1.0; // Height multiplier
+
+    let mut positions = Vec::new();
+    let mut uvs = Vec::new();
+    let mut indices = Vec::new();
+    let mut heights = Vec::new(); // Store heights for collider
+
+    // Generate vertices and heights in x-outer, z-inner order to match heightfield collider
+    for x in 0..=resolution {
+        let mut height_column = Vec::new();
+        for z in 0..=resolution {
+            let x_pos = (x as f32 / resolution as f32 - 0.5) * size;
+            let z_pos = (z as f32 / resolution as f32 - 0.5) * size;
+
+            // Sample Perlin noise for height
+            let height =
+                perlin.get([x_pos as f64 * scale, z_pos as f64 * scale]) as f32 * height_scale;
+
+            positions.push([x_pos, height, z_pos]);
+            uvs.push([x as f32 / resolution as f32, z as f32 / resolution as f32]);
+            height_column.push(height);
+        }
+        heights.push(height_column);
+    }
+
+    // Generate indices for triangles (indexed mesh)
+    // Each quad is made of 2 triangles
+    // Vertex layout: column-major order, x-outer loop, z-inner loop
+    // For a grid of resolution x resolution quads, we have (resolution+1) x (resolution+1) vertices
+    for x in 0..resolution {
+        for z in 0..resolution {
+            // Calculate vertex indices for the quad corners
+            // With x-outer, z-inner: index = x * (resolution + 1) + z
+            let top_left = (x * (resolution + 1) + z) as u32;
+            let top_right = (x * (resolution + 1) + z + 1) as u32;
+            let bottom_left = ((x + 1) * (resolution + 1) + z) as u32;
+            let bottom_right = ((x + 1) * (resolution + 1) + z + 1) as u32;
+
+            indices.push(bottom_left);
+            indices.push(top_left);
+            indices.push(top_right);
+
+            indices.push(bottom_left);
+            indices.push(top_right);
+            indices.push(bottom_right);
+        }
+    }
+
+    // Create mesh using the builder pattern
+    let mut mesh = Mesh::new(
+        bevy::render::render_resource::PrimitiveTopology::TriangleList,
+        bevy::asset::RenderAssetUsages::MAIN_WORLD | bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    // Set indices to create an indexed mesh (reuses vertices for better performance)
+    mesh.insert_indices(Indices::U32(indices));
+    mesh = mesh.with_computed_smooth_normals();
+
+    (mesh, heights)
 }
 
 /// set up a simple 3D scene
@@ -88,25 +156,37 @@ fn setup(
         .build(),
     ));
 
-    // base
+    // base - heightfield floor
+    const FLOOR_SIZE: f32 = 24.0;
+    const FLOOR_RESOLUTION: usize = 100;
+    let (heightfield_mesh, heights) = generate_heightfield_mesh(FLOOR_SIZE, FLOOR_RESOLUTION);
+    let heightfield_handle = meshes.add(heightfield_mesh);
+
+    // The heightfield collider - heights array is already in x-outer, z-inner order matching the mesh
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(12.0, 0.1, 12.0))),
+        Mesh3d(heightfield_handle),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color_texture: Some(assets.mossy_stones.clone()),
-            uv_transform: Affine2::from_scale(Vec2::new(3.0, 3.0)),
+            base_color_texture: Some(assets.outside_grass.clone()),
+            uv_transform: Affine2::from_scale(Vec2::new(10.0, 10.0)),
             perceptual_roughness: 1.0,
             ..default()
         })),
         RigidBody::Static,
-        Collider::cuboid(12.0, 0.1, 12.0),
+        Collider::heightfield(heights, Vec3::new(FLOOR_SIZE, 1.0, FLOOR_SIZE)),
     ));
 
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(2.0, 0.5, 2.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color_texture: Some(assets.mossy_stones.clone()),
+            base_color_texture: Some(assets.lava.clone()),
             uv_transform: Affine2::from_scale(Vec2::new(3.0, 3.0)),
             perceptual_roughness: 1.0,
+            emissive: LinearRgba {
+                red: 8.0,
+                green: 4.0,
+                blue: 2.5,
+                alpha: 1.0,
+            },
             ..default()
         })),
         RigidBody::Kinematic,
@@ -119,7 +199,7 @@ fn setup(
                 Vec3::new(0.0, 1.0, 10.0),
                 Vec3::new(0.0, 10.0, 5.0),
             ],
-            speed: 1.0,
+            speed: 2.0,
         },
     ));
 
