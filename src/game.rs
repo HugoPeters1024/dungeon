@@ -5,15 +5,15 @@ use bevy::light::CascadeShadowConfigBuilder;
 use bevy::post_process::bloom::Bloom;
 use bevy::post_process::motion_blur::MotionBlur;
 use bevy::window::CursorOptions;
-use bevy::{math::Affine2, mesh::Indices, prelude::*};
+use bevy::{math::Affine2, prelude::*};
 use bevy_hanabi::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_tnua::{TnuaNotPlatform, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
-use noise::{NoiseFn, Perlin};
 
 use crate::assets::*;
+use crate::chunks::ChunkObserver;
 use crate::platform::PlatformPath;
 use crate::player::controller::PlayerRoot;
 use crate::spawners::*;
@@ -48,80 +48,14 @@ impl Plugin for GamePlugin {
         app.add_plugins(crate::spawners::SpawnPlugin);
         app.add_plugins(crate::player::PlayerPlugin);
         app.add_plugins(crate::platform::PlatformPlugin);
-        app.insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0))); // Very dark black background
+        app.add_plugins(crate::chunks::ChunksPlugin);
+        app.insert_resource(ClearColor(Color::srgb(0.08, 0.02, 0.02))); // Very dark black background
         app.add_systems(OnEnter(MyStates::Next), setup);
         app.add_systems(
             Update,
             (handle_mouse_look, update_camera_position).run_if(in_state(MyStates::Next)),
         );
     }
-}
-
-/// Generate a heightfield mesh and height data using Perlin noise
-/// Returns (mesh, heights) where heights is a 2D array for the collider
-fn generate_heightfield_mesh(size: f32, resolution: usize) -> (Mesh, Vec<Vec<f32>>) {
-    let perlin = Perlin::new(42); // Seed for reproducibility
-    let scale = 0.1; // Noise scale factor
-    let height_scale = 1.0; // Height multiplier
-
-    let mut positions = Vec::new();
-    let mut uvs = Vec::new();
-    let mut indices = Vec::new();
-    let mut heights = Vec::new(); // Store heights for collider
-
-    // Generate vertices and heights in x-outer, z-inner order to match heightfield collider
-    for x in 0..=resolution {
-        let mut height_column = Vec::new();
-        for z in 0..=resolution {
-            let x_pos = (x as f32 / resolution as f32 - 0.5) * size;
-            let z_pos = (z as f32 / resolution as f32 - 0.5) * size;
-
-            // Sample Perlin noise for height
-            let height =
-                perlin.get([x_pos as f64 * scale, z_pos as f64 * scale]) as f32 * height_scale;
-
-            positions.push([x_pos, height, z_pos]);
-            uvs.push([x as f32 / resolution as f32, z as f32 / resolution as f32]);
-            height_column.push(height);
-        }
-        heights.push(height_column);
-    }
-
-    // Generate indices for triangles (indexed mesh)
-    // Each quad is made of 2 triangles
-    // Vertex layout: column-major order, x-outer loop, z-inner loop
-    // For a grid of resolution x resolution quads, we have (resolution+1) x (resolution+1) vertices
-    for x in 0..resolution {
-        for z in 0..resolution {
-            // Calculate vertex indices for the quad corners
-            // With x-outer, z-inner: index = x * (resolution + 1) + z
-            let top_left = (x * (resolution + 1) + z) as u32;
-            let top_right = (x * (resolution + 1) + z + 1) as u32;
-            let bottom_left = ((x + 1) * (resolution + 1) + z) as u32;
-            let bottom_right = ((x + 1) * (resolution + 1) + z + 1) as u32;
-
-            indices.push(bottom_left);
-            indices.push(top_left);
-            indices.push(top_right);
-
-            indices.push(bottom_left);
-            indices.push(top_right);
-            indices.push(bottom_right);
-        }
-    }
-
-    // Create mesh using the builder pattern
-    let mut mesh = Mesh::new(
-        bevy::render::render_resource::PrimitiveTopology::TriangleList,
-        bevy::asset::RenderAssetUsages::MAIN_WORLD | bevy::asset::RenderAssetUsages::RENDER_WORLD,
-    );
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    // Set indices to create an indexed mesh (reuses vertices for better performance)
-    mesh.insert_indices(Indices::U32(indices));
-    mesh = mesh.with_computed_smooth_normals();
-
-    (mesh, heights)
 }
 
 /// set up a simple 3D scene
@@ -136,7 +70,7 @@ fn setup(
 
     commands.spawn((
         DirectionalLight {
-            illuminance: light_consts::lux::CIVIL_TWILIGHT,
+            illuminance: light_consts::lux::OVERCAST_DAY,
             shadows_enabled: true,
             ..default()
         },
@@ -154,25 +88,6 @@ fn setup(
             ..default()
         }
         .build(),
-    ));
-
-    // base - heightfield floor
-    const FLOOR_SIZE: f32 = 24.0;
-    const FLOOR_RESOLUTION: usize = 100;
-    let (heightfield_mesh, heights) = generate_heightfield_mesh(FLOOR_SIZE, FLOOR_RESOLUTION);
-    let heightfield_handle = meshes.add(heightfield_mesh);
-
-    // The heightfield collider - heights array is already in x-outer, z-inner order matching the mesh
-    commands.spawn((
-        Mesh3d(heightfield_handle),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color_texture: Some(assets.outside_grass.clone()),
-            uv_transform: Affine2::from_scale(Vec2::new(10.0, 10.0)),
-            perceptual_roughness: 1.0,
-            ..default()
-        })),
-        RigidBody::Static,
-        Collider::heightfield(heights, Vec3::new(FLOOR_SIZE, 1.0, FLOOR_SIZE)),
     ));
 
     commands.spawn((
@@ -302,7 +217,7 @@ fn setup(
         PlayerCamera {
             pitch: -0.5, // Look slightly down
             yaw: 0.0,
-            distance: 5.0,
+            distance: 3.0,
             height: 2.5,
         },
         Transform::from_xyz(0.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
@@ -314,7 +229,7 @@ fn setup(
         samples: 2,
     });
 
-    commands.spawn((PlayerRoot, Name::new("Player")));
+    commands.spawn((PlayerRoot, Name::new("Player"), ChunkObserver));
 
     commands.spawn((SpawnTorch, Transform::from_xyz(-2.0, 1.0, 0.0)));
 
@@ -370,31 +285,35 @@ fn handle_mouse_look(
 fn update_camera_position(
     mut camera_query: Query<(&mut Transform, &PlayerCamera)>,
     player_query: Query<
-        &Transform,
+        (&Transform, &LinearVelocity),
         (
             With<bevy_tnua::prelude::TnuaController>,
             Without<PlayerCamera>,
         ),
     >,
+    mut target_distance: Local<f32>,
+    time: Res<Time>
 ) {
     let Ok((mut camera_transform, camera)) = camera_query.single_mut() else {
         return;
     };
 
-    let Ok(player_transform) = player_query.single() else {
+    let Ok((player_transform, player_speed)) = player_query.single() else {
         return;
     };
+
+    *target_distance = target_distance.lerp(camera.distance + player_speed.length() * 0.5, time.delta_secs() * 2.0);
 
     // Calculate camera position behind player based on yaw and pitch
     let player_pos = player_transform.translation;
 
     // Horizontal distance component (reduced when looking up/down)
-    let horizontal_distance = camera.distance * camera.pitch.cos();
+    let horizontal_distance = *target_distance * camera.pitch.cos();
 
     // Camera offset in spherical coordinates
     let camera_offset = Vec3::new(
         camera.yaw.sin() * horizontal_distance,
-        camera.height + camera.distance * camera.pitch.sin(), // Adjust height based on pitch
+        camera.height + *target_distance * camera.pitch.sin(), // Adjust height based on pitch
         camera.yaw.cos() * horizontal_distance,
     );
 

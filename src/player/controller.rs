@@ -335,7 +335,7 @@ pub fn apply_controls(
     const SPEED: f32 = 1.7;
 
     let sprint_factor = if keyboard.pressed(KeyCode::ShiftLeft) {
-        1.6
+        2.0
     } else {
         1.0
     };
