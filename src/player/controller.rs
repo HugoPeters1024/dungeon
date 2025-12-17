@@ -236,7 +236,7 @@ pub fn update_controller_state(
 ) {
     let jump_action = TnuaBuiltinJump {
         height: 2.5,
-        fall_extra_gravity: 8.5,
+        fall_extra_gravity: 3.5,
         ..default()
     };
 
