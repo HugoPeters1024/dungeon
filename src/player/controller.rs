@@ -305,7 +305,6 @@ pub fn update_controller_state(
                 time_to_force.tick(time.delta());
                 time_to_complete.tick(time.delta());
 
-                dbg!(time_to_force.remaining());
                 if time_to_force.just_finished() && !caster_and_hit.1.is_empty() {
                     dbg!(-caster_and_hit.0.global_direction());
                     forces.apply_force(200.0 * -caster_and_hit.0.global_direction().as_vec3());

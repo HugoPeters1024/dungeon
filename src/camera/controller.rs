@@ -102,6 +102,7 @@ pub fn handle_mouse_look(
 }
 
 /// Update camera position with smooth interpolation and collision detection
+#[allow(clippy::type_complexity)]
 pub fn update_camera_position(
     mut camera_query: Query<(&mut Transform, &mut ThirdPersonCamera)>,
     player_query: Query<
@@ -125,7 +126,8 @@ pub fn update_camera_position(
 
     // Calculate player position and velocity
     let player_pos = player_transform.translation;
-    let player_speed = player_velocity.0.length();
+    let player_vel = player_velocity.0;
+    let player_speed = player_vel.length();
 
     // Adjust target distance based on player speed (zoom out slightly when moving fast)
     // This creates a dynamic feel similar to Elden Ring
@@ -150,7 +152,11 @@ pub fn update_camera_position(
         camera.yaw.cos() * horizontal_distance,
     );
 
-    let desired_camera_pos = player_pos + camera_offset;
+    // Use velocity-aware target position to reduce jitter during vertical movement
+    // Predict where the player will be based on velocity (helps with jumping/platforms)
+    let velocity_prediction_factor = 0.1; // Small prediction to smooth vertical movement
+    let predicted_player_pos = player_pos + player_vel * velocity_prediction_factor;
+    let desired_camera_pos = predicted_player_pos + camera_offset;
 
     // For now, use desired position (collision detection can be added later with RayCaster component)
     let final_camera_pos = desired_camera_pos;
@@ -160,10 +166,37 @@ pub fn update_camera_position(
     let current_pos = camera_transform.translation;
     let target_pos = final_camera_pos;
 
+    // Use different smoothing speeds for horizontal vs vertical movement
+    // Vertical movement (jumping/platforms) needs faster smoothing to reduce jitter
+    let vertical_velocity = player_vel.y.abs();
+    let is_moving_vertically = vertical_velocity > 0.1;
+
+    // Increase smoothing speed when moving vertically to reduce jitter
+    let effective_follow_speed = if is_moving_vertically {
+        camera.follow_speed * 1.5 // Faster smoothing for vertical movement
+    } else {
+        camera.follow_speed
+    };
+
     // Use exponential smoothing for smooth camera movement (like Elden Ring)
     // Higher follow speed = more responsive, lower = more cinematic lag
-    let smoothing_factor = 1.0 - (-delta_time * camera.follow_speed).exp();
-    let smoothed_pos = current_pos.lerp(target_pos, smoothing_factor);
+    let smoothing_factor = 1.0 - (-delta_time * effective_follow_speed).exp();
+
+    // Apply smoothing separately to horizontal and vertical components
+    // This allows different smoothing rates for different axes
+    let horizontal_smoothing = smoothing_factor;
+    let vertical_smoothing = if is_moving_vertically {
+        // More aggressive vertical smoothing to reduce jitter
+        1.0 - (-delta_time * effective_follow_speed * 1.2).exp()
+    } else {
+        smoothing_factor
+    };
+
+    let smoothed_pos = Vec3::new(
+        current_pos.x.lerp(target_pos.x, horizontal_smoothing),
+        current_pos.y.lerp(target_pos.y, vertical_smoothing),
+        current_pos.z.lerp(target_pos.z, horizontal_smoothing),
+    );
 
     camera_transform.translation = smoothed_pos;
 
