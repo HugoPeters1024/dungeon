@@ -331,7 +331,7 @@ pub fn apply_controls(
     let forward = Vec3::new(forward.x, 0.0, forward.y);
     let sideways = (camera.rotation * Vec3::NEG_X).xz().normalize_or_zero();
     let sideways = Vec3::new(sideways.x, 0.0, sideways.y);
-    const SPEED: f32 = 1.7;
+    const SPEED: f32 = 3.4;
 
     let sprint_factor = if keyboard.pressed(KeyCode::ShiftLeft) {
         2.0
