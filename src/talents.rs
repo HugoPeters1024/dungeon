@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use bevy::ui::{ComputedNode, UiGlobalTransform};
 
 use crate::assets::MyStates;
 
@@ -32,7 +33,7 @@ impl Plugin for TalentsPlugin {
                     class_pick_button_interactions,
                     talent_ui_button_interactions,
                     update_talent_buttons_visuals,
-                    update_details_panel,
+                    update_talent_tooltip,
                     recompute_bonuses,
                 )
                     .run_if(in_state(MyStates::Next)),
@@ -106,22 +107,8 @@ fn tree_title_for_class(class: TalentClass, tree: TalentTree) -> &'static str {
     }
 }
 
-fn tree_abbr_for_class(class: TalentClass, tree: TalentTree) -> &'static str {
-    match (class, tree) {
-        (TalentClass::Cleric, TalentTree::Vigor) => "San",
-        (TalentClass::Cleric, TalentTree::Guile) => "Jud",
-        (TalentClass::Cleric, TalentTree::Sorcery) => "Wrd",
-        (TalentClass::Bard, TalentTree::Vigor) => "Bld",
-        (TalentClass::Bard, TalentTree::Guile) => "Bal",
-        (TalentClass::Bard, TalentTree::Sorcery) => "Trk",
-        (TalentClass::Paladin, TalentTree::Vigor) => "Dev",
-        (TalentClass::Paladin, TalentTree::Guile) => "Ven",
-        (TalentClass::Paladin, TalentTree::Sorcery) => "Gra",
-    }
-}
-
-fn talent_display_name(class: TalentClass, def: &TalentDef) -> String {
-    format!("{} {}", tree_abbr_for_class(class, def.id.tree), def.name)
+fn talent_display_name(_class: TalentClass, def: &TalentDef) -> String {
+    def.name.to_string()
 }
 
 /// 0-based tier index (tier 0 == "Row 1" in WoW UI).
@@ -254,6 +241,7 @@ struct CursorRestoreState {
 #[derive(Resource, Debug, Default, Clone, Copy)]
 pub struct TalentUiSelection {
     pub hovered: Option<TalentId>,
+    pub hovered_entity: Option<Entity>,
 }
 
 #[derive(Component)]
@@ -286,10 +274,13 @@ struct TreeTitleText {
 }
 
 #[derive(Component)]
-struct TalentDetailsName;
+struct TalentTooltipRoot;
 
 #[derive(Component)]
-struct TalentDetailsBody;
+struct TalentTooltipTitle;
+
+#[derive(Component)]
+struct TalentTooltipBody;
 
 #[derive(Component)]
 struct TalentPointsText;
@@ -1021,136 +1012,83 @@ fn spawn_talents_ui(mut commands: Commands) {
         .id();
     commands.entity(panel).add_child(body);
 
-    // Trees area
+    // Trees area (takes the whole body now; details are tooltip-on-hover)
     let trees = commands
         .spawn((
             Name::new("Talents Trees Area"),
             Node {
-                width: Val::Px(700.0),
+                width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
                 flex_direction: FlexDirection::Row,
-                column_gap: Val::Px(10.0),
+                justify_content: JustifyContent::SpaceBetween,
                 ..default()
             },
         ))
         .id();
     commands.entity(body).add_child(trees);
 
-    // Details panel
-    let details = commands
+    // Footer controls (reset / refund) so they're always available without a static details pane
+    let footer = commands
         .spawn((
-            Name::new("Talents Details Panel"),
-            Node {
-                width: Val::Px(240.0),
-                height: Val::Percent(100.0),
-                padding: UiRect::all(Val::Px(12.0)),
-                border: UiRect::all(Val::Px(2.0)),
-                flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(10.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgb(0.92, 0.88, 0.76)),
-            BorderColor::all(wood),
-        ))
-        .id();
-    commands.entity(body).add_child(details);
-
-    let details_name = commands
-        .spawn((
-            TalentDetailsName,
-            Name::new("Talent Details Name"),
-            Text::new("Hover a talent"),
-            TextFont {
-                font_size: 18.0,
-                ..default()
-            },
-            TextColor(ink),
-        ))
-        .id();
-    let details_body = commands
-        .spawn((
-            TalentDetailsBody,
-            Name::new("Talent Details Body"),
-            Text::new("Press T to open/close.\nClick to invest.\nShift+Click to refund."),
-            TextFont {
-                font_size: 14.0,
-                ..default()
-            },
-            TextColor(ink),
-        ))
-        .id();
-
-    let controls_row = commands
-        .spawn((
-            Name::new("Talents Controls Row"),
+            Name::new("Talents Footer"),
             Node {
                 width: Val::Percent(100.0),
-                height: Val::Px(42.0),
-                justify_content: JustifyContent::SpaceBetween,
+                height: Val::Px(44.0),
+                justify_content: JustifyContent::FlexEnd,
                 align_items: AlignItems::Center,
+                column_gap: Val::Px(10.0),
                 ..default()
             },
         ))
         .id();
+    commands.entity(panel).add_child(footer);
 
-    let reset = commands
-        .spawn((
-            ResetTalentsButton,
-            Button,
-            Name::new("Reset Talents Button"),
-            Node {
-                width: Val::Px(112.0),
-                height: Val::Px(34.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                border: UiRect::all(Val::Px(2.0)),
-                ..default()
-            },
-            BackgroundColor(wood),
-            BorderColor::all(gold),
-        ))
-        .with_child((
-            Text::new("Reset"),
-            TextFont {
-                font_size: 14.0,
-                ..default()
-            },
-            TextColor(Color::srgb(0.95, 0.92, 0.86)),
-        ))
-        .id();
-
-    let refund = commands
-        .spawn((
-            RefundLastButton,
-            Button,
-            Name::new("Refund Last Button"),
-            Node {
-                width: Val::Px(112.0),
-                height: Val::Px(34.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                border: UiRect::all(Val::Px(2.0)),
-                ..default()
-            },
-            BackgroundColor(wood),
-            BorderColor::all(gold),
-        ))
-        .with_child((
+    commands.entity(footer).with_child((
+        RefundLastButton,
+        Button,
+        Name::new("Refund Last Button"),
+        Node {
+            width: Val::Px(120.0),
+            height: Val::Px(34.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            border: UiRect::all(Val::Px(2.0)),
+            ..default()
+        },
+        BackgroundColor(wood),
+        BorderColor::all(gold),
+        children![(
             Text::new("Refund 1"),
             TextFont {
                 font_size: 14.0,
                 ..default()
             },
             TextColor(Color::srgb(0.95, 0.92, 0.86)),
-        ))
-        .id();
-
-    commands.entity(controls_row).add_child(reset);
-    commands.entity(controls_row).add_child(refund);
-
-    commands.entity(details).add_child(details_name);
-    commands.entity(details).add_child(details_body);
-    commands.entity(details).add_child(controls_row);
+        )],
+    ));
+    commands.entity(footer).with_child((
+        ResetTalentsButton,
+        Button,
+        Name::new("Reset Talents Button"),
+        Node {
+            width: Val::Px(120.0),
+            height: Val::Px(34.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            border: UiRect::all(Val::Px(2.0)),
+            ..default()
+        },
+        BackgroundColor(wood),
+        BorderColor::all(gold),
+        children![(
+            Text::new("Reset"),
+            TextFont {
+                font_size: 14.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.95, 0.92, 0.86)),
+        )],
+    ));
 
     // Build each tree column with 8 tiers.
     // Initial text is “Paladin”; a later system refreshes it from SelectedTalentClass.
@@ -1160,7 +1098,7 @@ fn spawn_talents_ui(mut commands: Commands) {
             .spawn((
                 Name::new(format!("Tree: {}", tree.debug_title())),
                 Node {
-                    width: Val::Px(226.0),
+                    width: Val::Percent(33.0),
                     height: Val::Percent(100.0),
                     padding: UiRect::all(Val::Px(8.0)),
                     border: UiRect::all(Val::Px(2.0)),
@@ -1222,7 +1160,9 @@ fn spawn_talents_ui(mut commands: Commands) {
                             padding: UiRect::all(Val::Px(6.0)),
                             border: UiRect::all(Val::Px(2.0)),
                             flex_direction: FlexDirection::Column,
-                            justify_content: JustifyContent::SpaceBetween,
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            position_type: PositionType::Relative,
                             ..default()
                         },
                         BackgroundColor(Color::srgb(0.35, 0.28, 0.18)),
@@ -1235,7 +1175,7 @@ fn spawn_talents_ui(mut commands: Commands) {
                         TalentNameText { id: def.id },
                         Text::new(talent_display_name(default_class, def)),
                         TextFont {
-                            font_size: 11.0,
+                            font_size: 12.0,
                             ..default()
                         },
                         TextColor(Color::srgb(0.96, 0.94, 0.90)),
@@ -1245,9 +1185,16 @@ fn spawn_talents_ui(mut commands: Commands) {
                 let rank = commands
                     .spawn((
                         TalentRankText { id: def.id },
+                        Node {
+                            position_type: PositionType::Absolute,
+                            right: Val::Px(4.0),
+                            bottom: Val::Px(2.0),
+                            ..default()
+                        },
+                        ZIndex(20),
                         Text::new("0/0"),
                         TextFont {
-                            font_size: 11.0,
+                            font_size: 10.0,
                             ..default()
                         },
                         TextColor(Color::srgb(0.96, 0.94, 0.90)),
@@ -1260,6 +1207,49 @@ fn spawn_talents_ui(mut commands: Commands) {
             }
         }
     }
+
+    // Hover tooltip (absolute positioned; updated each frame while hovering)
+    commands
+        .entity(root)
+        .with_child((
+            TalentTooltipRoot,
+            Name::new("Talent Tooltip"),
+            GlobalZIndex(100),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Px(320.0),
+                padding: UiRect::all(Val::Px(12.0)),
+                border: UiRect::all(Val::Px(2.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(6.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.92, 0.88, 0.76)),
+            BorderColor::all(wood),
+            Visibility::Hidden,
+            children![
+                (
+                    TalentTooltipTitle,
+                    Text::new(""),
+                    TextFont {
+                        font_size: 16.0,
+                        ..default()
+                    },
+                    TextColor(ink),
+                ),
+                (
+                    TalentTooltipBody,
+                    Text::new(""),
+                    TextFont {
+                        font_size: 13.0,
+                        ..default()
+                    },
+                    TextColor(ink),
+                ),
+            ],
+        ));
 }
 
 fn refresh_class_dependent_text(
@@ -1337,7 +1327,7 @@ fn can_invest(talents: &TalentsState, points: &TalentPoints, id: TalentId) -> (b
 }
 
 fn talent_ui_button_interactions(
-    interactions: Query<(&Interaction, &TalentButton), Changed<Interaction>>,
+    interactions: Query<(Entity, &Interaction, &TalentButton), Changed<Interaction>>,
     reset_btn: Query<&Interaction, (Changed<Interaction>, With<ResetTalentsButton>)>,
     refund_btn: Query<&Interaction, (Changed<Interaction>, With<RefundLastButton>)>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -1346,14 +1336,16 @@ fn talent_ui_button_interactions(
     mut selection: ResMut<TalentUiSelection>,
 ) {
     // Hover tracking (for details panel)
-    for (interaction, btn) in interactions.iter() {
+    for (entity, interaction, btn) in interactions.iter() {
         match *interaction {
             Interaction::Hovered => {
                 selection.hovered = Some(btn.id);
+                selection.hovered_entity = Some(entity);
             }
             Interaction::None => {
                 if selection.hovered == Some(btn.id) {
                     selection.hovered = None;
+                    selection.hovered_entity = None;
                 }
             }
             Interaction::Pressed => {
@@ -1446,62 +1438,6 @@ fn update_talent_buttons_visuals(
     }
 }
 
-fn update_details_panel(
-    selection: Res<TalentUiSelection>,
-    talents: Res<TalentsState>,
-    points: Res<TalentPoints>,
-    selected_class: Res<SelectedTalentClass>,
-    mut set: ParamSet<(
-        Query<&mut Text, With<TalentDetailsName>>,
-        Query<&mut Text, With<TalentDetailsBody>>,
-    )>,
-) {
-    let Some(id) = selection.hovered else {
-        return;
-    };
-    let Some(def) = talent_def(id) else {
-        return;
-    };
-
-    let class = selected_class.0.unwrap_or(TalentClass::Paladin);
-    if let Ok(mut n) = set.p0().single_mut() {
-        *n = Text::new(talent_display_name(class, def));
-    }
-
-    let rank = talents.rank(id);
-    let spent_in_tree = talents.points_spent_in_tree(id.tree);
-    let tier_req = required_points_for_tier(id.tier);
-    let (ok, _reason) = can_invest(&talents, &points, id);
-
-    let prereq_line = def.prereq.map_or(String::new(), |pr| {
-        let pr_name = talent_def(pr)
-            .map(|d| talent_display_name(class, d))
-            .unwrap_or_else(|| "Unknown".to_string());
-        format!("Requires: {pr_name}\n")
-    });
-
-    let effect_line = effect_summary(def, rank);
-    let next_line = next_rank_summary(&talents, &points, def, id);
-
-    if let Ok(mut b) = set.p1().single_mut() {
-        *b = Text::new(format!(
-            "Rank: {rank}/{max}\n{effect}\n{next}\nUnlock row: {spent}/{req}\n{prereq}{desc}\n\n{hint}",
-            max = def.max_rank,
-            effect = effect_line,
-            next = next_line,
-            spent = spent_in_tree,
-            req = tier_req,
-            prereq = prereq_line,
-            desc = def.description,
-            hint = if ok {
-                "Click to invest • Shift+Click to refund"
-            } else {
-                "Shift+Click to refund"
-            }
-        ));
-    }
-}
-
 fn effect_summary(def: &TalentDef, rank: u8) -> String {
     match def.effect {
         TalentEffect::MoveSpeedPctPerRank(p) => {
@@ -1548,26 +1484,95 @@ fn effect_summary(def: &TalentDef, rank: u8) -> String {
     }
 }
 
-fn next_rank_summary(
-    talents: &TalentsState,
-    points: &TalentPoints,
-    def: &TalentDef,
-    id: TalentId,
-) -> String {
+fn update_talent_tooltip(
+    ui_state: Res<TalentUiState>,
+    selection: Res<TalentUiSelection>,
+    selected_class: Res<SelectedTalentClass>,
+    talents: Res<TalentsState>,
+    points: Res<TalentPoints>,
+    hovered_button: Query<(&ComputedNode, &UiGlobalTransform), With<TalentButton>>,
+    mut tooltip: Query<(&mut Node, &mut Visibility), With<TalentTooltipRoot>>,
+    mut set: ParamSet<(
+        Query<&mut Text, With<TalentTooltipTitle>>,
+        Query<&mut Text, With<TalentTooltipBody>>,
+    )>,
+) {
+    if !ui_state.open {
+        if let Ok((_, mut vis)) = tooltip.single_mut() {
+            *vis = Visibility::Hidden;
+        }
+        return;
+    }
+
+    let Some(id) = selection.hovered else {
+        if let Ok((_, mut vis)) = tooltip.single_mut() {
+            *vis = Visibility::Hidden;
+        }
+        return;
+    };
+
+    let Some(def) = talent_def(id) else {
+        return;
+    };
+
+    let Some(entity) = selection.hovered_entity else {
+        if let Ok((_, mut vis)) = tooltip.single_mut() {
+            *vis = Visibility::Hidden;
+        }
+        return;
+    };
+    let Ok((computed, ui_xform)) = hovered_button.get(entity) else {
+        if let Ok((_, mut vis)) = tooltip.single_mut() {
+            *vis = Visibility::Hidden;
+        }
+        return;
+    };
+
+    let class = selected_class.0.unwrap_or(TalentClass::Paladin);
     let rank = talents.rank(id);
-    if rank >= def.max_rank {
-        return "Next: (maxed)".to_string();
+    let spent_in_tree = talents.points_spent_in_tree(id.tree);
+    let tier_req = required_points_for_tier(id.tier);
+
+    // Anchor tooltip to the hovered talent's lower-right corner.
+    // UiGlobalTransform is in physical pixels and represents the node center.
+    let center_physical = ui_xform.translation;
+    let br_physical = center_physical + computed.size() * 0.5;
+    let inv = computed.inverse_scale_factor;
+    let br_logical = br_physical * inv;
+
+    if let Ok((mut node, mut vis)) = tooltip.single_mut() {
+        node.left = Val::Px(br_logical.x + 10.0);
+        node.top = Val::Px(br_logical.y + 10.0);
+        *vis = Visibility::Visible;
     }
-    let (ok, _reason) = can_invest(talents, points, id);
-    if !ok {
-        return "Next: (locked)".to_string();
+
+    if let Ok(mut t) = set.p0().single_mut() {
+        *t = Text::new(talent_display_name(class, def));
     }
-    match def.effect {
-        TalentEffect::MoveSpeedPctPerRank(p) => format!("Next: +{p:.0}% move speed"),
-        TalentEffect::SprintPctPerRank(p) => format!("Next: +{p:.0}% sprint effectiveness"),
-        TalentEffect::JumpHeightPctPerRank(p) => format!("Next: +{p:.0}% jump height"),
-        TalentEffect::FallExtraGravityPctPerRank(p) => format!("Next: -{p:.0}% fall gravity"),
-        TalentEffect::Placeholder => "Next: (placeholder)".to_string(),
+
+    let prereq_line = def.prereq.map_or(String::new(), |pr| {
+        let pr_name = talent_def(pr)
+            .map(|d| talent_display_name(class, d))
+            .unwrap_or_else(|| "Unknown".to_string());
+        format!("Requires: {pr_name}\n")
+    });
+
+    let (ok, _) = can_invest(&talents, &points, id);
+    if let Ok(mut b) = set.p1().single_mut() {
+        *b = Text::new(format!(
+            "Rank: {rank}/{max}\n{effect}\nUnlock row: {spent}/{req}\n{prereq}{desc}\n\n{hint}",
+            max = def.max_rank,
+            effect = effect_summary(def, rank),
+            spent = spent_in_tree,
+            req = tier_req,
+            prereq = prereq_line,
+            desc = def.description,
+            hint = if ok {
+                "Click to invest | Shift+Click to refund"
+            } else {
+                "Shift+Click to refund"
+            }
+        ));
     }
 }
 
