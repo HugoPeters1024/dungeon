@@ -18,6 +18,7 @@ pub struct AnimationsT<T> {
     jump: T,
     landing: T,
     walking: T,
+    slash: T,
     drop_kick: T,
 }
 
@@ -32,6 +33,7 @@ impl<T> AnimationsT<T> {
             &self.jump,
             &self.landing,
             &self.walking,
+            &self.slash,
             &self.drop_kick,
         ]
         .into_iter()
@@ -63,7 +65,8 @@ pub fn on_animation_player_loaded(
         jump: graph.add_clip(assets.player_clips[5].clone(), 1.0, graph.root),
         landing: graph.add_clip(assets.player_clips[6].clone(), 1.0, graph.root),
         walking: graph.add_clip(assets.player_clips[7].clone(), 1.0, graph.root),
-        drop_kick: graph.add_clip(assets.player_clips[8].clone(), 1.0, graph.root),
+        slash: graph.add_clip(assets.player_clips[8].clone(), 1.0, graph.root),
+        drop_kick: graph.add_clip(assets.player_clips[9].clone(), 1.0, graph.root),
     };
 
     let mut player = players.get_mut(on.event_target())?;
@@ -156,7 +159,6 @@ pub fn animations_from_controller(
                     ..default()
                 }
             }
-
             DropKicking(..) => {
                 if state_transioned {
                     player
@@ -166,6 +168,15 @@ pub fn animations_from_controller(
                 }
                 *weights = AnimationWeights {
                     drop_kick: 1.0,
+                    ..default()
+                }
+            }
+            Attacking(_) => {
+                if state_transioned {
+                    player.start(clips.slash).set_seek_time(0.0).set_speed(1.2);
+                }
+                *weights = AnimationWeights {
+                    slash: 1.0,
                     ..default()
                 }
             }

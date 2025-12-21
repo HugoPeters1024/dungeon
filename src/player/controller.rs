@@ -47,6 +47,7 @@ pub enum ControllerState {
     Jumping(TnuaBuiltinJump),
     Falling,
     DropKicking(Timer, Timer),
+    Attacking(Timer),
 }
 
 #[derive(Component)]
@@ -319,6 +320,12 @@ pub fn update_controller_state(
                         Timer::from_seconds(2.0, TimerMode::Once),
                     );
                 }
+
+                if !blocked && keyboard.just_pressed(KeyCode::KeyV) {
+                    *state = Attacking(
+                        Timer::from_seconds(1.3, TimerMode::Once),
+                    );
+                }
             }
             Idle => {
                 if sensors.actual_velocity.xz().length() > 0.1 {
@@ -337,6 +344,12 @@ pub fn update_controller_state(
                     *state = DropKicking(
                         Timer::from_seconds(1.2, TimerMode::Once),
                         Timer::from_seconds(2.0, TimerMode::Once),
+                    );
+                }
+
+                if !blocked && keyboard.just_pressed(KeyCode::KeyV) {
+                    *state = Attacking(
+                        Timer::from_seconds(1.3, TimerMode::Once),
                     );
                 }
             }
@@ -369,6 +382,13 @@ pub fn update_controller_state(
                 }
 
                 if time_to_complete.is_finished() {
+                    *state = Idle;
+                }
+            }
+            Attacking(timer) => {
+                timer.tick(time.delta());
+
+                if timer.just_finished() {
                     *state = Idle;
                 }
             }
