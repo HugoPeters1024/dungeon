@@ -3,12 +3,15 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::HashMap;
 
 use crate::assets::MyStates;
-use crate::talents::TalentBonuses;
+use crate::player::controller::{ControllerSensors, PlayerRoot};
+use crate::spells::{SPELL_SLOTS, SpellBar, SpellDef, SpellEffect, spellbar_for_class};
+use crate::talents::{SelectedTalentClass, TalentBonuses, TalentClass};
+use avian3d::prelude::{Forces, RigidBodyForces};
 
 pub struct HudPlugin;
 
-const ACTION_KEYS: [&str; 8] = ["1", "2", "3", "4", "5", "Q", "E", "R"];
-const ACTION_SLOTS: usize = ACTION_KEYS.len();
+const ACTION_KEYS: [&str; SPELL_SLOTS] = ["1", "2", "3", "4", "5", "Q", "E", "R"];
+const ACTION_SLOTS: usize = SPELL_SLOTS;
 const ACTION_BINDS: [KeyCode; 8] = [
     KeyCode::Digit1,
     KeyCode::Digit2,
@@ -20,17 +23,33 @@ const ACTION_BINDS: [KeyCode; 8] = [
     KeyCode::KeyR,
 ];
 const ICON_ATLAS_PATH: &str = "icons.png";
-// Row-major indices into the atlas (top-left is 0). Tweak these to pick different icons.
-const ACTION_ICON_INDICES: [usize; ACTION_SLOTS] = [0, 1, 2, 3, 4, 5, 6, 7];
+
+fn slot_for_bind(bind: KeyCode) -> Option<usize> {
+    ACTION_BINDS.iter().position(|&b| b == bind)
+}
+
+#[derive(Resource, Clone, Copy)]
+struct ActiveSpellBar(SpellBar);
+
+impl Default for ActiveSpellBar {
+    fn default() -> Self {
+        Self(spellbar_for_class(TalentClass::Paladin))
+    }
+}
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Vitals>()
+            .init_resource::<SkillCastRng>()
+            .init_resource::<ActiveSpellBar>()
             .add_systems(OnEnter(MyStates::Next), spawn_hud)
             .add_systems(
                 Update,
                 (
                     regen_mana,
+                    sync_spellbar_from_class,
+                    handle_action_bar_casts,
+                    animate_action_cast_fx,
                     update_hud_from_vitals,
                     animate_action_bar_slots,
                     swap_action_icons_from_atlas,
@@ -39,6 +58,20 @@ impl Plugin for HudPlugin {
                     .run_if(in_state(MyStates::Next)),
             );
     }
+}
+
+fn sync_spellbar_from_class(
+    selected: Option<Res<SelectedTalentClass>>,
+    mut bar: ResMut<ActiveSpellBar>,
+) {
+    if selected.as_ref().is_some_and(|s| !s.is_changed()) {
+        return;
+    }
+    let class = selected
+        .as_ref()
+        .and_then(|s| s.0)
+        .unwrap_or(TalentClass::Paladin);
+    bar.0 = spellbar_for_class(class);
 }
 
 #[derive(Resource, Debug, Clone, Copy)]
@@ -103,6 +136,9 @@ struct ActionSlotBind(KeyCode);
 #[derive(Component)]
 struct ActionSlotIcon;
 
+#[derive(Component, Clone, Copy)]
+struct ActionSlotIconIndex(usize);
+
 #[derive(Component)]
 struct ActionSlotFrame;
 
@@ -114,6 +150,12 @@ struct ActionSlotCooldown;
 
 #[derive(Component)]
 struct ActionSlotKeyText;
+
+#[derive(Component)]
+struct ActionCastFx {
+    t: f32,
+    success: bool,
+}
 
 #[derive(Resource, Default)]
 struct HudImages {
@@ -127,11 +169,23 @@ struct HudImages {
     spell_icons: Vec<Handle<Image>>,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 struct IconAtlasState {
     source: Handle<Image>,
     built: bool,
-    icons: Vec<Handle<Image>>,
+    cols: Vec<(u32, u32)>,
+    rows: Vec<(u32, u32)>,
+    icons_by_class: HashMap<TalentClass, Vec<Handle<Image>>>,
+    last_applied: Option<TalentClass>,
+}
+
+#[derive(Resource, Debug, Clone, Copy)]
+struct SkillCastRng(u32);
+
+impl Default for SkillCastRng {
+    fn default() -> Self {
+        Self(0xC0FFEE_u32)
+    }
 }
 
 fn spawn_hud(
@@ -243,6 +297,7 @@ fn spawn_hud(
         let icon = commands
             .spawn((
                 ActionSlotIcon,
+                ActionSlotIconIndex(i),
                 Name::new("Slot Icon"),
                 Node {
                     position_type: PositionType::Absolute,
@@ -348,44 +403,81 @@ fn spawn_hud(
     commands.insert_resource(IconAtlasState {
         source,
         built: false,
-        icons: Vec::new(),
+        cols: Vec::new(),
+        rows: Vec::new(),
+        icons_by_class: HashMap::new(),
+        last_applied: None,
     });
 }
 
 fn swap_action_icons_from_atlas(
     mut atlas: ResMut<IconAtlasState>,
     mut images: ResMut<Assets<Image>>,
-    mut icon_nodes: Query<&mut ImageNode, With<ActionSlotIcon>>,
+    selected: Option<Res<SelectedTalentClass>>,
+    bar: Res<ActiveSpellBar>,
+    mut icon_nodes: Query<(&ActionSlotIconIndex, &mut ImageNode), With<ActionSlotIcon>>,
 ) {
-    if atlas.built {
-        return;
-    }
-    let Some(src) = images.get(&atlas.source).cloned() else {
-        return; // not loaded yet
-    };
-    let Some((cols, rows)) = detect_icon_grid(&src) else {
-        return; // couldn't detect; keep procedural
-    };
+    let class = selected
+        .as_ref()
+        .and_then(|s| s.0)
+        .unwrap_or(TalentClass::Paladin);
 
-    let mut out: Vec<Handle<Image>> = Vec::with_capacity(ACTION_SLOTS);
-    for idx in ACTION_ICON_INDICES {
-        if let Some(icon_img) = extract_icon(&src, &cols, &rows, idx) {
-            out.push(images.add(icon_img));
+    // Build icons once the atlas is loaded.
+    if !atlas.built {
+        let Some(src) = images.get(&atlas.source).cloned() else {
+            return; // not loaded yet
+        };
+        let Some((cols, rows)) = detect_icon_grid(&src) else {
+            return; // couldn't detect; keep procedural
+        };
+        let total = cols.len() * rows.len();
+        if total == 0 {
+            return;
         }
-    }
-    if out.len() != ACTION_SLOTS {
-        return;
+
+        atlas.cols = cols;
+        atlas.rows = rows;
+        atlas.icons_by_class.clear();
+
+        for c in TalentClass::ALL {
+            let spells = spellbar_for_class(c);
+            let mut out: Vec<Handle<Image>> = Vec::with_capacity(ACTION_SLOTS);
+            for s in spells {
+                let idx = s.icon_index % total;
+                if let Some(icon_img) = extract_icon(&src, &atlas.cols, &atlas.rows, idx) {
+                    out.push(images.add(icon_img));
+                }
+            }
+            if out.len() == ACTION_SLOTS {
+                atlas.icons_by_class.insert(c, out);
+            }
+        }
+
+        if atlas.icons_by_class.len() != TalentClass::ALL.len() {
+            return;
+        }
+        atlas.built = true;
+        atlas.last_applied = None;
     }
 
-    // Swap icons in UI.
-    for (i, mut node) in icon_nodes.iter_mut().enumerate() {
-        if let Some(h) = out.get(i).cloned() {
+    // Only re-apply when the selected class changes.
+    if atlas.last_applied == Some(class) && !selected.as_ref().is_some_and(|s| s.is_changed()) {
+        return;
+    }
+    atlas.last_applied = Some(class);
+
+    let Some(icon_list) = atlas.icons_by_class.get(&class) else {
+        return;
+    };
+    for (idx, mut node) in icon_nodes.iter_mut() {
+        if let Some(h) = icon_list.get(idx.0).cloned() {
             node.image = h;
         }
     }
 
-    atlas.icons = out;
-    atlas.built = true;
+    // Ensure we don't show stale icons if atlas isn't ready: if the atlas isn't built yet,
+    // spellbar icons remain the procedural placeholders. Once built, icons match the class spellbar.
+    let _ = bar;
 }
 
 #[allow(clippy::type_complexity)]
@@ -575,6 +667,185 @@ fn animate_action_bar_slots(
 
         tf.scale = Vec3::splat(scale);
         tf.translation.y = y;
+    }
+}
+
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
+fn handle_action_bar_casts(
+    mut commands: Commands,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut rng: ResMut<SkillCastRng>,
+    mut vitals: ResMut<Vitals>,
+    mut player: Query<(Forces, Option<&ControllerSensors>), With<PlayerRoot>>,
+    bar: Res<ActiveSpellBar>,
+    slots: Query<(Entity, &ActionSlotBind), With<ActionSlot>>,
+    clicks: Query<
+        (Entity, &Interaction, &ActionSlotBind),
+        (With<ActionSlot>, Changed<Interaction>),
+    >,
+) {
+    let spells = bar.0;
+
+    // Keyboard activations
+    for (entity, bind) in slots.iter() {
+        if keyboard.just_pressed(bind.0) {
+            let Some(slot) = slot_for_bind(bind.0) else {
+                continue;
+            };
+            try_cast(
+                &mut commands,
+                &mut rng,
+                &mut vitals,
+                &mut player,
+                entity,
+                spells[slot],
+            );
+        }
+    }
+
+    // Mouse click activations
+    for (entity, interaction, bind) in clicks.iter() {
+        if *interaction == Interaction::Pressed {
+            let Some(slot) = slot_for_bind(bind.0) else {
+                continue;
+            };
+            try_cast(
+                &mut commands,
+                &mut rng,
+                &mut vitals,
+                &mut player,
+                entity,
+                spells[slot],
+            );
+        }
+    }
+}
+
+fn try_cast(
+    commands: &mut Commands,
+    rng: &mut SkillCastRng,
+    vitals: &mut Vitals,
+    player: &mut Query<(Forces, Option<&ControllerSensors>), With<PlayerRoot>>,
+    slot_entity: Entity,
+    spell: SpellDef,
+) {
+    // Deterministic "randomness" reserved for later (crit/variation etc).
+    rng.0 = rng.0.wrapping_mul(1664525).wrapping_add(1013904223);
+
+    // Use floor(mana) for both display + gating so players never see "20" but can't cast 20.
+    let available = vitals.mana.max(0.0).floor() as u32;
+    let success = available >= spell.mana_cost;
+    if success {
+        vitals.mana = (vitals.mana - spell.mana_cost as f32).max(0.0);
+        apply_spell_effect(vitals, player, spell.effect);
+    }
+    spawn_cast_fx(commands, slot_entity, success);
+}
+
+fn apply_spell_effect(
+    vitals: &mut Vitals,
+    player: &mut Query<(Forces, Option<&ControllerSensors>), With<PlayerRoot>>,
+    effect: SpellEffect,
+) {
+    match effect {
+        SpellEffect::Heal(amount) => {
+            vitals.health = (vitals.health + amount).min(vitals.max_health);
+        }
+        SpellEffect::ManaBurst(amount) => {
+            vitals.mana = (vitals.mana + amount).min(vitals.max_mana);
+        }
+        SpellEffect::Dash(impulse) => {
+            if let Ok((mut forces, sensors)) = player.single_mut() {
+                let mut dir = sensors.map(|s| s.facing_direction).unwrap_or(Vec3::Z);
+                dir.y = 0.0;
+                let dir = dir.normalize_or_zero();
+                if dir.length_squared() > 0.0 {
+                    forces.apply_linear_impulse(dir * impulse);
+                } else {
+                    forces.apply_linear_impulse(Vec3::Z * impulse);
+                }
+            }
+        }
+    }
+}
+
+fn spawn_cast_fx(commands: &mut Commands, slot: Entity, success: bool) {
+    // Simple flash overlay on top of the skill icon.
+    let (bg, border) = if success {
+        (
+            Color::srgba(1.0, 0.95, 0.55, 0.30),
+            Color::srgba(1.0, 0.92, 0.35, 0.85),
+        )
+    } else {
+        (
+            Color::srgba(1.0, 0.20, 0.20, 0.28),
+            Color::srgba(1.0, 0.30, 0.30, 0.90),
+        )
+    };
+
+    let fx = commands
+        .spawn((
+            ActionCastFx { t: 0.0, success },
+            Name::new("Action Cast FX"),
+            GlobalZIndex(40),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(2.0),
+                top: Val::Px(2.0),
+                right: Val::Px(2.0),
+                bottom: Val::Px(2.0),
+                border: UiRect::all(Val::Px(2.0)),
+                ..default()
+            },
+            BackgroundColor(bg),
+            BorderColor::all(border),
+            BorderRadius::all(Val::Px(6.0)),
+            Transform::default(),
+        ))
+        .id();
+    commands.entity(slot).add_child(fx);
+}
+
+fn animate_action_cast_fx(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut fx: Query<(
+        Entity,
+        &mut ActionCastFx,
+        &mut BackgroundColor,
+        &mut BorderColor,
+        &mut Transform,
+    )>,
+) {
+    const DUR: f32 = 0.22;
+    for (e, mut a, mut bg, mut border, mut tf) in fx.iter_mut() {
+        a.t += time.delta_secs();
+        let p = (a.t / DUR).clamp(0.0, 1.0);
+        let fade = 1.0 - p;
+
+        let (base_bg, base_border) = if a.success {
+            (
+                Color::srgba(1.0, 0.95, 0.55, 0.30),
+                Color::srgba(1.0, 0.92, 0.35, 0.85),
+            )
+        } else {
+            (
+                Color::srgba(1.0, 0.20, 0.20, 0.28),
+                Color::srgba(1.0, 0.30, 0.30, 0.90),
+            )
+        };
+        bg.0.set_alpha(base_bg.alpha() * fade);
+        let mut b = base_border;
+        b.set_alpha(base_border.alpha() * fade);
+        *border = BorderColor::all(b);
+
+        // subtle pop out
+        tf.scale = Vec3::splat(1.0 + p * 0.10);
+
+        if a.t >= DUR {
+            commands.entity(e).despawn();
+        }
     }
 }
 
@@ -777,7 +1048,8 @@ fn update_hud_from_vitals(
             OrbKind::Health => vitals.health,
             OrbKind::Mana => vitals.mana,
         };
-        let s = format!("{:.0}", value.max(0.0));
+        // Show what the player can actually spend (we gate costs on floor(mana)).
+        let s = format!("{:.0}", value.max(0.0).floor());
         for child in children.iter() {
             if let Ok(mut t) = inner_text.get_mut(child) {
                 *t = Text::new(s.clone());

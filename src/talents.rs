@@ -1564,7 +1564,7 @@ fn talent_ui_button_interactions(
     interactions: Query<(Entity, &Interaction, &TalentButton), Changed<Interaction>>,
     reset_btn: Query<&Interaction, (Changed<Interaction>, With<ResetTalentsButton>)>,
     refund_btn: Query<&Interaction, (Changed<Interaction>, With<RefundLastButton>)>,
-    keyboard: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     mut talents: ResMut<TalentsState>,
     mut points: ResMut<TalentPoints>,
     mut selection: ResMut<TalentUiSelection>,
@@ -1583,16 +1583,23 @@ fn talent_ui_button_interactions(
                 }
             }
             Interaction::Pressed => {
-                let shift_refund =
-                    keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
-
-                if shift_refund {
+                // Right-click refunds one rank.
+                if mouse.just_pressed(MouseButton::Right) {
                     let current = talents.rank(btn.id);
                     if current > 0 {
                         talents.set_rank(btn.id, current - 1);
                         points.available = points.available.saturating_add(1);
+                        // Keep refund-last consistent by removing the most recent spend of this id.
+                        if let Some(pos) = talents
+                            .spent_stack
+                            .iter()
+                            .rposition(|&spent| spent == btn.id)
+                        {
+                            talents.spent_stack.remove(pos);
+                        }
                     }
                 } else {
+                    // Left-click invests one rank.
                     let (ok, _reason) = can_invest(&talents, &points, btn.id);
                     if ok {
                         let current = talents.rank(btn.id);
@@ -1813,21 +1820,16 @@ fn update_talent_tooltip(
         format!("Requires: {pr_name}\n")
     });
 
-    let (ok, _) = can_invest(&talents, &points, id);
+    let (_ok, _) = can_invest(&talents, &points, id);
     if let Ok(mut b) = set.p1().single_mut() {
         *b = Text::new(format!(
-            "Rank: {rank}/{max}\n{effect}\nUnlock row: {spent}/{req}\n{prereq}{desc}\n\n{hint}",
+            "Rank: {rank}/{max}\n{effect}\nUnlock row: {spent}/{req}\n{prereq}{desc}",
             max = def.max_rank,
             effect = effect_summary(def, rank),
             spent = spent_in_tree,
             req = tier_req,
             prereq = prereq_line,
             desc = def.description,
-            hint = if ok {
-                "Click to invest | Shift+Click to refund"
-            } else {
-                "Shift+Click to refund"
-            }
         ));
     }
 }
