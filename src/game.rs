@@ -75,12 +75,11 @@ fn deplete_health_on_fall(
     time: Res<Time>,
     disco_mode: Res<DiscoMode>,
 ) {
-    if !disco_mode.0 {
-        if let Ok(player_transform) = player_query.single_mut()
-            && player_transform.translation.y < -10.0
-        {
-            vitals.health = (vitals.health - 25.0 * time.delta_secs()).max(0.0);
-        }
+    if !disco_mode.0
+        && let Ok(player_transform) = player_query.single_mut()
+        && player_transform.translation.y < -10.0
+    {
+        vitals.health = (vitals.health - 25.0 * time.delta_secs()).max(0.0);
     }
 }
 
