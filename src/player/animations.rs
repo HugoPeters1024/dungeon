@@ -144,7 +144,7 @@ pub fn animations_from_controller(
                     ..default()
                 }
             }
-            Falling => {
+            Falling { .. } => {
                 if state_transioned {
                     player
                         .start(clips.landing)

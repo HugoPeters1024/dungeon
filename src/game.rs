@@ -7,7 +7,9 @@ use bevy::post_process::motion_blur::MotionBlur;
 use bevy::{math::Affine2, prelude::*};
 use bevy_hanabi::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
+#[cfg(not(target_arch = "wasm32"))]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_kira_audio::AudioPlugin;
 use bevy_tnua::{TnuaNotPlatform, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
@@ -33,6 +35,7 @@ impl Plugin for GamePlugin {
         app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
         app.add_plugins(EguiPlugin::default());
+        app.add_plugins(AudioPlugin);
 
         #[cfg(not(target_arch = "wasm32"))]
         app.add_plugins(WorldInspectorPlugin::new());
