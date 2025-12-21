@@ -81,6 +81,12 @@ pub struct GameAssets {
 
     #[asset(path = "fall.ogg")]
     pub fall: Handle<AudioSource>,
+
+    #[asset(path = "pickup.mp3")]
+    pub pickup: Handle<AudioSource>,
+
+    #[asset(path = "bones-snap.mp3")]
+    pub death: Handle<AudioSource>,
 }
 
 pub struct AssetPlugin;

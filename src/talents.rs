@@ -1470,6 +1470,16 @@ fn effect_summary(def: &TalentDef, rank: u8) -> String {
                 )
             }
         }
+        TalentEffect::FallDamagePctPerRank(p) => {
+            if rank == 0 {
+                format!("Effect: -{p:.0}% fall damage per rank")
+            } else {
+                format!(
+                    "Effect: -{p:.0}% fall damage per rank (current: -{cur:.0}%)",
+                    cur = p * rank as f32
+                )
+            }
+        }
         TalentEffect::ExtraAirJumpPerRank(n) => {
             if rank == 0 {
                 format!("Effect: +{n} mid-air jump")

@@ -1,17 +1,24 @@
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy_kira_audio::prelude::*;
 
-use crate::assets::MyStates;
+use crate::assets::{GameAssets, MyStates};
 
 pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Vitals>()
-            .add_systems(OnEnter(MyStates::Next), spawn_hud)
+            .init_resource::<GameOver>()
+            .add_systems(OnEnter(MyStates::Next), (spawn_hud, spawn_game_over_ui))
             .add_systems(
                 Update,
-                update_hud_from_vitals.run_if(in_state(MyStates::Next)),
+                (
+                    update_hud_from_vitals,
+                    check_death,
+                    update_game_over_ui,
+                )
+                    .run_if(in_state(MyStates::Next)),
             );
     }
 }
@@ -23,6 +30,9 @@ pub struct Vitals {
     pub mana: f32,
     pub max_mana: f32,
 }
+
+#[derive(Resource, Default)]
+pub struct GameOver(pub bool);
 
 impl Default for Vitals {
     fn default() -> Self {
@@ -403,4 +413,69 @@ fn make_orb_fill_image(size: u32, base: Color) -> Image {
         TextureFormat::Rgba8UnormSrgb,
         bevy::asset::RenderAssetUsages::MAIN_WORLD | bevy::asset::RenderAssetUsages::RENDER_WORLD,
     )
+}
+
+#[derive(Component)]
+struct GameOverUiRoot;
+
+fn spawn_game_over_ui(mut commands: Commands) {
+    commands
+        .spawn((
+            GameOverUiRoot,
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.85)),
+            Visibility::Hidden,
+            ZIndex(1000),
+        ))
+        .with_child((
+            Text::new("GAME OVER"),
+            TextFont {
+                font_size: 120.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.8, 0.1, 0.1)),
+        ))
+        .with_child((
+            Text::new("Your journey ends here..."),
+            TextFont {
+                font_size: 40.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.7, 0.7, 0.7)),
+        ));
+}
+
+fn check_death(
+    vitals: Res<Vitals>,
+    mut game_over: ResMut<GameOver>,
+    assets: Res<GameAssets>,
+    audio: Res<Audio>,
+) {
+    if vitals.health <= 0.0 && !game_over.0 {
+        game_over.0 = true;
+        audio.play(assets.death.clone());
+    }
+}
+
+fn update_game_over_ui(
+    game_over: Res<GameOver>,
+    mut query: Query<&mut Visibility, With<GameOverUiRoot>>,
+) {
+    if game_over.is_changed() {
+        for mut vis in query.iter_mut() {
+            if game_over.0 {
+                *vis = Visibility::Visible;
+            } else {
+                *vis = Visibility::Hidden;
+            }
+        }
+    }
 }

@@ -7,8 +7,11 @@ use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::GameAssets;
-use crate::hud::Vitals;
-use crate::talents::{ClassSelectUiState, EscapeMenuUiState, TalentBonuses, TalentUiState};
+use crate::hud::{GameOver, Vitals};
+use crate::talents::{
+    ClassSelectUiState, EscapeMenuUiState, SelectedTalentClass, TalentBonuses, TalentClass,
+    TalentUiState,
+};
 use bevy_hanabi::prelude::*;
 use bevy_kira_audio::prelude::*;
 
@@ -97,6 +100,9 @@ pub fn pickup_stuff(
     pickups: Query<(Entity, &Transform), With<Pickupable>>,
     assets: Res<GameAssets>,
     time: Res<Time>,
+    mut vitals: ResMut<Vitals>,
+    audio: Res<Audio>,
+    class: Res<SelectedTalentClass>,
 ) {
     for player in players.iter() {
         let mut seen: HashSet<Entity> = HashSet::new();
@@ -106,6 +112,18 @@ pub fn pickup_stuff(
         {
             for other in colliding_entities.iter() {
                 if let Ok((picked_up, picked_up_transform)) = pickups.get(*other) {
+                    // Play pickup sound
+                    audio.play(assets.pickup.clone());
+
+                    // Heal based on class
+                    let heal_amount = match class.0 {
+                        Some(TalentClass::Cleric) => 10.0,
+                        Some(TalentClass::Paladin) => 5.0,
+                        Some(TalentClass::Bard) => 3.0,
+                        None => 2.0,
+                    };
+                    vitals.health = (vitals.health + heal_amount).min(vitals.max_health);
+
                     // Spawn golden particle effect relative to player position
                     commands.spawn((
                         ParticleEffect {
@@ -271,6 +289,7 @@ pub fn update_controller_state(
     mut vitals: ResMut<Vitals>,
     assets: Res<GameAssets>,
     audio: Res<Audio>,
+    game_over: Res<GameOver>,
 ) {
     let jump_action = TnuaBuiltinJump {
         height: 2.5 * bonuses.jump_height_mult,
@@ -278,7 +297,7 @@ pub fn update_controller_state(
         ..default()
     };
 
-    let blocked = ui_state.open || escape_ui.open || class_select_ui.open;
+    let blocked = ui_state.open || escape_ui.open || class_select_ui.open || game_over.0;
 
     for (mut state, sensors, mut air_jump, mut forces) in q.iter_mut() {
         use ControllerState::*;
@@ -401,6 +420,7 @@ pub fn apply_controls(
     escape_ui: Res<EscapeMenuUiState>,
     class_select_ui: Res<ClassSelectUiState>,
     bonuses: Res<TalentBonuses>,
+    game_over: Res<GameOver>,
 ) {
     let Ok((mut controller, state)) = controller_query.single_mut() else {
         return;
@@ -419,7 +439,7 @@ pub fn apply_controls(
     };
     let sprint_factor = sprint_factor * bonuses.sprint_mult;
 
-    let blocked = ui_state.open || escape_ui.open || class_select_ui.open;
+    let blocked = ui_state.open || escape_ui.open || class_select_ui.open || game_over.0;
 
     let mut direction = Vec3::ZERO;
     if !blocked && keyboard.pressed(KeyCode::KeyW) {
