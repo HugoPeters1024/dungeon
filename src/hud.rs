@@ -3,6 +3,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::HashMap;
 
 use crate::assets::MyStates;
+use crate::combat::Damageable;
 use crate::player::controller::{ControllerSensors, PlayerRoot};
 use crate::spells::{SPELL_SLOTS, SpellBar, SpellDef, SpellEffect, spellbar_for_class};
 use crate::talents::{SelectedTalentClass, TalentBonuses, TalentClass};
@@ -49,6 +50,7 @@ impl Plugin for HudPlugin {
                     regen_mana,
                     sync_spellbar_from_class,
                     handle_action_bar_casts,
+                    tick_damage_pools,
                     animate_action_cast_fx,
                     update_hud_from_vitals,
                     animate_action_bar_slots,
@@ -58,6 +60,13 @@ impl Plugin for HudPlugin {
                     .run_if(in_state(MyStates::Next)),
             );
     }
+}
+
+#[derive(Component)]
+struct DamagePoolFx {
+    dps: f32,
+    radius: f32,
+    remaining: f32,
 }
 
 fn sync_spellbar_from_class(
@@ -678,6 +687,10 @@ fn handle_action_bar_casts(
     mut rng: ResMut<SkillCastRng>,
     mut vitals: ResMut<Vitals>,
     mut player: Query<(Forces, Option<&ControllerSensors>), With<PlayerRoot>>,
+    player_tf: Query<&GlobalTransform, With<PlayerRoot>>,
+    mut damageables: Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     bar: Res<ActiveSpellBar>,
     slots: Query<(Entity, &ActionSlotBind), With<ActionSlot>>,
     clicks: Query<
@@ -698,6 +711,10 @@ fn handle_action_bar_casts(
                 &mut rng,
                 &mut vitals,
                 &mut player,
+                &player_tf,
+                &mut damageables,
+                &mut meshes,
+                &mut materials,
                 entity,
                 spells[slot],
             );
@@ -715,6 +732,10 @@ fn handle_action_bar_casts(
                 &mut rng,
                 &mut vitals,
                 &mut player,
+                &player_tf,
+                &mut damageables,
+                &mut meshes,
+                &mut materials,
                 entity,
                 spells[slot],
             );
@@ -722,11 +743,16 @@ fn handle_action_bar_casts(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_cast(
     commands: &mut Commands,
     rng: &mut SkillCastRng,
     vitals: &mut Vitals,
     player: &mut Query<(Forces, Option<&ControllerSensors>), With<PlayerRoot>>,
+    player_tf: &Query<&GlobalTransform, With<PlayerRoot>>,
+    damageables: &mut Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
     slot_entity: Entity,
     spell: SpellDef,
 ) {
@@ -739,8 +765,162 @@ fn try_cast(
     if success {
         vitals.mana = (vitals.mana - spell.mana_cost as f32).max(0.0);
         apply_spell_effect(vitals, player, spell.effect);
+        apply_damage_spell_effect(
+            commands,
+            player,
+            player_tf,
+            damageables,
+            meshes,
+            materials,
+            spell.effect,
+        );
     }
     spawn_cast_fx(commands, slot_entity, success);
+}
+
+fn apply_damage_spell_effect(
+    commands: &mut Commands,
+    player: &mut Query<(Forces, Option<&ControllerSensors>), With<PlayerRoot>>,
+    player_tf: &Query<&GlobalTransform, With<PlayerRoot>>,
+    damageables: &mut Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    effect: SpellEffect,
+) {
+    let Ok(gt) = player_tf.single() else {
+        return;
+    };
+    let origin = gt.translation();
+    let dir = player
+        .single()
+        .ok()
+        .and_then(|(_, s)| s.map(|s| s.facing_direction))
+        .unwrap_or(Vec3::Z)
+        .normalize_or_zero();
+
+    match effect {
+        SpellEffect::ElementalBlast {
+            damage,
+            radius,
+            range,
+        } => {
+            let p = origin + dir * range;
+            deal_damage_in_radius(commands, damageables, p, radius, damage);
+            spawn_blast_vfx(commands, meshes, materials, p, radius);
+        }
+        SpellEffect::DamagePool {
+            dps,
+            radius,
+            duration,
+            range,
+        } => {
+            let p = origin + dir * range;
+            spawn_pool(commands, meshes, materials, p, dps, radius, duration);
+        }
+        _ => {}
+    }
+}
+
+fn deal_damage_in_radius(
+    commands: &mut Commands,
+    damageables: &mut Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    center: Vec3,
+    radius: f32,
+    damage: f32,
+) {
+    let r2 = radius * radius;
+    for (e, gt, mut d) in damageables.iter_mut() {
+        let p = gt.translation();
+        if p.distance_squared(center) <= r2 {
+            d.hp -= damage;
+            if d.hp <= 0.0 {
+                commands.entity(e).despawn();
+            }
+        }
+    }
+}
+
+fn spawn_blast_vfx(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    pos: Vec3,
+    radius: f32,
+) {
+    commands.spawn((
+        Name::new("Elemental Blast VFX"),
+        Mesh3d(meshes.add(Sphere::new(radius * 0.35))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgba(0.30, 0.70, 1.0, 0.35),
+            emissive: LinearRgba::new(2.0, 5.0, 8.0, 1.0),
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            ..default()
+        })),
+        Transform::from_translation(pos),
+        DespawnAfter { t: 0.30 },
+    ));
+}
+
+#[derive(Component)]
+struct DespawnAfter {
+    t: f32,
+}
+
+fn spawn_pool(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    pos: Vec3,
+    dps: f32,
+    radius: f32,
+    duration: f32,
+) {
+    commands.spawn((
+        Name::new("Damage Pool"),
+        DamagePoolFx {
+            dps,
+            radius,
+            remaining: duration,
+        },
+        Mesh3d(meshes.add(Cylinder::new(radius, 0.03))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgba(0.10, 1.0, 0.40, 0.25),
+            emissive: LinearRgba::new(0.5, 4.0, 1.8, 1.0),
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            ..default()
+        })),
+        Transform::from_translation(Vec3::new(pos.x, 0.03, pos.z)),
+    ));
+}
+
+fn tick_damage_pools(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut pools: Query<(Entity, &GlobalTransform, &mut DamagePoolFx)>,
+    mut damageables: Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    mut vfx: Query<(Entity, &mut DespawnAfter)>,
+) {
+    // Tick pool damage
+    let dt = time.delta_secs();
+    for (e, gt, mut pool) in pools.iter_mut() {
+        pool.remaining -= dt;
+        let center = gt.translation();
+        let dmg = pool.dps * dt;
+        deal_damage_in_radius(&mut commands, &mut damageables, center, pool.radius, dmg);
+        if pool.remaining <= 0.0 {
+            commands.entity(e).despawn();
+        }
+    }
+
+    // Tick VFX despawns
+    for (e, mut d) in vfx.iter_mut() {
+        d.t -= dt;
+        if d.t <= 0.0 {
+            commands.entity(e).despawn();
+        }
+    }
 }
 
 fn apply_spell_effect(
@@ -767,6 +947,9 @@ fn apply_spell_effect(
                 }
             }
         }
+        // Damage spells are handled in `handle_action_bar_casts` because they need world queries
+        // (damageables, transforms, meshes/materials). Keeping this match exhaustive for clarity.
+        SpellEffect::ElementalBlast { .. } | SpellEffect::DamagePool { .. } => {}
     }
 }
 

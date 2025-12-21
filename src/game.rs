@@ -14,6 +14,7 @@ use bevy_tnua_avian3d::prelude::*;
 use crate::assets::*;
 use crate::camera::ThirdPersonCameraPlugin;
 use crate::chunks::ChunkObserver;
+use crate::combat::{CombatPlugin, Damageable};
 use crate::hud::HudPlugin;
 use crate::platform::PlatformPath;
 use crate::player::controller::PlayerRoot;
@@ -42,6 +43,7 @@ impl Plugin for GamePlugin {
         app.add_plugins(crate::spawners::SpawnPlugin);
         app.add_plugins(TalentsPlugin);
         app.add_plugins(HudPlugin);
+        app.add_plugins(CombatPlugin);
         app.add_plugins(crate::player::PlayerPlugin);
         app.add_plugins(crate::platform::PlatformPlugin);
         app.add_plugins(crate::chunks::ChunksPlugin);
@@ -125,6 +127,23 @@ fn setup(
             RigidBody::Static,
             //ColliderConstructor::TrimeshFromMesh,
             ColliderConstructor::ConvexHullFromMesh,
+        ));
+    }
+
+    // Training dummies to test damage spells.
+    for i in 0..3 {
+        commands.spawn((
+            Damageable { hp: 100.0 },
+            Mesh3d(meshes.add(Cuboid::new(0.6, 1.4, 0.6))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.40, 0.18, 0.08),
+                perceptual_roughness: 1.0,
+                ..default()
+            })),
+            Transform::from_xyz(2.0 + i as f32 * 1.2, 0.7, 2.5),
+            Name::new(format!("Training Dummy {i}")),
+            RigidBody::Static,
+            Collider::cuboid(0.3, 0.7, 0.3),
         ));
     }
 

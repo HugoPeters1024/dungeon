@@ -11,6 +11,17 @@ pub enum SpellEffect {
     Heal(f32),
     Dash(f32),
     ManaBurst(f32),
+    ElementalBlast {
+        damage: f32,
+        radius: f32,
+        range: f32,
+    },
+    DamagePool {
+        dps: f32,
+        radius: f32,
+        duration: f32,
+        range: f32,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]

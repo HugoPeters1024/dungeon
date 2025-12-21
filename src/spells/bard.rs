@@ -22,7 +22,12 @@ pub fn spellbar() -> SpellBar {
         SpellDef {
             mana_cost: 40,
             icon_index: base + 3,
-            effect: SpellEffect::Dash(6.0),
+            effect: SpellEffect::DamagePool {
+                dps: 18.0,
+                radius: 2.6,
+                duration: 4.0,
+                range: 5.5,
+            },
         },
         SpellDef {
             mana_cost: 28,
@@ -30,9 +35,13 @@ pub fn spellbar() -> SpellBar {
             effect: SpellEffect::ManaBurst(14.0),
         },
         SpellDef {
-            mana_cost: 18,
+            mana_cost: 26,
             icon_index: base + 5,
-            effect: SpellEffect::Dash(3.2),
+            effect: SpellEffect::ElementalBlast {
+                damage: 22.0,
+                radius: 1.4,
+                range: 7.5,
+            },
         },
         SpellDef {
             mana_cost: 30,
