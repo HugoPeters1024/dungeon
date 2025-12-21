@@ -118,6 +118,8 @@ pub enum TalentEffect {
     JumpHeightPctPerRank(f32),
     /// -% extra fall gravity per rank (1.0 means unchanged, lower means floatier)
     FallExtraGravityPctPerRank(f32),
+    /// -% fall damage per rank
+    FallDamagePctPerRank(f32),
     /// +N extra mid-air jumps per rank
     ExtraAirJumpPerRank(u8),
     /// Placeholder (no runtime effect yet)
@@ -197,6 +199,7 @@ pub struct TalentBonuses {
     pub sprint_mult: f32,
     pub jump_height_mult: f32,
     pub fall_extra_gravity_mult: f32,
+    pub fall_damage_mult: f32,
     pub extra_air_jumps: u8,
 }
 
@@ -334,9 +337,9 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Hardened Soles",
         2,
-        "Placeholder: -8% fall damage per rank.",
+        "-8% fall damage per rank.",
         None,
-        TalentEffect::Placeholder,
+        TalentEffect::FallDamagePctPerRank(8.0),
     ),
     t(
         TalentTree::Vigor,
@@ -1857,6 +1860,7 @@ fn recompute_bonuses(talents: Res<TalentsState>, mut bonuses: ResMut<TalentBonus
         sprint_mult: 1.0,
         jump_height_mult: 1.0,
         fall_extra_gravity_mult: 1.0,
+        fall_damage_mult: 1.0,
         extra_air_jumps: 0,
     };
 
@@ -1877,6 +1881,9 @@ fn recompute_bonuses(talents: Res<TalentsState>, mut bonuses: ResMut<TalentBonus
             }
             TalentEffect::FallExtraGravityPctPerRank(p) => {
                 out.fall_extra_gravity_mult *= 1.0 - (p / 100.0) * rank;
+            }
+            TalentEffect::FallDamagePctPerRank(p) => {
+                out.fall_damage_mult *= 1.0 - (p / 100.0) * rank;
             }
             TalentEffect::ExtraAirJumpPerRank(n) => {
                 out.extra_air_jumps = out.extra_air_jumps.saturating_add((n as f32 * rank) as u8);

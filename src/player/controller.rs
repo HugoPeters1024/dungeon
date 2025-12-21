@@ -7,8 +7,10 @@ use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::GameAssets;
+use crate::hud::Vitals;
 use crate::talents::{ClassSelectUiState, EscapeMenuUiState, TalentBonuses, TalentUiState};
 use bevy_hanabi::prelude::*;
+use bevy_kira_audio::prelude::*;
 
 use crate::game::Pickupable;
 
@@ -45,7 +47,9 @@ pub enum ControllerState {
     Idle,
     Moving,
     Jumping(TnuaBuiltinJump),
-    Falling,
+    Falling {
+        max_speed: f32,
+    },
     DropKicking(Timer, Timer),
 }
 
@@ -264,6 +268,9 @@ pub fn update_controller_state(
     class_select_ui: Res<ClassSelectUiState>,
     bonuses: Res<TalentBonuses>,
     time: Res<Time>,
+    mut vitals: ResMut<Vitals>,
+    assets: Res<GameAssets>,
+    audio: Res<Audio>,
 ) {
     let jump_action = TnuaBuiltinJump {
         height: 2.5 * bonuses.jump_height_mult,
@@ -303,7 +310,7 @@ pub fn update_controller_state(
         match state.deref_mut() {
             Moving => {
                 if !sensors.standing_on_ground {
-                    *state = Falling;
+                    *state = Falling { max_speed: 0.0 };
                 }
                 if sensors.running_velocity.length() < 0.1 {
                     *state = Idle;
@@ -326,7 +333,7 @@ pub fn update_controller_state(
                 }
 
                 if !sensors.standing_on_ground {
-                    *state = Falling;
+                    *state = Falling { max_speed: 0.0 };
                 }
 
                 if !blocked && keyboard.just_pressed(KeyCode::Space) {
@@ -346,7 +353,7 @@ pub fn update_controller_state(
                         TnuaBuiltinJumpState::FallSection
                         | TnuaBuiltinJumpState::StoppedMaintainingJump,
                     ) => {
-                        *state = Falling;
+                        *state = Falling { max_speed: 0.0 };
                     }
                     Some(TnuaBuiltinJumpState::NoJump) => {
                         *state = Idle;
@@ -354,8 +361,18 @@ pub fn update_controller_state(
                     _ => {}
                 };
             }
-            Falling => {
+            Falling { max_speed } => {
+                *max_speed = max_speed.max(sensors.actual_velocity.y.abs());
+
                 if sensors.standing_on_ground {
+                    if *max_speed > 10.0 {
+                        let damage = (*max_speed - 10.0) * 5.0 * bonuses.fall_damage_mult;
+                        vitals.health = (vitals.health - damage).max(0.0);
+                        audio.play(assets.fall.clone());
+                    } else if *max_speed > 2.0 {
+                        // Play sound even for small falls, but no damage
+                        audio.play(assets.fall.clone());
+                    }
                     *state = Idle;
                 }
             }

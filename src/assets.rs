@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_asset_loader::prelude::*;
 use bevy_hanabi::prelude::*;
+use bevy_kira_audio::AudioSource;
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
 pub enum MyStates {
@@ -77,6 +78,9 @@ pub struct GameAssets {
     pub fire: Handle<EffectAsset>,
     pub void: Handle<EffectAsset>,
     pub golden_pickup: Handle<EffectAsset>,
+
+    #[asset(path = "fall.ogg")]
+    pub fall: Handle<AudioSource>,
 }
 
 pub struct AssetPlugin;
