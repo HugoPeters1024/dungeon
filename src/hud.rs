@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::assets::{GameAssets, MyStates};
 use crate::camera::ThirdPersonCamera;
-use crate::combat::Damageable;
+use crate::combat::{DamageDealtEvent, Damageable};
 use crate::player::controller::{ControllerSensors, PlayerRoot};
 use crate::spells::{SPELL_SLOTS, SpellBar, SpellDef, SpellEffect, spellbar_for_class};
 use crate::talents::{InfiniteMana, SelectedTalentClass, TalentBonuses, TalentClass};
@@ -832,14 +832,23 @@ fn apply_damage_spell_effect(
             // - Fly along camera aim
             // - Detonate on first contact
             const ORB_MAX_DISTANCE: f32 = 140.0;
+            const ORB_SPAWN_FORWARD: f32 = 0.55;
 
             let (spawn_pos, dir, max_distance) = cam.map_or_else(
                 || {
                     let dir = Vec3::Z;
-                    let spawn_pos = origin + Vec3::Y * 1.1 + aim_dir_xz(dir) * 1.0;
+                    let spawn_pos = origin + Vec3::Y * 1.1 + aim_dir_xz(dir) * ORB_SPAWN_FORWARD;
                     (spawn_pos, dir, ORB_MAX_DISTANCE)
                 },
-                |c| aim_projectile_from_camera(spatial_query, origin, c, ORB_MAX_DISTANCE),
+                |c| {
+                    aim_projectile_from_camera(
+                        spatial_query,
+                        origin,
+                        c,
+                        ORB_MAX_DISTANCE,
+                        ORB_SPAWN_FORWARD,
+                    )
+                },
             );
 
             spawn_elemental_orb(
@@ -963,6 +972,7 @@ fn aim_projectile_from_camera(
     player_origin: Vec3,
     camera: &GlobalTransform,
     max_distance: f32,
+    spawn_forward: f32,
 ) -> (Vec3, Vec3, f32) {
     // Spawn just in front of the character, but direction is based on the camera view.
     let ray_dir: Vec3 = *camera.forward();
@@ -970,7 +980,7 @@ fn aim_projectile_from_camera(
 
     // Keep spawn offset on XZ so pitch doesn't spawn into the player capsule.
     let forward_xz = aim_dir_xz(dir);
-    let spawn_pos = player_origin + Vec3::Y * 1.1 + forward_xz * 1.0;
+    let spawn_pos = player_origin + Vec3::Y * 1.1 + forward_xz * spawn_forward;
 
     // If there's something immediately in front, shrink max travel so it detonates right away.
     let filter = SpatialQueryFilter::default();
@@ -989,6 +999,7 @@ fn tick_elemental_orbs(
     assets: Res<GameAssets>,
     mut orbs: Query<(Entity, &mut Transform, &mut ElementalOrb)>,
     mut damageables: Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    mut damage_events: MessageWriter<DamageDealtEvent>,
 ) {
     let dt = time.delta_secs();
     let filter = SpatialQueryFilter::default();
@@ -1012,7 +1023,14 @@ fn tick_elemental_orbs(
         }
 
         if let Some(p) = explode_at {
-            deal_damage_in_radius(&mut commands, &mut damageables, p, orb.radius, orb.damage);
+            deal_damage_in_radius(
+                &mut commands,
+                &mut damageables,
+                &mut damage_events,
+                p,
+                orb.radius,
+                orb.damage,
+            );
             spawn_blast_vfx(&mut commands, &assets, p);
             commands.entity(e).despawn();
         } else {
@@ -1025,6 +1043,7 @@ fn tick_elemental_orbs(
 fn deal_damage_in_radius(
     commands: &mut Commands,
     damageables: &mut Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    damage_events: &mut MessageWriter<DamageDealtEvent>,
     center: Vec3,
     radius: f32,
     damage: f32,
@@ -1034,6 +1053,11 @@ fn deal_damage_in_radius(
         let p = gt.translation();
         if p.distance_squared(center) <= r2 {
             d.hp -= damage;
+            damage_events.write(DamageDealtEvent {
+                target: e,
+                pos: p,
+                amount: damage,
+            });
             if d.hp <= 0.0 {
                 commands.entity(e).despawn();
             }
@@ -1151,6 +1175,7 @@ fn tick_damage_pools(
     mut pools: Query<(Entity, &GlobalTransform, &mut DamagePoolFx)>,
     mut damageables: Query<(Entity, &GlobalTransform, &mut Damageable)>,
     mut vfx: Query<(Entity, &mut DespawnAfter)>,
+    mut damage_events: MessageWriter<DamageDealtEvent>,
 ) {
     // Tick pool damage
     let dt = time.delta_secs();
@@ -1158,7 +1183,14 @@ fn tick_damage_pools(
         pool.remaining -= dt;
         let center = gt.translation();
         let dmg = pool.dps * dt;
-        deal_damage_in_radius(&mut commands, &mut damageables, center, pool.radius, dmg);
+        deal_damage_in_radius(
+            &mut commands,
+            &mut damageables,
+            &mut damage_events,
+            center,
+            pool.radius,
+            dmg,
+        );
         if pool.remaining <= 0.0 {
             commands.entity(e).despawn();
         }

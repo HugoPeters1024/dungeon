@@ -28,6 +28,7 @@ impl Plugin for PlayerPlugin {
                 pickup_stuff,
                 apply_controls,
                 animations_from_controller,
+                init_looping_player_animations,
                 apply_animation_weights,
             )
                 .chain()

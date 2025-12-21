@@ -36,7 +36,7 @@ fn link_animation_player_for<T: Component>(
             .iter_ancestors(target)
             .find_map(|e| roots.get(e).ok())
         else {
-            return;
+            continue;
         };
 
         commands.entity(target).insert(AnimationPlayerOf(root));

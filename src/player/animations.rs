@@ -41,6 +41,9 @@ impl<T> AnimationsT<T> {
 type AnimationClips = AnimationsT<AnimationNodeIndex>;
 type AnimationWeights = AnimationsT<f32>;
 
+#[derive(Component)]
+pub(crate) struct AnimationInitialized;
+
 #[derive(Debug, Clone)]
 pub enum MovementLock {
     Full,
@@ -66,14 +69,10 @@ pub fn on_animation_player_loaded(
         drop_kick: graph.add_clip(assets.player_clips[8].clone(), 1.0, graph.root),
     };
 
-    let mut player = players.get_mut(on.event_target())?;
-
-    // Play all the loop continious animations
-    player.play(clips.defeated).repeat();
-    player.play(clips.running).repeat();
-    player.play(clips.left_strafe).repeat();
-    player.play(clips.right_strafe).repeat();
-    player.play(clips.walking).repeat();
+    // NOTE: We don't start playing clips here because `Commands` inserts are deferred.
+    // If we call `play()` before `AnimationGraphHandle` is actually present on the entity,
+    // the graph node indices can be effectively "not ready" yet.
+    let _ = players.get_mut(on.event_target())?;
 
     commands
         .entity(on.event_target())
@@ -82,6 +81,26 @@ pub fn on_animation_player_loaded(
         .insert(AnimationWeights::default());
 
     Ok(())
+}
+
+#[allow(clippy::type_complexity)]
+pub(crate) fn init_looping_player_animations(
+    mut commands: Commands,
+    mut q: Query<
+        (Entity, &mut AnimationPlayer, &AnimationClips),
+        (With<AnimationGraphHandle>, Without<AnimationInitialized>),
+    >,
+) {
+    for (e, mut player, clips) in q.iter_mut() {
+        // Start all the continuous loop animations; weights will blend between them.
+        player.play(clips.defeated).repeat();
+        player.play(clips.running).repeat();
+        player.play(clips.left_strafe).repeat();
+        player.play(clips.right_strafe).repeat();
+        player.play(clips.walking).repeat();
+
+        commands.entity(e).insert(AnimationInitialized);
+    }
 }
 
 pub fn animations_from_controller(

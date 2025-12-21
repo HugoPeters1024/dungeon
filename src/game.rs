@@ -26,6 +26,11 @@ pub struct GamePlugin;
 #[derive(Component)]
 pub struct Pickupable;
 
+#[derive(Component, Clone, Copy)]
+struct SnapToGround {
+    half_height: f32,
+}
+
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
@@ -50,6 +55,7 @@ impl Plugin for GamePlugin {
         app.add_plugins(ThirdPersonCameraPlugin);
         app.insert_resource(ClearColor(Color::srgb(0.08, 0.02, 0.02))); // Very dark black background
         app.add_systems(OnEnter(MyStates::Next), setup);
+        app.add_systems(Update, snap_to_ground.run_if(in_state(MyStates::Next)));
     }
 }
 
@@ -131,20 +137,70 @@ fn setup(
     }
 
     // Training dummies to test damage spells.
-    for i in 0..3 {
+    // - A line of normal dummies
+    // - One BIG infinite-HP dummy
+    // - A tight cluster of small dummies for AOE testing
+
+    // Normal line
+    for i in 0..6 {
+        let half_height = 0.7;
         commands.spawn((
-            Damageable { hp: 100.0 },
-            Mesh3d(meshes.add(Cuboid::new(0.6, 1.4, 0.6))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgb(0.40, 0.18, 0.08),
-                perceptual_roughness: 1.0,
-                ..default()
-            })),
-            Transform::from_xyz(2.0 + i as f32 * 1.2, 0.7, 2.5),
+            Damageable { hp: 120.0 },
+            Transform::from_xyz(2.0 + i as f32 * 1.25, 0.7, 2.5),
             Name::new(format!("Training Dummy {i}")),
             RigidBody::Static,
-            Collider::cuboid(0.3, 0.7, 0.3),
+            Collider::cuboid(0.3, half_height, 0.3),
+            SnapToGround { half_height },
+            children![(
+                SceneRoot(assets.player.clone()),
+                Transform::from_scale(Vec3::splat(0.008)),
+            )],
         ));
+    }
+
+    // BIG infinite health dummy (boss target)
+    {
+        let half_height = 1.8;
+        commands.spawn((
+            Damageable { hp: f32::INFINITY },
+            Transform::from_xyz(4.0, 1.8, 7.5),
+            Name::new("BIG Dummy (Infinite HP)"),
+            RigidBody::Static,
+            Collider::cuboid(0.9, half_height, 0.9),
+            SnapToGround { half_height },
+            children![(
+                SceneRoot(assets.player.clone()),
+                Transform::from_scale(Vec3::splat(0.020)),
+            )],
+        ));
+    }
+
+    // AOE test cluster (small targets packed together)
+    {
+        let half_height = 0.45;
+        let base = Vec3::new(-2.5, 0.45, 6.0);
+        let spacing = 0.55;
+        let n = 5;
+        for z in 0..n {
+            for x in 0..n {
+                commands.spawn((
+                    Damageable { hp: 60.0 },
+                    Transform::from_xyz(
+                        base.x + x as f32 * spacing,
+                        base.y,
+                        base.z + z as f32 * spacing,
+                    ),
+                    Name::new(format!("AOE Dummy ({x},{z})")),
+                    RigidBody::Static,
+                    Collider::cuboid(0.22, half_height, 0.22),
+                    SnapToGround { half_height },
+                    children![(
+                        SceneRoot(assets.player.clone()),
+                        Transform::from_scale(Vec3::splat(0.0065)),
+                    )],
+                ));
+            }
+        }
     }
 
     const WIDTH: usize = 5;
@@ -243,4 +299,21 @@ fn setup(
     commands.spawn((SpawnTorch, Transform::from_xyz(2.0, 1.0, 0.0)));
 
     commands.spawn((ParticleEffect::new(assets.void.clone()),));
+}
+
+fn snap_to_ground(
+    mut commands: Commands,
+    spatial_query: SpatialQuery,
+    mut q: Query<(Entity, &mut Transform, &SnapToGround)>,
+) {
+    for (e, mut tf, snap) in q.iter_mut() {
+        // Cast from above downwards to find the terrain/ground under the dummy.
+        let origin = Vec3::new(tf.translation.x, tf.translation.y + 80.0, tf.translation.z);
+        let filter = SpatialQueryFilter::default().with_excluded_entities([e]);
+        if let Some(hit) = spatial_query.cast_ray(origin, Dir3::NEG_Y, 200.0, true, &filter) {
+            let ground_y = origin.y - hit.distance;
+            tf.translation.y = ground_y + snap.half_height;
+            commands.entity(e).remove::<SnapToGround>();
+        }
+    }
 }
