@@ -381,7 +381,7 @@ pub fn update_controller_state(
                 };
             }
             Falling { max_speed } => {
-                *max_speed = max_speed.max(sensors.actual_velocity.y.abs());
+                *max_speed = max_speed.max(sensors.actual_velocity.y.min(0.0).abs());
 
                 if sensors.standing_on_ground {
                     if *max_speed > 10.0 {
