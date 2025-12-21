@@ -20,6 +20,8 @@ use crate::player::controller::PlayerRoot;
 use crate::spawners::*;
 use crate::talents::TalentsPlugin;
 
+use crate::hud::Vitals;
+
 pub struct GamePlugin;
 
 #[derive(Component)]
@@ -48,6 +50,22 @@ impl Plugin for GamePlugin {
         app.add_plugins(ThirdPersonCameraPlugin);
         app.insert_resource(ClearColor(Color::srgb(0.08, 0.02, 0.02))); // Very dark black background
         app.add_systems(OnEnter(MyStates::Next), setup);
+        app.add_systems(
+            Update,
+            deplete_health_on_fall.run_if(in_state(MyStates::Next)),
+        );
+    }
+}
+
+fn deplete_health_on_fall(
+    mut player_query: Query<&Transform, With<PlayerRoot>>,
+    mut vitals: ResMut<Vitals>,
+    time: Res<Time>,
+) {
+    if let Ok(player_transform) = player_query.single_mut()
+        && player_transform.translation.y < -10.0
+    {
+        vitals.health = (vitals.health - 25.0 * time.delta_secs()).max(0.0);
     }
 }
 
