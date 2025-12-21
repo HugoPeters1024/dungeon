@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
 use crate::assets::MyStates;
 
@@ -7,15 +8,28 @@ pub struct TalentsPlugin;
 impl Plugin for TalentsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TalentUiState>()
+            .init_resource::<SelectedTalentClass>()
+            .init_resource::<ClassSelectUiState>()
+            .init_resource::<EscapeMenuUiState>()
             .init_resource::<TalentPoints>()
             .init_resource::<TalentsState>()
             .init_resource::<TalentBonuses>()
             .init_resource::<TalentUiSelection>()
-            .add_systems(OnEnter(MyStates::Next), spawn_talents_ui)
+            .init_resource::<TalentLoadoutStore>()
+            .init_resource::<CursorRestoreState>()
+            .add_systems(
+                OnEnter(MyStates::Next),
+                (spawn_talents_ui, spawn_class_select_ui, spawn_escape_menu_ui),
+            )
             .add_systems(
                 Update,
                 (
+                    enforce_class_selection_flow,
                     toggle_talents_ui,
+                    toggle_escape_menu_ui,
+                    sync_cursor_visibility_with_talents_ui,
+                    refresh_class_dependent_text,
+                    class_pick_button_interactions,
                     talent_ui_button_interactions,
                     update_talent_buttons_visuals,
                     update_details_panel,
@@ -29,6 +43,34 @@ impl Plugin for TalentsPlugin {
 // --- Data model -------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TalentClass {
+    Cleric,
+    Bard,
+    Paladin,
+}
+
+impl TalentClass {
+    pub const ALL: [TalentClass; 3] = [TalentClass::Cleric, TalentClass::Bard, TalentClass::Paladin];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            TalentClass::Cleric => "Cleric",
+            TalentClass::Bard => "Bard",
+            TalentClass::Paladin => "Paladin",
+        }
+    }
+}
+
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct SelectedTalentClass(pub Option<TalentClass>);
+
+impl Default for SelectedTalentClass {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TalentTree {
     Vigor,
     Guile,
@@ -38,13 +80,48 @@ pub enum TalentTree {
 impl TalentTree {
     pub const ALL: [TalentTree; 3] = [TalentTree::Vigor, TalentTree::Guile, TalentTree::Sorcery];
 
-    pub fn title(self) -> &'static str {
+    pub fn debug_title(self) -> &'static str {
         match self {
             TalentTree::Vigor => "Vigor",
             TalentTree::Guile => "Guile",
             TalentTree::Sorcery => "Sorcery",
         }
     }
+}
+
+fn tree_title_for_class(class: TalentClass, tree: TalentTree) -> &'static str {
+    match (class, tree) {
+        // Cleric
+        (TalentClass::Cleric, TalentTree::Vigor) => "Sanctuary",
+        (TalentClass::Cleric, TalentTree::Guile) => "Judgement",
+        (TalentClass::Cleric, TalentTree::Sorcery) => "Wards",
+        // Bard
+        (TalentClass::Bard, TalentTree::Vigor) => "Bladesong",
+        (TalentClass::Bard, TalentTree::Guile) => "Ballads",
+        (TalentClass::Bard, TalentTree::Sorcery) => "Trickery",
+        // Paladin
+        (TalentClass::Paladin, TalentTree::Vigor) => "Devotion",
+        (TalentClass::Paladin, TalentTree::Guile) => "Vengeance",
+        (TalentClass::Paladin, TalentTree::Sorcery) => "Grace",
+    }
+}
+
+fn tree_abbr_for_class(class: TalentClass, tree: TalentTree) -> &'static str {
+    match (class, tree) {
+        (TalentClass::Cleric, TalentTree::Vigor) => "San",
+        (TalentClass::Cleric, TalentTree::Guile) => "Jud",
+        (TalentClass::Cleric, TalentTree::Sorcery) => "Wrd",
+        (TalentClass::Bard, TalentTree::Vigor) => "Bld",
+        (TalentClass::Bard, TalentTree::Guile) => "Bal",
+        (TalentClass::Bard, TalentTree::Sorcery) => "Trk",
+        (TalentClass::Paladin, TalentTree::Vigor) => "Dev",
+        (TalentClass::Paladin, TalentTree::Guile) => "Ven",
+        (TalentClass::Paladin, TalentTree::Sorcery) => "Gra",
+    }
+}
+
+fn talent_display_name(class: TalentClass, def: &TalentDef) -> String {
+    format!("{} {}", tree_abbr_for_class(class, def.id.tree), def.name)
 }
 
 /// 0-based tier index (tier 0 == "Row 1" in WoW UI).
@@ -85,12 +162,15 @@ pub struct TalentDef {
     pub effect: TalentEffect,
 }
 
-pub const TIERS_PER_TREE: u8 = 8;
+pub const TIERS_PER_TREE: u8 = 7;
 pub const SLOTS_PER_TIER: u8 = 2;
 
 /// Classic-style tier requirements: tier 0 => 0 points, tier 1 => 5 points, ..., tier 7 => 35.
 pub fn required_points_for_tier(tier: Tier) -> u8 {
-    tier.saturating_mul(5)
+    // We moved to a more "modern WoW" feel with fewer rows and fewer ranks per talent,
+    // so the classic 5-points-per-row gating makes higher rows unreachable.
+    // New gating: 0, 3, 6, 9, 12, 15, 18 ...
+    tier.saturating_mul(3)
 }
 
 /// A “level 60” style placeholder budget so you can actually play with the tree right now.
@@ -105,7 +185,7 @@ impl Default for TalentPoints {
     }
 }
 
-#[derive(Resource, Debug, Default)]
+#[derive(Resource, Debug, Default, Clone)]
 pub struct TalentsState {
     ranks: std::collections::HashMap<TalentId, u8>,
     // For quick “undo”/refund behavior
@@ -154,12 +234,36 @@ pub struct TalentUiState {
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy)]
+pub struct ClassSelectUiState {
+    pub open: bool,
+}
+
+#[derive(Resource, Debug, Default, Clone, Copy)]
+pub struct EscapeMenuUiState {
+    pub open: bool,
+}
+
+#[derive(Resource, Debug, Default, Clone, Copy)]
+struct CursorRestoreState {
+    has_saved: bool,
+    visible: bool,
+    grab_mode: CursorGrabMode,
+    hit_test: bool,
+}
+
+#[derive(Resource, Debug, Default, Clone, Copy)]
 pub struct TalentUiSelection {
     pub hovered: Option<TalentId>,
 }
 
 #[derive(Component)]
 struct TalentUiRoot;
+
+#[derive(Component)]
+struct ClassSelectUiRoot;
+
+#[derive(Component)]
+struct EscapeMenuUiRoot;
 
 #[derive(Component)]
 struct TalentButton {
@@ -169,6 +273,16 @@ struct TalentButton {
 #[derive(Component)]
 struct TalentRankText {
     id: TalentId,
+}
+
+#[derive(Component)]
+struct TalentNameText {
+    id: TalentId,
+}
+
+#[derive(Component)]
+struct TreeTitleText {
+    tree: TalentTree,
 }
 
 #[derive(Component)]
@@ -186,6 +300,22 @@ struct ResetTalentsButton;
 #[derive(Component)]
 struct RefundLastButton;
 
+#[derive(Component)]
+struct ClassPickButton {
+    class: TalentClass,
+}
+
+#[derive(Component)]
+struct SelectedClassText;
+
+#[derive(Component)]
+struct EscapeMenuTitleText;
+
+#[derive(Resource, Debug, Default)]
+struct TalentLoadoutStore {
+    by_class: std::collections::HashMap<TalentClass, (TalentsState, TalentPoints)>,
+}
+
 // --- Talent definitions -----------------------------------------------------
 
 pub const TALENTS: &[TalentDef] = &[
@@ -195,18 +325,18 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         0,
         "Fleet Footing",
-        5,
-        "+2% movement speed per rank.",
+        3,
+        "+4% movement speed per rank.",
         None,
-        TalentEffect::MoveSpeedPctPerRank(2.0),
+        TalentEffect::MoveSpeedPctPerRank(4.0),
     ),
     t(
         TalentTree::Vigor,
         0,
         1,
         "Firm Stance",
-        5,
-        "Placeholder: +1% resistance to knockback per rank.",
+        3,
+        "Placeholder: +3% resistance to knockback per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -215,10 +345,10 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         0,
         "Longstrider",
-        3,
-        "+3% sprint effectiveness per rank.",
+        2,
+        "+7% sprint effectiveness per rank.",
         None,
-        TalentEffect::SprintPctPerRank(3.0),
+        TalentEffect::SprintPctPerRank(7.0),
     ),
     t(
         TalentTree::Vigor,
@@ -226,7 +356,7 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Hardened Soles",
         2,
-        "Placeholder: -5% fall damage per rank.",
+        "Placeholder: -8% fall damage per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -235,18 +365,18 @@ pub const TALENTS: &[TalentDef] = &[
         2,
         0,
         "Spring Heels",
-        5,
-        "+3% jump height per rank.",
+        3,
+        "+7% jump height per rank.",
         None,
-        TalentEffect::JumpHeightPctPerRank(3.0),
+        TalentEffect::JumpHeightPctPerRank(7.0),
     ),
     t(
         TalentTree::Vigor,
         2,
         1,
         "Oaken Bones",
-        3,
-        "Placeholder: +2% max health per rank.",
+        2,
+        "Placeholder: +5% max health per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -256,7 +386,7 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         "Road-Worn Breath",
         2,
-        "Placeholder: +5% stamina regen per rank.",
+        "Placeholder: +8% stamina regen per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -265,18 +395,18 @@ pub const TALENTS: &[TalentDef] = &[
         3,
         1,
         "Sure Landing",
-        3,
-        "Slightly floatier falls: -4% fall extra gravity per rank.",
+        2,
+        "Floatier falls: -8% fall extra gravity per rank.",
         None,
-        TalentEffect::FallExtraGravityPctPerRank(4.0),
+        TalentEffect::FallExtraGravityPctPerRank(8.0),
     ),
     t(
         TalentTree::Vigor,
         4,
         0,
         "Brutal Timing",
-        3,
-        "Placeholder: +1% crit chance per rank.",
+        2,
+        "Placeholder: +2% crit chance per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -286,7 +416,7 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Iron Rhythm",
         2,
-        "Placeholder: +3% attack speed per rank.",
+        "Placeholder: +6% attack speed per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -296,13 +426,13 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         "Giant's Step",
         1,
-        "Requires Fleet Footing. +5% movement speed.",
+        "Requires Fleet Footing. +10% movement speed.",
         Some(TalentId {
             tree: TalentTree::Vigor,
             tier: 0,
             slot: 0,
         }),
-        TalentEffect::MoveSpeedPctPerRank(5.0),
+        TalentEffect::MoveSpeedPctPerRank(10.0),
     ),
     t(
         TalentTree::Vigor,
@@ -320,7 +450,7 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         "Relentless Pursuit",
         2,
-        "Placeholder: after sprinting, keep +5% speed for 2s.",
+        "Placeholder: after sprinting, keep +10% speed for 2s.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -330,33 +460,13 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Hoplite's Leap",
         1,
-        "Requires Spring Heels. +10% jump height.",
+        "Requires Spring Heels. +18% jump height.",
         Some(TalentId {
             tree: TalentTree::Vigor,
             tier: 2,
             slot: 0,
         }),
-        TalentEffect::JumpHeightPctPerRank(10.0),
-    ),
-    t(
-        TalentTree::Vigor,
-        7,
-        0,
-        "Veteran's Gait",
-        1,
-        "Placeholder: +15% out-of-combat speed.",
-        None,
-        TalentEffect::Placeholder,
-    ),
-    t(
-        TalentTree::Vigor,
-        7,
-        1,
-        "Unbroken",
-        1,
-        "Placeholder: +1 free death save.",
-        None,
-        TalentEffect::Placeholder,
+        TalentEffect::JumpHeightPctPerRank(18.0),
     ),
     // GUILE (control + tricks)
     t(
@@ -364,18 +474,18 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         0,
         "Lightstep",
-        5,
-        "+1% movement speed per rank.",
+        3,
+        "+3% movement speed per rank.",
         None,
-        TalentEffect::MoveSpeedPctPerRank(1.0),
+        TalentEffect::MoveSpeedPctPerRank(3.0),
     ),
     t(
         TalentTree::Guile,
         0,
         1,
         "Quick Fingers",
-        5,
-        "Placeholder: +2% pickup speed per rank.",
+        3,
+        "Placeholder: +6% pickup speed per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -384,8 +494,8 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         0,
         "Duskwalker",
-        3,
-        "Placeholder: +3% stealth effectiveness per rank.",
+        2,
+        "Placeholder: +8% stealth effectiveness per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -395,7 +505,7 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Dirty Tricks",
         2,
-        "Placeholder: +5% stun duration per rank.",
+        "Placeholder: +10% stun duration per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -404,28 +514,28 @@ pub const TALENTS: &[TalentDef] = &[
         2,
         0,
         "Short Fuse",
-        5,
-        "+2% sprint effectiveness per rank.",
+        3,
+        "+5% sprint effectiveness per rank.",
         None,
-        TalentEffect::SprintPctPerRank(2.0),
+        TalentEffect::SprintPctPerRank(5.0),
     ),
     t(
         TalentTree::Guile,
         2,
         1,
         "Catfall",
-        3,
-        "Slightly floatier falls: -3% fall extra gravity per rank.",
+        2,
+        "Floatier falls: -8% fall extra gravity per rank.",
         None,
-        TalentEffect::FallExtraGravityPctPerRank(3.0),
+        TalentEffect::FallExtraGravityPctPerRank(8.0),
     ),
     t(
         TalentTree::Guile,
         3,
         0,
         "Opportunist",
-        3,
-        "Placeholder: +1% bonus damage vs distracted enemies per rank.",
+        2,
+        "Placeholder: +4% bonus damage vs distracted enemies per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -435,7 +545,7 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Fast Climb",
         2,
-        "Placeholder: +6% climb speed per rank.",
+        "Placeholder: +12% climb speed per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -445,7 +555,7 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         "Swift Reprisal",
         2,
-        "Placeholder: after dodging, +3% speed for 2s per rank.",
+        "Placeholder: after dodging, +8% speed for 2s per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -455,7 +565,7 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Shadow Breath",
         2,
-        "Placeholder: +5% stamina regen in darkness per rank.",
+        "Placeholder: +10% stamina regen in darkness per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -465,13 +575,13 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         "Prowler's Pace",
         1,
-        "Requires Lightstep. +4% movement speed.",
+        "Requires Lightstep. +9% movement speed.",
         Some(TalentId {
             tree: TalentTree::Guile,
             tier: 0,
             slot: 0,
         }),
-        TalentEffect::MoveSpeedPctPerRank(4.0),
+        TalentEffect::MoveSpeedPctPerRank(9.0),
     ),
     t(
         TalentTree::Guile,
@@ -489,7 +599,7 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         "Slipstream",
         2,
-        "Placeholder: while sprinting, +3% jump height per rank.",
+        "Placeholder: while sprinting, +7% jump height per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -499,33 +609,13 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Featherfall",
         1,
-        "Requires Catfall. -10% fall extra gravity.",
+        "Requires Catfall. -18% fall extra gravity.",
         Some(TalentId {
             tree: TalentTree::Guile,
             tier: 2,
             slot: 1,
         }),
-        TalentEffect::FallExtraGravityPctPerRank(10.0),
-    ),
-    t(
-        TalentTree::Guile,
-        7,
-        0,
-        "Ghostfoot",
-        1,
-        "Placeholder: +20% speed for 1s after taking damage.",
-        None,
-        TalentEffect::Placeholder,
-    ),
-    t(
-        TalentTree::Guile,
-        7,
-        1,
-        "Master Thief",
-        1,
-        "Placeholder: can pick locked chests.",
-        None,
-        TalentEffect::Placeholder,
+        TalentEffect::FallExtraGravityPctPerRank(18.0),
     ),
     // SORCERY (mystic mobility)
     t(
@@ -533,8 +623,8 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         0,
         "Arcane Poise",
-        5,
-        "Placeholder: +1% mana regen per rank.",
+        3,
+        "Placeholder: +4% mana regen per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -543,20 +633,20 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         1,
         "Warded Boots",
-        5,
-        "+1% jump height per rank.",
+        3,
+        "+4% jump height per rank.",
         None,
-        TalentEffect::JumpHeightPctPerRank(1.0),
+        TalentEffect::JumpHeightPctPerRank(4.0),
     ),
     t(
         TalentTree::Sorcery,
         1,
         0,
         "Spellrunner",
-        3,
-        "+2% movement speed per rank.",
+        2,
+        "+7% movement speed per rank.",
         None,
-        TalentEffect::MoveSpeedPctPerRank(2.0),
+        TalentEffect::MoveSpeedPctPerRank(7.0),
     ),
     t(
         TalentTree::Sorcery,
@@ -564,27 +654,27 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Soft Descent",
         2,
-        "Slightly floatier falls: -5% fall extra gravity per rank.",
+        "Floatier falls: -10% fall extra gravity per rank.",
         None,
-        TalentEffect::FallExtraGravityPctPerRank(5.0),
+        TalentEffect::FallExtraGravityPctPerRank(10.0),
     ),
     t(
         TalentTree::Sorcery,
         2,
         0,
         "Flicker Step",
-        5,
-        "+2% sprint effectiveness per rank.",
+        3,
+        "+5% sprint effectiveness per rank.",
         None,
-        TalentEffect::SprintPctPerRank(2.0),
+        TalentEffect::SprintPctPerRank(5.0),
     ),
     t(
         TalentTree::Sorcery,
         2,
         1,
         "Aerial Ward",
-        3,
-        "Placeholder: -2% air control penalty per rank.",
+        2,
+        "Placeholder: -6% air control penalty per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -593,10 +683,10 @@ pub const TALENTS: &[TalentDef] = &[
         3,
         0,
         "Boundless Leap",
-        3,
-        "+4% jump height per rank.",
+        2,
+        "+9% jump height per rank.",
         None,
-        TalentEffect::JumpHeightPctPerRank(4.0),
+        TalentEffect::JumpHeightPctPerRank(9.0),
     ),
     t(
         TalentTree::Sorcery,
@@ -604,7 +694,7 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Leyline Stride",
         2,
-        "Placeholder: +5% speed while near shrines per rank.",
+        "Placeholder: +10% speed while near shrines per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -634,13 +724,13 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         "Blinkrunner",
         1,
-        "Requires Flicker Step. +6% sprint effectiveness.",
+        "Requires Flicker Step. +14% sprint effectiveness.",
         Some(TalentId {
             tree: TalentTree::Sorcery,
             tier: 2,
             slot: 0,
         }),
-        TalentEffect::SprintPctPerRank(6.0),
+        TalentEffect::SprintPctPerRank(14.0),
     ),
     t(
         TalentTree::Sorcery,
@@ -648,13 +738,13 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Skyhook",
         1,
-        "Requires Boundless Leap. +12% jump height.",
+        "Requires Boundless Leap. +20% jump height.",
         Some(TalentId {
             tree: TalentTree::Sorcery,
             tier: 3,
             slot: 0,
         }),
-        TalentEffect::JumpHeightPctPerRank(12.0),
+        TalentEffect::JumpHeightPctPerRank(20.0),
     ),
     t(
         TalentTree::Sorcery,
@@ -662,7 +752,7 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         "Slip of Time",
         2,
-        "Placeholder: +3% cooldown recovery per rank.",
+        "Placeholder: +7% cooldown recovery per rank.",
         None,
         TalentEffect::Placeholder,
     ),
@@ -672,29 +762,9 @@ pub const TALENTS: &[TalentDef] = &[
         1,
         "Feathered Sigil",
         2,
-        "Slightly floatier falls: -4% fall extra gravity per rank.",
+        "Floatier falls: -8% fall extra gravity per rank.",
         None,
-        TalentEffect::FallExtraGravityPctPerRank(4.0),
-    ),
-    t(
-        TalentTree::Sorcery,
-        7,
-        0,
-        "Archmage's Stride",
-        1,
-        "Placeholder: +15% cast speed.",
-        None,
-        TalentEffect::Placeholder,
-    ),
-    t(
-        TalentTree::Sorcery,
-        7,
-        1,
-        "Starsong",
-        1,
-        "Placeholder: your footsteps leave stardust.",
-        None,
-        TalentEffect::Placeholder,
+        TalentEffect::FallExtraGravityPctPerRank(8.0),
     ),
 ];
 
@@ -732,10 +802,17 @@ fn talent_def_by_slot(tree: TalentTree, tier: Tier, slot: Slot) -> Option<&'stat
 fn toggle_talents_ui(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut ui_state: ResMut<TalentUiState>,
+    class: Res<SelectedTalentClass>,
+    class_select_ui: Res<ClassSelectUiState>,
+    escape_ui: Res<EscapeMenuUiState>,
     root: Query<Entity, With<TalentUiRoot>>,
     mut commands: Commands,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyT) {
+        return;
+    }
+    // Don't allow opening talents until a class is selected, and don't open on top of Escape.
+    if class.0.is_none() || class_select_ui.open || escape_ui.open {
         return;
     }
     ui_state.open = !ui_state.open;
@@ -747,6 +824,84 @@ fn toggle_talents_ui(
             Visibility::Hidden
         };
         commands.entity(root).insert(vis);
+    }
+}
+
+fn toggle_escape_menu_ui(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut escape_ui: ResMut<EscapeMenuUiState>,
+    mut talents_ui: ResMut<TalentUiState>,
+    class_select_ui: Res<ClassSelectUiState>,
+    root: Query<Entity, With<EscapeMenuUiRoot>>,
+    talents_root: Query<Entity, With<TalentUiRoot>>,
+    mut commands: Commands,
+) {
+    if !keyboard.just_pressed(KeyCode::Escape) {
+        return;
+    }
+
+    // Priority: if the talents menu is open, Esc closes it (and does NOT open the escape menu).
+    if talents_ui.open {
+        talents_ui.open = false;
+        if let Some(troot) = talents_root.iter().next() {
+            commands.entity(troot).insert(Visibility::Hidden);
+        }
+        return;
+    }
+
+    // Forced class selection: Escape doesn't bypass it.
+    if class_select_ui.open {
+        return;
+    }
+
+    escape_ui.open = !escape_ui.open;
+
+    // If opening escape menu, ensure talents UI is closed.
+    if escape_ui.open {
+        talents_ui.open = false;
+        if let Some(troot) = talents_root.iter().next() {
+            commands.entity(troot).insert(Visibility::Hidden);
+        }
+    }
+
+    if let Some(root) = root.iter().next() {
+        commands.entity(root).insert(if escape_ui.open {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        });
+    }
+}
+
+fn sync_cursor_visibility_with_talents_ui(
+    ui_state: Res<TalentUiState>,
+    class_select_ui: Res<ClassSelectUiState>,
+    escape_ui: Res<EscapeMenuUiState>,
+    mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>,
+    mut restore: ResMut<CursorRestoreState>,
+) {
+    let Ok(mut cursor) = cursor.single_mut() else {
+        return;
+    };
+
+    // Ensure the cursor is visible when the talent menu is open (so UI is usable),
+    // but restore the previous cursor state when closing.
+    let any_ui_open = ui_state.open || class_select_ui.open || escape_ui.open;
+    if any_ui_open {
+        if !restore.has_saved {
+            restore.has_saved = true;
+            restore.visible = cursor.visible;
+            restore.grab_mode = cursor.grab_mode;
+            restore.hit_test = cursor.hit_test;
+        }
+        cursor.visible = true;
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.hit_test = true;
+    } else if restore.has_saved {
+        cursor.visible = restore.visible;
+        cursor.grab_mode = restore.grab_mode;
+        cursor.hit_test = restore.hit_test;
+        *restore = CursorRestoreState::default();
     }
 }
 
@@ -820,6 +975,19 @@ fn spawn_talents_ui(mut commands: Commands) {
         ))
         .id();
 
+    let class_label = commands
+        .spawn((
+            SelectedClassText,
+            Name::new("Talents Current Class Text"),
+            Text::new("Class: —"),
+            TextFont {
+                font_size: 16.0,
+                ..default()
+            },
+            TextColor(ink),
+        ))
+        .id();
+
     let points = commands
         .spawn((
             TalentPointsText,
@@ -834,6 +1002,7 @@ fn spawn_talents_ui(mut commands: Commands) {
         .id();
 
     commands.entity(header).add_child(title);
+    commands.entity(header).add_child(class_label);
     commands.entity(header).add_child(points);
     commands.entity(panel).add_child(header);
 
@@ -984,10 +1153,12 @@ fn spawn_talents_ui(mut commands: Commands) {
     commands.entity(details).add_child(controls_row);
 
     // Build each tree column with 8 tiers.
+    // Initial text is “Paladin”; a later system refreshes it from SelectedTalentClass.
+    let default_class = TalentClass::Paladin;
     for tree in TalentTree::ALL {
         let tree_col = commands
             .spawn((
-                Name::new(format!("Tree: {}", tree.title())),
+                Name::new(format!("Tree: {}", tree.debug_title())),
                 Node {
                     width: Val::Px(226.0),
                     height: Val::Percent(100.0),
@@ -1005,7 +1176,8 @@ fn spawn_talents_ui(mut commands: Commands) {
 
         // Tree title
         commands.entity(tree_col).with_child((
-            Text::new(tree.title()),
+            TreeTitleText { tree },
+            Text::new(tree_title_for_class(default_class, tree)),
             TextFont {
                 font_size: 18.0,
                 ..default()
@@ -1060,7 +1232,8 @@ fn spawn_talents_ui(mut commands: Commands) {
 
                 let name = commands
                     .spawn((
-                        Text::new(def.name),
+                        TalentNameText { id: def.id },
+                        Text::new(talent_display_name(default_class, def)),
                         TextFont {
                             font_size: 11.0,
                             ..default()
@@ -1086,6 +1259,51 @@ fn spawn_talents_ui(mut commands: Commands) {
                 commands.entity(tier_row).add_child(button);
             }
         }
+    }
+}
+
+fn refresh_class_dependent_text(
+    selected: Res<SelectedTalentClass>,
+    escape_ui: Res<EscapeMenuUiState>,
+    mut set: ParamSet<(
+        Query<&mut Text, With<EscapeMenuTitleText>>,
+        Query<&mut Text, With<SelectedClassText>>,
+        Query<(&TreeTitleText, &mut Text)>,
+        Query<(&TalentNameText, &mut Text)>,
+    )>,
+) {
+    if !selected.is_changed() && !escape_ui.is_changed() {
+        return;
+    }
+
+    let class = selected.0.unwrap_or(TalentClass::Paladin);
+    if let Ok(mut t) = set.p1().single_mut() {
+        if let Some(sel) = selected.0 {
+            *t = Text::new(format!("Class: {}", sel.title()));
+        } else {
+            *t = Text::new("Class: —");
+        }
+    }
+
+    if selected.is_changed() || escape_ui.is_changed() {
+        if let Ok(mut t) = set.p0().single_mut() {
+            if let Some(sel) = selected.0 {
+                *t = Text::new(format!("Menu — Class: {}", sel.title()));
+            } else {
+                *t = Text::new("Menu — Class: —");
+            }
+        }
+    }
+
+    for (tt, mut text) in set.p2().iter_mut() {
+        *text = Text::new(tree_title_for_class(class, tt.tree));
+    }
+
+    for (tn, mut text) in set.p3().iter_mut() {
+        let Some(def) = talent_def(tn.id) else {
+            continue;
+        };
+        *text = Text::new(talent_display_name(class, def));
     }
 }
 
@@ -1185,12 +1403,14 @@ fn talent_ui_button_interactions(
 fn update_talent_buttons_visuals(
     talents: Res<TalentsState>,
     points: Res<TalentPoints>,
-    mut points_text: Query<&mut Text, With<TalentPointsText>>,
     mut buttons: Query<(&TalentButton, &mut BackgroundColor, &mut BorderColor)>,
-    mut rank_texts: Query<(&TalentRankText, &mut Text)>,
+    mut set: ParamSet<(
+        Query<&mut Text, With<TalentPointsText>>,
+        Query<(&TalentRankText, &mut Text)>,
+    )>,
 ) {
     let spent = talents.total_points_spent();
-    if let Ok(mut t) = points_text.single_mut() {
+    if let Ok(mut t) = set.p0().single_mut() {
         *t = Text::new(format!("Points: {} (spent: {})", points.available, spent));
     }
 
@@ -1217,7 +1437,7 @@ fn update_talent_buttons_visuals(
         }
     }
 
-    for (rt, mut text) in rank_texts.iter_mut() {
+    for (rt, mut text) in set.p1().iter_mut() {
         let Some(def) = talent_def(rt.id) else {
             continue;
         };
@@ -1230,8 +1450,11 @@ fn update_details_panel(
     selection: Res<TalentUiSelection>,
     talents: Res<TalentsState>,
     points: Res<TalentPoints>,
-    mut name: Query<&mut Text, With<TalentDetailsName>>,
-    mut body: Query<&mut Text, With<TalentDetailsBody>>,
+    selected_class: Res<SelectedTalentClass>,
+    mut set: ParamSet<(
+        Query<&mut Text, With<TalentDetailsName>>,
+        Query<&mut Text, With<TalentDetailsBody>>,
+    )>,
 ) {
     let Some(id) = selection.hovered else {
         return;
@@ -1240,34 +1463,381 @@ fn update_details_panel(
         return;
     };
 
-    if let Ok(mut n) = name.single_mut() {
-        *n = Text::new(def.name);
+    let class = selected_class.0.unwrap_or(TalentClass::Paladin);
+    if let Ok(mut n) = set.p0().single_mut() {
+        *n = Text::new(talent_display_name(class, def));
     }
 
     let rank = talents.rank(id);
     let spent_in_tree = talents.points_spent_in_tree(id.tree);
     let tier_req = required_points_for_tier(id.tier);
-    let (ok, reason) = can_invest(&talents, &points, id);
+    let (ok, _reason) = can_invest(&talents, &points, id);
 
     let prereq_line = def.prereq.map_or(String::new(), |pr| {
-        let pr_name = talent_def(pr).map(|d| d.name).unwrap_or("Unknown");
-        format!("Prereq: {pr_name}\n")
+        let pr_name = talent_def(pr)
+            .map(|d| talent_display_name(class, d))
+            .unwrap_or_else(|| "Unknown".to_string());
+        format!("Requires: {pr_name}\n")
     });
 
-    let status = if ok { "Available" } else { reason };
+    let effect_line = effect_summary(def, rank);
+    let next_line = next_rank_summary(&talents, &points, def, id);
 
-    if let Ok(mut b) = body.single_mut() {
+    if let Ok(mut b) = set.p1().single_mut() {
         *b = Text::new(format!(
-            "{tree} — Row {row}\nRank: {rank}/{max}\nSpent in tree: {spent}/{req}+ (to unlock row)\n{prereq}{desc}\n\nStatus: {status}\n\nTips:\n- Click: invest\n- Shift+Click: refund",
-            tree = def.id.tree.title(),
-            row = def.id.tier + 1,
+            "Rank: {rank}/{max}\n{effect}\n{next}\nUnlock row: {spent}/{req}\n{prereq}{desc}\n\n{hint}",
             max = def.max_rank,
+            effect = effect_line,
+            next = next_line,
             spent = spent_in_tree,
             req = tier_req,
             prereq = prereq_line,
             desc = def.description,
-            status = status
+            hint = if ok {
+                "Click to invest • Shift+Click to refund"
+            } else {
+                "Shift+Click to refund"
+            }
         ));
+    }
+}
+
+fn effect_summary(def: &TalentDef, rank: u8) -> String {
+    match def.effect {
+        TalentEffect::MoveSpeedPctPerRank(p) => {
+            if rank == 0 {
+                format!("Effect: +{p:.0}% movement speed per rank")
+            } else {
+                format!(
+                    "Effect: +{p:.0}% move speed per rank (current: +{cur:.0}%)",
+                    cur = p * rank as f32
+                )
+            }
+        }
+        TalentEffect::SprintPctPerRank(p) => {
+            if rank == 0 {
+                format!("Effect: +{p:.0}% sprint effectiveness per rank")
+            } else {
+                format!(
+                    "Effect: +{p:.0}% sprint per rank (current: +{cur:.0}%)",
+                    cur = p * rank as f32
+                )
+            }
+        }
+        TalentEffect::JumpHeightPctPerRank(p) => {
+            if rank == 0 {
+                format!("Effect: +{p:.0}% jump height per rank")
+            } else {
+                format!(
+                    "Effect: +{p:.0}% jump per rank (current: +{cur:.0}%)",
+                    cur = p * rank as f32
+                )
+            }
+        }
+        TalentEffect::FallExtraGravityPctPerRank(p) => {
+            if rank == 0 {
+                format!("Effect: -{p:.0}% fall gravity per rank (floatier)")
+            } else {
+                format!(
+                    "Effect: -{p:.0}% fall gravity per rank (current: -{cur:.0}%)",
+                    cur = p * rank as f32
+                )
+            }
+        }
+        TalentEffect::Placeholder => "Effect: (placeholder)".to_string(),
+    }
+}
+
+fn next_rank_summary(
+    talents: &TalentsState,
+    points: &TalentPoints,
+    def: &TalentDef,
+    id: TalentId,
+) -> String {
+    let rank = talents.rank(id);
+    if rank >= def.max_rank {
+        return "Next: (maxed)".to_string();
+    }
+    let (ok, _reason) = can_invest(talents, points, id);
+    if !ok {
+        return "Next: (locked)".to_string();
+    }
+    match def.effect {
+        TalentEffect::MoveSpeedPctPerRank(p) => format!("Next: +{p:.0}% move speed"),
+        TalentEffect::SprintPctPerRank(p) => format!("Next: +{p:.0}% sprint effectiveness"),
+        TalentEffect::JumpHeightPctPerRank(p) => format!("Next: +{p:.0}% jump height"),
+        TalentEffect::FallExtraGravityPctPerRank(p) => format!("Next: -{p:.0}% fall gravity"),
+        TalentEffect::Placeholder => "Next: (placeholder)".to_string(),
+    }
+}
+
+// --- Class selection + Escape menu -----------------------------------------
+
+fn spawn_class_select_ui(mut commands: Commands) {
+    let overlay = Color::srgba(0.02, 0.02, 0.02, 0.82);
+    let parchment = Color::srgb(0.90, 0.85, 0.72);
+    let wood = Color::srgb(0.22, 0.13, 0.08);
+    let ink = Color::srgb(0.08, 0.05, 0.03);
+    let gold = Color::srgb(0.78, 0.67, 0.30);
+
+    commands
+        .spawn((
+            ClassSelectUiRoot,
+            Name::new("Class Select UI Root"),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(overlay),
+            Visibility::Hidden,
+        ))
+        .with_child((
+            Name::new("Class Select Panel"),
+            Node {
+                width: Val::Px(560.0),
+                height: Val::Px(320.0),
+                padding: UiRect::all(Val::Px(18.0)),
+                border: UiRect::all(Val::Px(3.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(16.0),
+                ..default()
+            },
+            BackgroundColor(parchment),
+            BorderColor::all(wood),
+            children![
+                (
+                    Text::new("Choose Your Calling"),
+                    TextFont {
+                        font_size: 28.0,
+                        ..default()
+                    },
+                    TextColor(ink),
+                ),
+                (
+                    Text::new("You must choose a class before entering the dungeon."),
+                    TextFont {
+                        font_size: 14.0,
+                        ..default()
+                    },
+                    TextColor(ink),
+                ),
+                (
+                    Name::new("Class Select Buttons"),
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Px(60.0),
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(10.0),
+                        ..default()
+                    },
+                    children![
+                        class_pick_button(TalentClass::Cleric, wood, gold),
+                        class_pick_button(TalentClass::Bard, wood, gold),
+                        class_pick_button(TalentClass::Paladin, wood, gold),
+                    ]
+                ),
+                (
+                    Text::new("Later: press Esc to switch class."),
+                    TextFont {
+                        font_size: 13.0,
+                        ..default()
+                    },
+                    TextColor(ink),
+                ),
+            ],
+        ));
+}
+
+fn class_pick_button(class: TalentClass, wood: Color, gold: Color) -> impl Bundle {
+    (
+        ClassPickButton { class },
+        Button,
+        Name::new(format!("Pick Class: {}", class.title())),
+        Node {
+            width: Val::Px(165.0),
+            height: Val::Px(44.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            border: UiRect::all(Val::Px(2.0)),
+            ..default()
+        },
+        BackgroundColor(wood),
+        BorderColor::all(gold),
+        children![(
+            Text::new(class.title()),
+            TextFont {
+                font_size: 16.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.95, 0.92, 0.86)),
+        )],
+    )
+}
+
+fn spawn_escape_menu_ui(mut commands: Commands) {
+    let overlay = Color::srgba(0.02, 0.02, 0.02, 0.70);
+    let parchment = Color::srgb(0.90, 0.85, 0.72);
+    let wood = Color::srgb(0.22, 0.13, 0.08);
+    let ink = Color::srgb(0.08, 0.05, 0.03);
+    let gold = Color::srgb(0.78, 0.67, 0.30);
+
+    commands
+        .spawn((
+            EscapeMenuUiRoot,
+            Name::new("Escape Menu UI Root"),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(overlay),
+            Visibility::Hidden,
+        ))
+        .with_child((
+            Name::new("Escape Menu Panel"),
+            Node {
+                width: Val::Px(520.0),
+                height: Val::Px(340.0),
+                padding: UiRect::all(Val::Px(18.0)),
+                border: UiRect::all(Val::Px(3.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(16.0),
+                ..default()
+            },
+            BackgroundColor(parchment),
+            BorderColor::all(wood),
+            children![
+                (
+                    EscapeMenuTitleText,
+                    Text::new("Menu — Class: —"),
+                    TextFont {
+                        font_size: 22.0,
+                        ..default()
+                    },
+                    TextColor(ink),
+                ),
+                (
+                    Text::new("Switch Class"),
+                    TextFont {
+                        font_size: 16.0,
+                        ..default()
+                    },
+                    TextColor(ink),
+                ),
+                (
+                    Name::new("Escape Menu Class Buttons"),
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Px(60.0),
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(10.0),
+                        ..default()
+                    },
+                    children![
+                        class_pick_button(TalentClass::Cleric, wood, gold),
+                        class_pick_button(TalentClass::Bard, wood, gold),
+                        class_pick_button(TalentClass::Paladin, wood, gold),
+                    ]
+                ),
+                (
+                    Text::new("Press Esc to close."),
+                    TextFont {
+                        font_size: 13.0,
+                        ..default()
+                    },
+                    TextColor(ink),
+                ),
+            ],
+        ));
+}
+
+fn enforce_class_selection_flow(
+    class: Res<SelectedTalentClass>,
+    mut class_ui: ResMut<ClassSelectUiState>,
+    mut escape_ui: ResMut<EscapeMenuUiState>,
+    mut talents_ui: ResMut<TalentUiState>,
+    class_root: Query<Entity, With<ClassSelectUiRoot>>,
+    escape_root: Query<Entity, With<EscapeMenuUiRoot>>,
+    talents_root: Query<Entity, With<TalentUiRoot>>,
+    mut commands: Commands,
+) {
+    // If no class is chosen yet, force the class select overlay open and close other UIs.
+    if class.0.is_none() {
+        if !class_ui.open {
+            class_ui.open = true;
+        }
+        if escape_ui.open {
+            escape_ui.open = false;
+            if let Some(er) = escape_root.iter().next() {
+                commands.entity(er).insert(Visibility::Hidden);
+            }
+        }
+        if talents_ui.open {
+            talents_ui.open = false;
+            if let Some(tr) = talents_root.iter().next() {
+                commands.entity(tr).insert(Visibility::Hidden);
+            }
+        }
+        if let Some(cr) = class_root.iter().next() {
+            commands.entity(cr).insert(Visibility::Visible);
+        }
+    } else if class_ui.open {
+        class_ui.open = false;
+        if let Some(cr) = class_root.iter().next() {
+            commands.entity(cr).insert(Visibility::Hidden);
+        }
+    }
+}
+
+fn class_pick_button_interactions(
+    mut interactions: Query<(&Interaction, &ClassPickButton), Changed<Interaction>>,
+    mut selected: ResMut<SelectedTalentClass>,
+    mut hovered: ResMut<TalentUiSelection>,
+    mut store: ResMut<TalentLoadoutStore>,
+    mut talents: ResMut<TalentsState>,
+    mut points: ResMut<TalentPoints>,
+    mut escape_ui: ResMut<EscapeMenuUiState>,
+    escape_root: Query<Entity, With<EscapeMenuUiRoot>>,
+    mut commands: Commands,
+) {
+    for (interaction, btn) in interactions.iter_mut() {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+
+        // Save current class loadout before switching.
+        if let Some(current) = selected.0 {
+            store
+                .by_class
+                .insert(current, ((*talents).clone(), *points));
+        }
+
+        // Load or init new class loadout.
+        if let Some((saved_talents, saved_points)) = store.by_class.get(&btn.class) {
+            *talents = saved_talents.clone();
+            *points = *saved_points;
+        } else {
+            *talents = TalentsState::default();
+            *points = TalentPoints::default();
+        }
+
+        selected.0 = Some(btn.class);
+        hovered.hovered = None;
+
+        // If we picked via Escape menu, close it.
+        if escape_ui.open {
+            escape_ui.open = false;
+            if let Some(er) = escape_root.iter().next() {
+                commands.entity(er).insert(Visibility::Hidden);
+            }
+        }
     }
 }
 

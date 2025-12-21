@@ -7,7 +7,7 @@ use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::GameAssets;
-use crate::talents::{TalentBonuses, TalentUiState};
+use crate::talents::{ClassSelectUiState, EscapeMenuUiState, TalentBonuses, TalentUiState};
 use bevy_hanabi::prelude::*;
 
 use crate::game::Pickupable;
@@ -234,6 +234,8 @@ pub fn update_controller_state(
     caster_and_hit: Single<(&RayCaster, &RayHits), With<FootRayCaster>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     ui_state: Res<TalentUiState>,
+    escape_ui: Res<EscapeMenuUiState>,
+    class_select_ui: Res<ClassSelectUiState>,
     bonuses: Res<TalentBonuses>,
     time: Res<Time>,
 ) {
@@ -242,6 +244,8 @@ pub fn update_controller_state(
         fall_extra_gravity: 3.5 * bonuses.fall_extra_gravity_mult,
         ..default()
     };
+
+    let blocked = ui_state.open || escape_ui.open || class_select_ui.open;
 
     for (mut state, sensors, mut forces) in q.iter_mut() {
         use ControllerState::*;
@@ -254,11 +258,11 @@ pub fn update_controller_state(
                     *state = Idle;
                 }
 
-                if !ui_state.open && keyboard.just_pressed(KeyCode::Space) {
+                if !blocked && keyboard.just_pressed(KeyCode::Space) {
                     *state = Jumping(jump_action.clone());
                 }
 
-                if !ui_state.open && keyboard.just_pressed(KeyCode::KeyO) {
+                if !blocked && keyboard.just_pressed(KeyCode::KeyO) {
                     *state = DropKicking(
                         Timer::from_seconds(1.2, TimerMode::Once),
                         Timer::from_seconds(2.0, TimerMode::Once),
@@ -274,11 +278,11 @@ pub fn update_controller_state(
                     *state = Falling;
                 }
 
-                if !ui_state.open && keyboard.just_pressed(KeyCode::Space) {
+                if !blocked && keyboard.just_pressed(KeyCode::Space) {
                     *state = Jumping(jump_action.clone());
                 }
 
-                if !ui_state.open && keyboard.just_pressed(KeyCode::KeyO) {
+                if !blocked && keyboard.just_pressed(KeyCode::KeyO) {
                     *state = DropKicking(
                         Timer::from_seconds(1.2, TimerMode::Once),
                         Timer::from_seconds(2.0, TimerMode::Once),
@@ -326,6 +330,8 @@ pub fn apply_controls(
     mut controller_query: Query<(&mut TnuaController, &ControllerState)>,
     camera: Single<&Transform, With<Camera>>,
     ui_state: Res<TalentUiState>,
+    escape_ui: Res<EscapeMenuUiState>,
+    class_select_ui: Res<ClassSelectUiState>,
     bonuses: Res<TalentBonuses>,
 ) {
     let Ok((mut controller, state)) = controller_query.single_mut() else {
@@ -345,17 +351,19 @@ pub fn apply_controls(
     };
     let sprint_factor = sprint_factor * bonuses.sprint_mult;
 
+    let blocked = ui_state.open || escape_ui.open || class_select_ui.open;
+
     let mut direction = Vec3::ZERO;
-    if !ui_state.open && keyboard.pressed(KeyCode::KeyW) {
+    if !blocked && keyboard.pressed(KeyCode::KeyW) {
         direction += forward;
     }
-    if !ui_state.open && keyboard.pressed(KeyCode::KeyS) {
+    if !blocked && keyboard.pressed(KeyCode::KeyS) {
         direction -= forward;
     }
-    if !ui_state.open && keyboard.pressed(KeyCode::KeyA) {
+    if !blocked && keyboard.pressed(KeyCode::KeyA) {
         direction += sideways;
     }
-    if !ui_state.open && keyboard.pressed(KeyCode::KeyD) {
+    if !blocked && keyboard.pressed(KeyCode::KeyD) {
         direction -= sideways;
     }
 
@@ -377,7 +385,7 @@ pub fn apply_controls(
         ..Default::default()
     });
 
-    if !ui_state.open
+    if !blocked
         && let ControllerState::Jumping(jump) = state
         && keyboard.pressed(KeyCode::Space)
     {
