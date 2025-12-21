@@ -20,6 +20,13 @@ use crate::player::controller::PlayerRoot;
 use crate::spawners::*;
 use crate::talents::TalentsPlugin;
 
+use crate::talents::{ClassSelectUiState, EscapeMenuUiState, TalentUiState};
+
+use crate::hud::Vitals;
+
+#[derive(Resource, Default)]
+pub struct DiscoMode(pub bool);
+
 pub struct GamePlugin;
 
 #[derive(Component)]
@@ -27,6 +34,7 @@ pub struct Pickupable;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<DiscoMode>();
         app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
         app.insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 9.0));
         //app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
@@ -48,6 +56,72 @@ impl Plugin for GamePlugin {
         app.add_plugins(ThirdPersonCameraPlugin);
         app.insert_resource(ClearColor(Color::srgb(0.08, 0.02, 0.02))); // Very dark black background
         app.add_systems(OnEnter(MyStates::Next), setup);
+        app.add_systems(
+            Update,
+            (
+                deplete_health_on_fall,
+                toggle_disco_mode,
+                disco_mode_effect.run_if(|disco_mode: Res<DiscoMode>| disco_mode.0),
+                reset_disco_mode.run_if(|disco_mode: Res<DiscoMode>| disco_mode.is_changed()),
+            )
+                .run_if(in_state(MyStates::Next)),
+        );
+    }
+}
+
+fn deplete_health_on_fall(
+    mut player_query: Query<&Transform, With<PlayerRoot>>,
+    mut vitals: ResMut<Vitals>,
+    time: Res<Time>,
+    disco_mode: Res<DiscoMode>,
+) {
+    if !disco_mode.0
+        && let Ok(player_transform) = player_query.single_mut()
+        && player_transform.translation.y < -10.0
+    {
+        vitals.health = (vitals.health - 25.0 * time.delta_secs()).max(0.0);
+    }
+}
+
+fn toggle_disco_mode(
+    mut disco_mode: ResMut<DiscoMode>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    ui_state: Res<TalentUiState>,
+    escape_ui: Res<EscapeMenuUiState>,
+    class_select_ui: Res<ClassSelectUiState>,
+    vitals: Res<Vitals>,
+) {
+    let blocked = ui_state.open || escape_ui.open || class_select_ui.open;
+    if !blocked && keyboard.just_pressed(KeyCode::KeyP) {
+        if !disco_mode.0 {
+            if vitals.mana > 0.0 {
+                disco_mode.0 = true;
+            }
+        } else {
+            disco_mode.0 = false;
+        }
+    }
+}
+
+fn disco_mode_effect(
+    mut ambient_light: ResMut<AmbientLight>,
+    time: Res<Time>,
+    mut vitals: ResMut<Vitals>,
+    mut disco_mode: ResMut<DiscoMode>,
+) {
+    let hue = (time.elapsed_secs() * 60.0) % 360.0;
+    ambient_light.color = Color::hsl(hue, 1.0, 0.5);
+    ambient_light.brightness = 200.0;
+    vitals.mana = (vitals.mana - 10.0 * time.delta_secs()).max(0.0);
+    if vitals.mana <= 0.0 {
+        disco_mode.0 = false;
+    }
+}
+
+fn reset_disco_mode(disco_mode: Res<DiscoMode>, mut ambient_light: ResMut<AmbientLight>) {
+    if disco_mode.is_changed() && !disco_mode.0 {
+        ambient_light.color = Color::WHITE;
+        ambient_light.brightness = 100.0;
     }
 }
 
