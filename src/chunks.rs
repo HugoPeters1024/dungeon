@@ -46,8 +46,8 @@ impl Plugin for ChunksPlugin {
 fn update_chunk_index(
     mut commands: Commands,
     q: Single<(&GlobalTransform, &ChunkObserver)>,
-    index: Res<ChunkIndex>,
     settings: Res<ChunkRenderSettings>,
+    mut index: ResMut<ChunkIndex>,
 ) {
     let (gt, _) = *q;
 
@@ -71,15 +71,9 @@ fn update_chunk_index(
                 to_remove.push(*key);
             }
         }
-        if !to_remove.is_empty() {
-            commands.run_system_cached_with(remove_chunks_from_index, to_remove);
+        for k in to_remove {
+            index.remove(&k);
         }
-    }
-}
-
-fn remove_chunks_from_index(In(keys): In<Vec<IVec2>>, mut index: ResMut<ChunkIndex>) {
-    for k in keys {
-        index.remove(&k);
     }
 }
 

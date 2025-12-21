@@ -9,7 +9,10 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Vitals>()
             .add_systems(OnEnter(MyStates::Next), spawn_hud)
-            .add_systems(Update, update_hud_from_vitals.run_if(in_state(MyStates::Next)));
+            .add_systems(
+                Update,
+                update_hud_from_vitals.run_if(in_state(MyStates::Next)),
+            );
     }
 }
 
@@ -88,7 +91,12 @@ fn spawn_hud(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     commands.entity(root).add_child(mp_orb);
 }
 
-fn spawn_orb(commands: &mut Commands, kind: OrbKind, left: Option<f32>, right: Option<f32>) -> Entity {
+fn spawn_orb(
+    commands: &mut Commands,
+    kind: OrbKind,
+    left: Option<f32>,
+    right: Option<f32>,
+) -> Entity {
     let orb_size = 148.0;
     let pad = 18.0;
 
@@ -374,9 +382,7 @@ fn make_orb_fill_image(size: u32, base: Color) -> Image {
             let hash = x
                 .wrapping_mul(1103515245)
                 .wrapping_add(y.wrapping_mul(12345));
-            let swirl = (((hash & 0xff) as f32) / 255.0)
-                * 0.06
-                - 0.03;
+            let swirl = (((hash & 0xff) as f32) / 255.0) * 0.06 - 0.03;
             let bright = (0.55 + edge * 0.50 + (1.0 - v) * 0.18 + swirl).clamp(0.0, 1.0);
 
             data[idx] = (br * bright * 255.0) as u8;
@@ -398,5 +404,3 @@ fn make_orb_fill_image(size: u32, base: Color) -> Image {
         bevy::asset::RenderAssetUsages::MAIN_WORLD | bevy::asset::RenderAssetUsages::RENDER_WORLD,
     )
 }
-
-

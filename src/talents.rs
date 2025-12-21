@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use bevy::ui::{ComputedNode, UiGlobalTransform};
+use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use strum_macros::Display;
 
 use crate::assets::MyStates;
@@ -21,7 +21,11 @@ impl Plugin for TalentsPlugin {
             .init_resource::<CursorRestoreState>()
             .add_systems(
                 OnEnter(MyStates::Next),
-                (spawn_talents_ui, spawn_class_select_ui, spawn_escape_menu_ui),
+                (
+                    spawn_talents_ui,
+                    spawn_class_select_ui,
+                    spawn_escape_menu_ui,
+                ),
             )
             .add_systems(
                 Update,
@@ -52,7 +56,8 @@ pub enum TalentClass {
 }
 
 impl TalentClass {
-    pub const ALL: [TalentClass; 3] = [TalentClass::Cleric, TalentClass::Bard, TalentClass::Paladin];
+    pub const ALL: [TalentClass; 3] =
+        [TalentClass::Cleric, TalentClass::Bard, TalentClass::Paladin];
 }
 
 #[derive(Resource, Debug, Clone, Copy, Default)]
@@ -1192,47 +1197,45 @@ fn spawn_talents_ui(mut commands: Commands) {
     }
 
     // Hover tooltip (absolute positioned; updated each frame while hovering)
-    commands
-        .entity(root)
-        .with_child((
-            TalentTooltipRoot,
-            Name::new("Talent Tooltip"),
-            GlobalZIndex(100),
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                top: Val::Px(0.0),
-                width: Val::Px(320.0),
-                padding: UiRect::all(Val::Px(12.0)),
-                border: UiRect::all(Val::Px(2.0)),
-                flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(6.0),
-                ..default()
-            },
-            BackgroundColor(Color::srgb(0.92, 0.88, 0.76)),
-            BorderColor::all(wood),
-            Visibility::Hidden,
-            children![
-                (
-                    TalentTooltipTitle,
-                    Text::new(""),
-                    TextFont {
-                        font_size: 16.0,
-                        ..default()
-                    },
-                    TextColor(ink),
-                ),
-                (
-                    TalentTooltipBody,
-                    Text::new(""),
-                    TextFont {
-                        font_size: 13.0,
-                        ..default()
-                    },
-                    TextColor(ink),
-                ),
-            ],
-        ));
+    commands.entity(root).with_child((
+        TalentTooltipRoot,
+        Name::new("Talent Tooltip"),
+        GlobalZIndex(100),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            width: Val::Px(320.0),
+            padding: UiRect::all(Val::Px(12.0)),
+            border: UiRect::all(Val::Px(2.0)),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(6.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.92, 0.88, 0.76)),
+        BorderColor::all(wood),
+        Visibility::Hidden,
+        children![
+            (
+                TalentTooltipTitle,
+                Text::new(""),
+                TextFont {
+                    font_size: 16.0,
+                    ..default()
+                },
+                TextColor(ink),
+            ),
+            (
+                TalentTooltipBody,
+                Text::new(""),
+                TextFont {
+                    font_size: 13.0,
+                    ..default()
+                },
+                TextColor(ink),
+            ),
+        ],
+    ));
 }
 
 #[allow(clippy::type_complexity)]
@@ -1259,7 +1262,9 @@ fn refresh_class_dependent_text(
         }
     }
 
-    if (selected.is_changed() || escape_ui.is_changed()) && let Ok(mut t) = set.p0().single_mut() {
+    if (selected.is_changed() || escape_ui.is_changed())
+        && let Ok(mut t) = set.p0().single_mut()
+    {
         if let Some(sel) = selected.0 {
             *t = Text::new(format!("Menu — Class: {sel}"));
         } else {
@@ -1331,8 +1336,8 @@ fn talent_ui_button_interactions(
                 }
             }
             Interaction::Pressed => {
-                let shift_refund = keyboard.pressed(KeyCode::ShiftLeft)
-                    || keyboard.pressed(KeyCode::ShiftRight);
+                let shift_refund =
+                    keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
                 if shift_refund {
                     let current = talents.rank(btn.id);
@@ -1466,7 +1471,10 @@ fn effect_summary(def: &TalentDef, rank: u8) -> String {
             if rank == 0 {
                 format!("Effect: +{n} mid-air jump")
             } else {
-                format!("Effect: +{count} mid-air jump", count = n as u32 * rank as u32)
+                format!(
+                    "Effect: +{count} mid-air jump",
+                    count = n as u32 * rank as u32
+                )
             }
         }
         TalentEffect::Placeholder => "Effect: (placeholder)".to_string(),
@@ -1839,10 +1847,7 @@ fn class_pick_button_interactions(
     }
 }
 
-fn recompute_bonuses(
-    talents: Res<TalentsState>,
-    mut bonuses: ResMut<TalentBonuses>,
-) {
+fn recompute_bonuses(talents: Res<TalentsState>, mut bonuses: ResMut<TalentBonuses>) {
     if !talents.is_changed() {
         return;
     }
@@ -1885,5 +1890,3 @@ fn recompute_bonuses(
 
     *bonuses = out;
 }
-
-
