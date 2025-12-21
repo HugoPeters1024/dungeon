@@ -118,10 +118,7 @@ fn disco_mode_effect(
     }
 }
 
-fn reset_disco_mode(
-    disco_mode: Res<DiscoMode>,
-    mut ambient_light: ResMut<AmbientLight>,
-) {
+fn reset_disco_mode(disco_mode: Res<DiscoMode>, mut ambient_light: ResMut<AmbientLight>) {
     if disco_mode.is_changed() && !disco_mode.0 {
         ambient_light.color = Color::WHITE;
         ambient_light.brightness = 100.0;
