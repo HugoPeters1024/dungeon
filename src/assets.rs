@@ -77,6 +77,9 @@ pub struct GameAssets {
     pub fire: Handle<EffectAsset>,
     pub void: Handle<EffectAsset>,
     pub golden_pickup: Handle<EffectAsset>,
+    pub spell_blast: Handle<EffectAsset>,
+    pub spell_pool: Handle<EffectAsset>,
+    pub spell_orb: Handle<EffectAsset>,
 }
 
 pub struct AssetPlugin;
@@ -101,8 +104,190 @@ fn prepare_assets(
     assets.fire = create_fire_effect(&mut effects);
     assets.void = create_void_effect(&mut effects);
     assets.golden_pickup = create_golden_pickup_effect(&mut effects);
+    assets.spell_blast = create_spell_blast_effect(&mut effects);
+    assets.spell_pool = create_spell_pool_effect(&mut effects);
+    assets.spell_orb = create_spell_orb_effect(&mut effects);
 
     state.set(MyStates::Next);
+}
+
+fn create_spell_blast_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<EffectAsset> {
+    // Short burst with radial velocity and bright color (elemental blast).
+    let mut color = bevy_hanabi::Gradient::new();
+    color.add_key(0.0, Vec4::new(0.6, 0.85, 1.0, 0.0));
+    color.add_key(0.08, Vec4::new(0.6, 0.85, 1.0, 0.9));
+    color.add_key(0.45, Vec4::new(0.2, 0.55, 1.0, 0.35));
+    color.add_key(1.0, Vec4::new(0.1, 0.2, 0.6, 0.0));
+
+    let mut size = bevy_hanabi::Gradient::new();
+    size.add_key(0.0, Vec3::splat(0.10));
+    size.add_key(0.25, Vec3::splat(0.22));
+    size.add_key(1.0, Vec3::splat(0.06));
+
+    let writer = ExprWriter::new();
+    let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.).expr());
+    let lifetime = writer.lit(0.22).uniform(writer.lit(0.10)).expr();
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    // Spawn in a small sphere volume.
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        radius: writer.lit(0.25).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+
+    // Radial-ish velocity (ExprWriter doesn't expose a sphere distribution helper in this version).
+    // This is "good enough": random direction in a cube, scaled to a punchy burst speed.
+    let rx = writer.lit(-1.0).uniform(writer.lit(2.0));
+    let ry = writer.lit(-1.0).uniform(writer.lit(2.0));
+    let rz = writer.lit(-1.0).uniform(writer.lit(2.0));
+    let speed = writer.lit(6.0).uniform(writer.lit(4.0));
+    let vel = rx.vec3(ry, rz).mul(speed);
+    let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, vel.expr());
+
+    let drag = LinearDragModifier::new(writer.lit(1.8).expr());
+
+    effects.add(
+        EffectAsset::new(
+            16384,
+            SpawnerSettings::burst(420.0.into(), 1.0.into()),
+            writer.finish(),
+        )
+        .with_name("spell_blast")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(drag)
+        .render(ColorOverLifetimeModifier {
+            gradient: color,
+            blend: ColorBlendMode::Modulate,
+            mask: ColorBlendMask::RGBA,
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: size,
+            screen_space_size: false,
+        })
+        .render(OrientModifier {
+            mode: OrientMode::FaceCameraPosition,
+            rotation: None,
+        }),
+    )
+}
+
+fn create_spell_pool_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<EffectAsset> {
+    // Ground pool: continuous low particles with slight upward drift and swirl.
+    let mut color = bevy_hanabi::Gradient::new();
+    color.add_key(0.0, Vec4::new(0.1, 1.0, 0.5, 0.0));
+    color.add_key(0.10, Vec4::new(0.1, 1.0, 0.5, 0.30));
+    color.add_key(0.70, Vec4::new(0.1, 0.8, 0.4, 0.18));
+    color.add_key(1.0, Vec4::new(0.05, 0.25, 0.12, 0.0));
+
+    let mut size = bevy_hanabi::Gradient::new();
+    size.add_key(0.0, Vec3::splat(0.08));
+    size.add_key(0.6, Vec3::splat(0.14));
+    size.add_key(1.0, Vec3::splat(0.04));
+
+    let writer = ExprWriter::new();
+    let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.).expr());
+    let lifetime = writer.lit(0.8).uniform(writer.lit(0.6)).expr();
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    // Spawn in a circle on the XZ plane around the origin; scaled by entity transform.
+    let init_pos = SetPositionCircleModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        radius: writer.lit(1.0).expr(),
+        dimension: ShapeDimension::Surface,
+    };
+
+    // Gentle upward drift + slight random lateral motion.
+    let vx = writer.lit(-0.6).uniform(writer.lit(0.6));
+    let vz = writer.lit(-0.6).uniform(writer.lit(0.6));
+    let vy = writer.lit(0.6).uniform(writer.lit(0.6));
+    let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, vx.vec3(vy, vz).expr());
+
+    let drag = LinearDragModifier::new(writer.lit(1.0).expr());
+
+    effects.add(
+        EffectAsset::new(32768, SpawnerSettings::rate(240.0.into()), writer.finish())
+            .with_name("spell_pool")
+            .init(init_pos)
+            .init(init_vel)
+            .init(init_age)
+            .init(init_lifetime)
+            .update(drag)
+            .render(ColorOverLifetimeModifier {
+                gradient: color,
+                blend: ColorBlendMode::Modulate,
+                mask: ColorBlendMask::RGBA,
+            })
+            .render(SizeOverLifetimeModifier {
+                gradient: size,
+                screen_space_size: false,
+            })
+            .render(OrientModifier {
+                mode: OrientMode::FaceCameraPosition,
+                rotation: None,
+            }),
+    )
+}
+
+fn create_spell_orb_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<EffectAsset> {
+    // A tight, high-rate glow trail that looks good when attached to a moving projectile entity.
+    let mut color = bevy_hanabi::Gradient::new();
+    color.add_key(0.0, Vec4::new(0.6, 0.9, 1.0, 0.0));
+    color.add_key(0.12, Vec4::new(0.6, 0.9, 1.0, 0.55));
+    color.add_key(0.65, Vec4::new(0.3, 0.65, 1.0, 0.35));
+    color.add_key(1.0, Vec4::new(0.15, 0.3, 0.7, 0.0));
+
+    let mut size = bevy_hanabi::Gradient::new();
+    size.add_key(0.0, Vec3::splat(0.05));
+    size.add_key(0.35, Vec3::splat(0.10));
+    size.add_key(1.0, Vec3::splat(0.02));
+
+    let writer = ExprWriter::new();
+    let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.).expr());
+    let lifetime = writer.lit(0.18).uniform(writer.lit(0.12)).expr();
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    // Spawn in a small sphere around the projectile center.
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        radius: writer.lit(0.12).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+
+    // Small random jitter so the trail has texture.
+    let vx = writer.lit(-0.8).uniform(writer.lit(0.8));
+    let vy = writer.lit(-0.3).uniform(writer.lit(0.3));
+    let vz = writer.lit(-0.8).uniform(writer.lit(0.8));
+    let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, vx.vec3(vy, vz).expr());
+
+    let drag = LinearDragModifier::new(writer.lit(5.0).expr());
+
+    effects.add(
+        EffectAsset::new(16384, SpawnerSettings::rate(420.0.into()), writer.finish())
+            .with_name("spell_orb")
+            .init(init_pos)
+            .init(init_vel)
+            .init(init_age)
+            .init(init_lifetime)
+            .update(drag)
+            .render(ColorOverLifetimeModifier {
+                gradient: color,
+                blend: ColorBlendMode::Modulate,
+                mask: ColorBlendMask::RGBA,
+            })
+            .render(SizeOverLifetimeModifier {
+                gradient: size,
+                screen_space_size: false,
+            })
+            .render(OrientModifier {
+                mode: OrientMode::FaceCameraPosition,
+                rotation: None,
+            }),
+    )
 }
 
 /// Create a fire particle effect

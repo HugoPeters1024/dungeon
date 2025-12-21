@@ -34,10 +34,38 @@ pub struct SpellDef {
 
 pub type SpellBar = [SpellDef; SPELL_SLOTS];
 
+const DASH_SLOT: usize = 5; // Q
+
+fn dash_spell_for_class(class: TalentClass) -> SpellDef {
+    // Keep dash icons class-specific by using each class' icon region.
+    let (base, strength) = match class {
+        TalentClass::Cleric => (0, 6.0),
+        TalentClass::Bard => (24, 7.0),
+        TalentClass::Paladin => (48, 7.5),
+    };
+    SpellDef {
+        mana_cost: 20,
+        icon_index: base + DASH_SLOT,
+        effect: SpellEffect::Dash(strength),
+    }
+}
+
 pub fn spellbar_for_class(class: TalentClass) -> SpellBar {
-    match class {
+    let mut bar = match class {
         TalentClass::Cleric => cleric::spellbar(),
         TalentClass::Bard => bard::spellbar(),
         TalentClass::Paladin => paladin::spellbar(),
-    }
+    };
+
+    // Every character gets dash on Q, always.
+    bar[DASH_SLOT] = dash_spell_for_class(class);
+
+    // And nowhere else.
+    debug_assert!(
+        bar.iter()
+            .enumerate()
+            .all(|(i, s)| i == DASH_SLOT || !matches!(s.effect, SpellEffect::Dash(_)))
+    );
+
+    bar
 }

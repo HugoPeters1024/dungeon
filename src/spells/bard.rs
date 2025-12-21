@@ -5,9 +5,13 @@ pub fn spellbar() -> SpellBar {
     let base = 24;
     [
         SpellDef {
-            mana_cost: 15,
+            mana_cost: 35,
             icon_index: base,
-            effect: SpellEffect::Dash(4.5),
+            effect: SpellEffect::ElementalBlast {
+                damage: 22.0,
+                radius: 1.4,
+                range: 7.5,
+            },
         },
         SpellDef {
             mana_cost: 25,
@@ -35,13 +39,10 @@ pub fn spellbar() -> SpellBar {
             effect: SpellEffect::ManaBurst(14.0),
         },
         SpellDef {
-            mana_cost: 26,
+            // Q: Every class gets Dash here.
+            mana_cost: 20,
             icon_index: base + 5,
-            effect: SpellEffect::ElementalBlast {
-                damage: 22.0,
-                radius: 1.4,
-                range: 7.5,
-            },
+            effect: SpellEffect::Dash(7.0),
         },
         SpellDef {
             mana_cost: 30,
@@ -49,9 +50,9 @@ pub fn spellbar() -> SpellBar {
             effect: SpellEffect::Heal(16.0),
         },
         SpellDef {
-            mana_cost: 50,
+            mana_cost: 26,
             icon_index: base + 7,
-            effect: SpellEffect::Dash(7.5),
+            effect: SpellEffect::ManaBurst(12.0),
         },
     ]
 }
