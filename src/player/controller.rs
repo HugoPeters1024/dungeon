@@ -204,13 +204,16 @@ pub fn add_mixamo_colliders(
 
 pub fn controller_update_sensors(
     mut commands: Commands,
-    q: Query<(
-        Entity,
-        &TnuaController,
-        &RayHits,
-        &Transform,
-        &LinearVelocity,
-    ), With<PlayerRoot>>,
+    q: Query<
+        (
+            Entity,
+            &TnuaController,
+            &RayHits,
+            &Transform,
+            &LinearVelocity,
+        ),
+        With<PlayerRoot>,
+    >,
 ) {
     for (entity, controller, hits, transform, velocity) in q.iter() {
         let distance_to_ground = hits.iter_sorted().next().map_or(0.0, |h| h.distance);
@@ -408,7 +411,10 @@ pub fn apply_controls(
 
 /// Rotates the character to always face away from the camera (like Elden Ring)
 pub fn rotate_character_to_movement(
-    mut query: Query<(&mut Transform, &mut ControllerSensors), (With<TnuaController>, With<PlayerRoot>)>,
+    mut query: Query<
+        (&mut Transform, &mut ControllerSensors),
+        (With<TnuaController>, With<PlayerRoot>),
+    >,
     time: Res<Time>,
 ) {
     for (mut transform, sensors) in query.iter_mut() {
