@@ -54,6 +54,7 @@ struct DamageNumber {
     vel: Vec3,
     world_pos: Vec3,
     text_entity: Entity,
+    half_px: Vec2,
 }
 
 #[derive(Default, Resource)]
@@ -130,6 +131,7 @@ fn handle_damage_numbers(
 
 fn spawn_damage_number(commands: &mut Commands, pos: Vec3, amount: f32, big: bool) {
     let text = format!("{}", amount.round() as i32);
+    let text_len = text.chars().count().max(1) as f32;
     let base = if big { 26.0 } else { 20.0 };
     let color = if big {
         Color::srgba(1.0, 0.85, 0.25, 1.0)
@@ -169,12 +171,20 @@ fn spawn_damage_number(commands: &mut Commands, pos: Vec3, amount: f32, big: boo
 
     commands.entity(root).add_child(text_entity);
 
+    // Approximate centering so the number appears on the target, not offset by top-left anchoring.
+    // This avoids expensive glyph/layout queries and is "good enough" for damage numbers.
+    let approx_char_w = base * 0.62;
+    let approx_w = approx_char_w * text_len;
+    let approx_h = base * 1.05;
+    let half_px = Vec2::new(approx_w * 0.5, approx_h * 0.5);
+
     commands.entity(root).insert(DamageNumber {
         t: 0.0,
         lifetime: 0.85,
         vel: Vec3::new(0.0, 1.7, 0.0),
         world_pos: p,
         text_entity,
+        half_px,
     });
 
     // Note: we intentionally spawn these as top-level UI nodes. They're cheap, and this avoids
@@ -192,15 +202,12 @@ fn tick_damage_numbers(
     mut q: Query<(Entity, &mut DamageNumber)>,
 ) {
     let dt = time.delta_secs();
-    let Ok(window) = windows.single() else {
+    let Ok(_window) = windows.single() else {
         return;
     };
     let Ok((camera, cam_gt)) = camera_q.single() else {
         return;
     };
-
-    let scale = window.scale_factor();
-    let win_h = window.physical_height() as f32 / scale;
 
     for (e, mut n) in q.iter_mut() {
         n.t += dt;
@@ -213,14 +220,13 @@ fn tick_damage_numbers(
         }
 
         // Project to screen space and place the UI node.
-        if let Ok(p) = camera.world_to_viewport(cam_gt, n.world_pos) {
-            let x = p.x / scale;
-            let y_from_top = (win_h - (p.y / scale)).max(0.0);
-
-            if let Ok(mut node) = nodes.get_mut(e) {
-                node.left = Val::Px(x);
-                node.top = Val::Px(y_from_top);
-            }
+        // `world_to_viewport()` already returns viewport-space coordinates in UI pixels
+        // (top-left origin), so we can use them directly for `Node.left/top`.
+        if let Ok(p) = camera.world_to_viewport(cam_gt, n.world_pos)
+            && let Ok(mut node) = nodes.get_mut(e)
+        {
+            node.left = Val::Px(p.x - n.half_px.x);
+            node.top = Val::Px(p.y - n.half_px.y);
         }
 
         if n.t >= n.lifetime {

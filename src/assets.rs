@@ -149,8 +149,8 @@ fn create_spell_blast_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handl
 
     effects.add(
         EffectAsset::new(
-            16384,
-            SpawnerSettings::burst(420.0.into(), 1.0.into()),
+            65536,
+            SpawnerSettings::burst(1400.0.into(), 1.0.into()),
             writer.finish(),
         )
         .with_name("spell_blast")
@@ -210,7 +210,7 @@ fn create_spell_pool_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle
     let drag = LinearDragModifier::new(writer.lit(1.0).expr());
 
     effects.add(
-        EffectAsset::new(32768, SpawnerSettings::rate(240.0.into()), writer.finish())
+        EffectAsset::new(131072, SpawnerSettings::rate(900.0.into()), writer.finish())
             .with_name("spell_pool")
             .init(init_pos)
             .init(init_vel)
@@ -267,7 +267,7 @@ fn create_spell_orb_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<
     let drag = LinearDragModifier::new(writer.lit(5.0).expr());
 
     effects.add(
-        EffectAsset::new(16384, SpawnerSettings::rate(420.0.into()), writer.finish())
+        EffectAsset::new(65536, SpawnerSettings::rate(1800.0.into()), writer.finish())
             .with_name("spell_orb")
             .init(init_pos)
             .init(init_vel)

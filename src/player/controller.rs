@@ -257,7 +257,9 @@ pub fn update_controller_state(
         &mut AirJumpState,
         Forces,
     )>,
-    caster_and_hit: Single<(&RayCaster, &RayHits), With<FootRayCaster>>,
+    player_root: Single<Entity, With<PlayerRoot>>,
+    foot_casters: Query<(Entity, &RayCaster, &RayHits), With<FootRayCaster>>,
+    parents: Query<&ChildOf>,
     keyboard: Res<ButtonInput<KeyCode>>,
     ui_state: Res<TalentUiState>,
     escape_ui: Res<EscapeMenuUiState>,
@@ -363,9 +365,22 @@ pub fn update_controller_state(
                 time_to_force.tick(time.delta());
                 time_to_complete.tick(time.delta());
 
-                if time_to_force.just_finished() && !caster_and_hit.1.is_empty() {
-                    dbg!(-caster_and_hit.0.global_direction());
-                    forces.apply_force(200.0 * -caster_and_hit.0.global_direction().as_vec3());
+                if time_to_force.just_finished() {
+                    // Find the foot raycaster that belongs to the actual player (not training dummies).
+                    let caster_and_hit = foot_casters.iter().find_map(|(e, caster, hits)| {
+                        if parents.iter_ancestors(e).any(|a| a == *player_root) {
+                            Some((caster, hits))
+                        } else {
+                            None
+                        }
+                    });
+
+                    if let Some((caster, hits)) = caster_and_hit
+                        && !hits.is_empty()
+                    {
+                        dbg!(-caster.global_direction());
+                        forces.apply_force(200.0 * -caster.global_direction().as_vec3());
+                    }
                 }
 
                 if time_to_complete.is_finished() {
