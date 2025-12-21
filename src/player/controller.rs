@@ -464,6 +464,7 @@ pub fn apply_controls(
     }
 }
 
+#[allow(clippy::type_complexity)]
 /// Rotates the character to always face away from the camera (like Elden Ring)
 pub fn rotate_character_to_movement(
     mut query: Query<
