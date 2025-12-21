@@ -7,6 +7,7 @@ use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::GameAssets;
+use crate::talents::{TalentBonuses, TalentUiState};
 use bevy_hanabi::prelude::*;
 
 use crate::game::Pickupable;
@@ -232,11 +233,13 @@ pub fn update_controller_state(
     mut q: Query<(&mut ControllerState, &ControllerSensors, Forces)>,
     caster_and_hit: Single<(&RayCaster, &RayHits), With<FootRayCaster>>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    ui_state: Res<TalentUiState>,
+    bonuses: Res<TalentBonuses>,
     time: Res<Time>,
 ) {
     let jump_action = TnuaBuiltinJump {
-        height: 2.5,
-        fall_extra_gravity: 3.5,
+        height: 2.5 * bonuses.jump_height_mult,
+        fall_extra_gravity: 3.5 * bonuses.fall_extra_gravity_mult,
         ..default()
     };
 
@@ -251,11 +254,11 @@ pub fn update_controller_state(
                     *state = Idle;
                 }
 
-                if keyboard.just_pressed(KeyCode::Space) {
+                if !ui_state.open && keyboard.just_pressed(KeyCode::Space) {
                     *state = Jumping(jump_action.clone());
                 }
 
-                if keyboard.just_pressed(KeyCode::KeyO) {
+                if !ui_state.open && keyboard.just_pressed(KeyCode::KeyO) {
                     *state = DropKicking(
                         Timer::from_seconds(1.2, TimerMode::Once),
                         Timer::from_seconds(2.0, TimerMode::Once),
@@ -271,11 +274,11 @@ pub fn update_controller_state(
                     *state = Falling;
                 }
 
-                if keyboard.just_pressed(KeyCode::Space) {
+                if !ui_state.open && keyboard.just_pressed(KeyCode::Space) {
                     *state = Jumping(jump_action.clone());
                 }
 
-                if keyboard.just_pressed(KeyCode::KeyO) {
+                if !ui_state.open && keyboard.just_pressed(KeyCode::KeyO) {
                     *state = DropKicking(
                         Timer::from_seconds(1.2, TimerMode::Once),
                         Timer::from_seconds(2.0, TimerMode::Once),
@@ -322,6 +325,8 @@ pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut controller_query: Query<(&mut TnuaController, &ControllerState)>,
     camera: Single<&Transform, With<Camera>>,
+    ui_state: Res<TalentUiState>,
+    bonuses: Res<TalentBonuses>,
 ) {
     let Ok((mut controller, state)) = controller_query.single_mut() else {
         return;
@@ -331,25 +336,26 @@ pub fn apply_controls(
     let forward = Vec3::new(forward.x, 0.0, forward.y);
     let sideways = (camera.rotation * Vec3::NEG_X).xz().normalize_or_zero();
     let sideways = Vec3::new(sideways.x, 0.0, sideways.y);
-    const SPEED: f32 = 1.7;
+    const BASE_SPEED: f32 = 1.7;
 
     let sprint_factor = if keyboard.pressed(KeyCode::ShiftLeft) {
         2.0
     } else {
         1.0
     };
+    let sprint_factor = sprint_factor * bonuses.sprint_mult;
 
     let mut direction = Vec3::ZERO;
-    if keyboard.pressed(KeyCode::KeyW) {
+    if !ui_state.open && keyboard.pressed(KeyCode::KeyW) {
         direction += forward;
     }
-    if keyboard.pressed(KeyCode::KeyS) {
+    if !ui_state.open && keyboard.pressed(KeyCode::KeyS) {
         direction -= forward;
     }
-    if keyboard.pressed(KeyCode::KeyA) {
+    if !ui_state.open && keyboard.pressed(KeyCode::KeyA) {
         direction += sideways;
     }
-    if keyboard.pressed(KeyCode::KeyD) {
+    if !ui_state.open && keyboard.pressed(KeyCode::KeyD) {
         direction -= sideways;
     }
 
@@ -358,7 +364,10 @@ pub fn apply_controls(
     // just fall.
     controller.basis(TnuaBuiltinWalk {
         // The `desired_velocity` determines how the character will move.
-        desired_velocity: direction.normalize_or_zero() * SPEED * sprint_factor,
+        desired_velocity: direction.normalize_or_zero()
+            * BASE_SPEED
+            * bonuses.move_speed_mult
+            * sprint_factor,
         // The `float_height` must be greater (even if by little) from the distance between the
         // character's center and the lowest point of its collider.
         float_height: 0.85,
@@ -368,7 +377,8 @@ pub fn apply_controls(
         ..Default::default()
     });
 
-    if let ControllerState::Jumping(jump) = state
+    if !ui_state.open
+        && let ControllerState::Jumping(jump) = state
         && keyboard.pressed(KeyCode::Space)
     {
         controller.action(jump.clone());
