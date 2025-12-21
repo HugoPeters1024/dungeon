@@ -6,7 +6,9 @@ use crate::assets::{GameAssets, MyStates};
 use crate::camera::ThirdPersonCamera;
 use crate::combat::{DamageDealtEvent, Damageable};
 use crate::player::controller::{ControllerSensors, PlayerRoot};
-use crate::spells::{SPELL_SLOTS, SpellBar, SpellDef, SpellEffect, spellbar_for_class};
+use crate::spells::{
+    DamageElement, SPELL_SLOTS, SpellBar, SpellDef, SpellEffect, spellbar_for_class,
+};
 use crate::talents::{InfiniteMana, SelectedTalentClass, TalentBonuses, TalentClass};
 use avian3d::prelude::{Forces, RigidBodyForces, SpatialQuery, SpatialQueryFilter};
 use bevy_hanabi::prelude::ParticleEffect;
@@ -71,6 +73,7 @@ struct DamagePoolFx {
     dps: f32,
     radius: f32,
     remaining: f32,
+    element: DamageElement,
 }
 
 fn sync_spellbar_from_class(
@@ -826,6 +829,7 @@ fn apply_damage_spell_effect(
             damage,
             radius,
             range: _,
+            element,
         } => {
             // True projectile:
             // - Spawn from just in front of the player (so it never hits the player)
@@ -859,6 +863,7 @@ fn apply_damage_spell_effect(
                 damage,
                 radius,
                 max_distance,
+                Some(element),
             );
         }
         SpellEffect::DamagePool {
@@ -866,12 +871,13 @@ fn apply_damage_spell_effect(
             radius,
             duration,
             range,
+            element,
         } => {
             let (_spawn_pos, p) = cam
                 .map_or((origin + Vec3::Y * 1.2, origin + Vec3::Z * range), |c| {
                     aim_from_camera_world(spatial_query, origin, c, range)
                 });
-            spawn_pool(commands, assets, p, dps, radius, duration);
+            spawn_pool(commands, assets, p, dps, radius, duration, element);
         }
         _ => {}
     }
@@ -937,8 +943,10 @@ struct ElementalOrb {
     remaining: f32,
     traveled: f32,
     max_distance: f32,
+    element: Option<DamageElement>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_elemental_orb(
     commands: &mut Commands,
     assets: &GameAssets,
@@ -947,12 +955,19 @@ fn spawn_elemental_orb(
     damage: f32,
     radius: f32,
     max_distance: f32,
+    element: Option<DamageElement>,
 ) {
     commands.spawn((
         Name::new("Elemental Orb"),
         Transform::from_translation(spawn_pos),
         ParticleEffect {
-            handle: assets.spell_orb.clone(),
+            handle: match element.unwrap_or(DamageElement::Holy) {
+                DamageElement::Darkness => assets.spell_orb_darkness.clone(),
+                DamageElement::Sonic => assets.spell_orb_sonic.clone(),
+                DamageElement::Holy => assets.spell_orb_holy.clone(),
+                DamageElement::Fire => assets.spell_orb_fire.clone(),
+                DamageElement::Frost => assets.spell_orb_frost.clone(),
+            },
             prng_seed: None,
         },
         ElementalOrb {
@@ -963,6 +978,7 @@ fn spawn_elemental_orb(
             remaining: 8.0,
             traveled: 0.0,
             max_distance,
+            element,
         },
     ));
 }
@@ -1030,8 +1046,9 @@ fn tick_elemental_orbs(
                 p,
                 orb.radius,
                 orb.damage,
+                orb.element,
             );
-            spawn_blast_vfx(&mut commands, &assets, p);
+            spawn_blast_vfx(&mut commands, &assets, p, orb.element);
             commands.entity(e).despawn();
         } else {
             tf.translation = pos + dir * step;
@@ -1047,6 +1064,7 @@ fn deal_damage_in_radius(
     center: Vec3,
     radius: f32,
     damage: f32,
+    element: Option<DamageElement>,
 ) {
     let r2 = radius * radius;
     for (e, gt, mut d) in damageables.iter_mut() {
@@ -1057,6 +1075,7 @@ fn deal_damage_in_radius(
                 target: e,
                 pos: p,
                 amount: damage,
+                element,
             });
             if d.hp <= 0.0 {
                 commands.entity(e).despawn();
@@ -1065,12 +1084,25 @@ fn deal_damage_in_radius(
     }
 }
 
-fn spawn_blast_vfx(commands: &mut Commands, assets: &GameAssets, pos: Vec3) {
+fn spawn_blast_vfx(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    pos: Vec3,
+    element: Option<DamageElement>,
+) {
+    let element = element.unwrap_or(DamageElement::Holy);
+    let handle = match element {
+        DamageElement::Darkness => assets.spell_blast_darkness.clone(),
+        DamageElement::Sonic => assets.spell_blast_sonic.clone(),
+        DamageElement::Holy => assets.spell_blast_holy.clone(),
+        DamageElement::Fire => assets.spell_blast_fire.clone(),
+        DamageElement::Frost => assets.spell_blast_frost.clone(),
+    };
     commands.spawn((
-        Name::new("Elemental Blast VFX"),
+        Name::new(format!("Elemental Blast VFX ({element:?})")),
         Transform::from_translation(pos),
         ParticleEffect {
-            handle: assets.spell_blast.clone(),
+            handle,
             prng_seed: None,
         },
         DespawnAfter { t: 0.30 },
@@ -1089,6 +1121,7 @@ fn spawn_pool(
     dps: f32,
     radius: f32,
     duration: f32,
+    element: DamageElement,
 ) {
     let root = commands
         .spawn((
@@ -1097,6 +1130,7 @@ fn spawn_pool(
                 dps,
                 radius,
                 remaining: duration,
+                element,
             },
             // Root stays on XZ; children will be terrain-snapped in Y.
             Transform::from_translation(Vec3::new(pos.x, pos.y, pos.z)),
@@ -1118,6 +1152,13 @@ fn spawn_pool(
     ];
 
     let emitter_scale = Vec3::new(radius * 0.55, 1.0, radius * 0.55);
+    let pool_handle = match element {
+        DamageElement::Darkness => assets.spell_pool_darkness.clone(),
+        DamageElement::Sonic => assets.spell_pool_sonic.clone(),
+        DamageElement::Holy => assets.spell_pool_holy.clone(),
+        DamageElement::Fire => assets.spell_pool_fire.clone(),
+        DamageElement::Frost => assets.spell_pool_frost.clone(),
+    };
     commands.entity(root).with_children(|c| {
         for (i, off) in offsets.into_iter().enumerate() {
             c.spawn((
@@ -1126,7 +1167,7 @@ fn spawn_pool(
                 Transform::from_translation(Vec3::new(off.x, 0.05, off.y))
                     .with_scale(emitter_scale),
                 ParticleEffect {
-                    handle: assets.spell_pool.clone(),
+                    handle: pool_handle.clone(),
                     prng_seed: None,
                 },
             ));
@@ -1190,6 +1231,7 @@ fn tick_damage_pools(
             center,
             pool.radius,
             dmg,
+            Some(pool.element),
         );
         if pool.remaining <= 0.0 {
             commands.entity(e).despawn();

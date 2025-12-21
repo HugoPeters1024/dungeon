@@ -2,6 +2,8 @@ use bevy::prelude::*;
 use bevy_asset_loader::prelude::*;
 use bevy_hanabi::prelude::*;
 
+use crate::spells::DamageElement;
+
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
 pub enum MyStates {
     #[default]
@@ -77,9 +79,24 @@ pub struct GameAssets {
     pub fire: Handle<EffectAsset>,
     pub void: Handle<EffectAsset>,
     pub golden_pickup: Handle<EffectAsset>,
-    pub spell_blast: Handle<EffectAsset>,
-    pub spell_pool: Handle<EffectAsset>,
-    pub spell_orb: Handle<EffectAsset>,
+    // Elemental spell VFX variants
+    pub spell_blast_darkness: Handle<EffectAsset>,
+    pub spell_blast_sonic: Handle<EffectAsset>,
+    pub spell_blast_holy: Handle<EffectAsset>,
+    pub spell_blast_fire: Handle<EffectAsset>,
+    pub spell_blast_frost: Handle<EffectAsset>,
+
+    pub spell_pool_darkness: Handle<EffectAsset>,
+    pub spell_pool_sonic: Handle<EffectAsset>,
+    pub spell_pool_holy: Handle<EffectAsset>,
+    pub spell_pool_fire: Handle<EffectAsset>,
+    pub spell_pool_frost: Handle<EffectAsset>,
+
+    pub spell_orb_darkness: Handle<EffectAsset>,
+    pub spell_orb_sonic: Handle<EffectAsset>,
+    pub spell_orb_holy: Handle<EffectAsset>,
+    pub spell_orb_fire: Handle<EffectAsset>,
+    pub spell_orb_frost: Handle<EffectAsset>,
 }
 
 pub struct AssetPlugin;
@@ -104,20 +121,48 @@ fn prepare_assets(
     assets.fire = create_fire_effect(&mut effects);
     assets.void = create_void_effect(&mut effects);
     assets.golden_pickup = create_golden_pickup_effect(&mut effects);
-    assets.spell_blast = create_spell_blast_effect(&mut effects);
-    assets.spell_pool = create_spell_pool_effect(&mut effects);
-    assets.spell_orb = create_spell_orb_effect(&mut effects);
+    assets.spell_blast_darkness = create_spell_blast_effect(&mut effects, DamageElement::Darkness);
+    assets.spell_blast_sonic = create_spell_blast_effect(&mut effects, DamageElement::Sonic);
+    assets.spell_blast_holy = create_spell_blast_effect(&mut effects, DamageElement::Holy);
+    assets.spell_blast_fire = create_spell_blast_effect(&mut effects, DamageElement::Fire);
+    assets.spell_blast_frost = create_spell_blast_effect(&mut effects, DamageElement::Frost);
+
+    assets.spell_pool_darkness = create_spell_pool_effect(&mut effects, DamageElement::Darkness);
+    assets.spell_pool_sonic = create_spell_pool_effect(&mut effects, DamageElement::Sonic);
+    assets.spell_pool_holy = create_spell_pool_effect(&mut effects, DamageElement::Holy);
+    assets.spell_pool_fire = create_spell_pool_effect(&mut effects, DamageElement::Fire);
+    assets.spell_pool_frost = create_spell_pool_effect(&mut effects, DamageElement::Frost);
+
+    assets.spell_orb_darkness = create_spell_orb_effect(&mut effects, DamageElement::Darkness);
+    assets.spell_orb_sonic = create_spell_orb_effect(&mut effects, DamageElement::Sonic);
+    assets.spell_orb_holy = create_spell_orb_effect(&mut effects, DamageElement::Holy);
+    assets.spell_orb_fire = create_spell_orb_effect(&mut effects, DamageElement::Fire);
+    assets.spell_orb_frost = create_spell_orb_effect(&mut effects, DamageElement::Frost);
 
     state.set(MyStates::Next);
 }
 
-fn create_spell_blast_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<EffectAsset> {
+fn element_color(element: DamageElement) -> Vec3 {
+    match element {
+        DamageElement::Darkness => Vec3::new(0.78, 0.32, 1.0),
+        DamageElement::Sonic => Vec3::new(0.35, 0.95, 1.0),
+        DamageElement::Holy => Vec3::new(1.0, 0.92, 0.35),
+        DamageElement::Fire => Vec3::new(1.0, 0.45, 0.10),
+        DamageElement::Frost => Vec3::new(0.45, 0.75, 1.0),
+    }
+}
+
+fn create_spell_blast_effect(
+    effects: &mut ResMut<Assets<EffectAsset>>,
+    element: DamageElement,
+) -> Handle<EffectAsset> {
     // Short burst with radial velocity and bright color (elemental blast).
+    let c = element_color(element);
     let mut color = bevy_hanabi::Gradient::new();
-    color.add_key(0.0, Vec4::new(0.6, 0.85, 1.0, 0.0));
-    color.add_key(0.08, Vec4::new(0.6, 0.85, 1.0, 0.9));
-    color.add_key(0.45, Vec4::new(0.2, 0.55, 1.0, 0.35));
-    color.add_key(1.0, Vec4::new(0.1, 0.2, 0.6, 0.0));
+    color.add_key(0.0, Vec4::new(c.x, c.y, c.z, 0.0));
+    color.add_key(0.08, Vec4::new(c.x, c.y, c.z, 0.95));
+    color.add_key(0.45, Vec4::new(c.x * 0.55, c.y * 0.65, c.z * 0.85, 0.40));
+    color.add_key(1.0, Vec4::new(c.x * 0.18, c.y * 0.22, c.z * 0.35, 0.0));
 
     let mut size = bevy_hanabi::Gradient::new();
     size.add_key(0.0, Vec3::splat(0.10));
@@ -153,7 +198,7 @@ fn create_spell_blast_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handl
             SpawnerSettings::burst(1400.0.into(), 1.0.into()),
             writer.finish(),
         )
-        .with_name("spell_blast")
+        .with_name(format!("spell_blast_{element:?}"))
         .init(init_pos)
         .init(init_vel)
         .init(init_age)
@@ -175,13 +220,17 @@ fn create_spell_blast_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handl
     )
 }
 
-fn create_spell_pool_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<EffectAsset> {
+fn create_spell_pool_effect(
+    effects: &mut ResMut<Assets<EffectAsset>>,
+    element: DamageElement,
+) -> Handle<EffectAsset> {
     // Ground pool: continuous low particles with slight upward drift and swirl.
+    let c = element_color(element);
     let mut color = bevy_hanabi::Gradient::new();
-    color.add_key(0.0, Vec4::new(0.1, 1.0, 0.5, 0.0));
-    color.add_key(0.10, Vec4::new(0.1, 1.0, 0.5, 0.30));
-    color.add_key(0.70, Vec4::new(0.1, 0.8, 0.4, 0.18));
-    color.add_key(1.0, Vec4::new(0.05, 0.25, 0.12, 0.0));
+    color.add_key(0.0, Vec4::new(c.x, c.y, c.z, 0.0));
+    color.add_key(0.10, Vec4::new(c.x, c.y, c.z, 0.30));
+    color.add_key(0.70, Vec4::new(c.x * 0.65, c.y * 0.65, c.z * 0.65, 0.20));
+    color.add_key(1.0, Vec4::new(c.x * 0.20, c.y * 0.20, c.z * 0.20, 0.0));
 
     let mut size = bevy_hanabi::Gradient::new();
     size.add_key(0.0, Vec3::splat(0.08));
@@ -211,7 +260,7 @@ fn create_spell_pool_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle
 
     effects.add(
         EffectAsset::new(131072, SpawnerSettings::rate(900.0.into()), writer.finish())
-            .with_name("spell_pool")
+            .with_name(format!("spell_pool_{element:?}"))
             .init(init_pos)
             .init(init_vel)
             .init(init_age)
@@ -233,13 +282,17 @@ fn create_spell_pool_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle
     )
 }
 
-fn create_spell_orb_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<EffectAsset> {
+fn create_spell_orb_effect(
+    effects: &mut ResMut<Assets<EffectAsset>>,
+    element: DamageElement,
+) -> Handle<EffectAsset> {
     // A tight, high-rate glow trail that looks good when attached to a moving projectile entity.
+    let c = element_color(element);
     let mut color = bevy_hanabi::Gradient::new();
-    color.add_key(0.0, Vec4::new(0.6, 0.9, 1.0, 0.0));
-    color.add_key(0.12, Vec4::new(0.6, 0.9, 1.0, 0.55));
-    color.add_key(0.65, Vec4::new(0.3, 0.65, 1.0, 0.35));
-    color.add_key(1.0, Vec4::new(0.15, 0.3, 0.7, 0.0));
+    color.add_key(0.0, Vec4::new(c.x, c.y, c.z, 0.0));
+    color.add_key(0.12, Vec4::new(c.x, c.y, c.z, 0.58));
+    color.add_key(0.65, Vec4::new(c.x * 0.55, c.y * 0.70, c.z * 0.90, 0.40));
+    color.add_key(1.0, Vec4::new(c.x * 0.20, c.y * 0.25, c.z * 0.35, 0.0));
 
     let mut size = bevy_hanabi::Gradient::new();
     size.add_key(0.0, Vec3::splat(0.05));
@@ -268,7 +321,7 @@ fn create_spell_orb_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<
 
     effects.add(
         EffectAsset::new(65536, SpawnerSettings::rate(1800.0.into()), writer.finish())
-            .with_name("spell_orb")
+            .with_name(format!("spell_orb_{element:?}"))
             .init(init_pos)
             .init(init_vel)
             .init(init_age)

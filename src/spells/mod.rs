@@ -6,6 +6,15 @@ pub mod paladin;
 
 pub const SPELL_SLOTS: usize = 8;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum DamageElement {
+    Darkness,
+    Sonic,
+    Holy,
+    Fire,
+    Frost,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum SpellEffect {
     Heal(f32),
@@ -15,12 +24,14 @@ pub enum SpellEffect {
         damage: f32,
         radius: f32,
         range: f32,
+        element: DamageElement,
     },
     DamagePool {
         dps: f32,
         radius: f32,
         duration: f32,
         range: f32,
+        element: DamageElement,
     },
 }
 

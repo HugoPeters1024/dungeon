@@ -1,4 +1,4 @@
-use crate::spells::{SpellBar, SpellDef, SpellEffect};
+use crate::spells::{DamageElement, SpellBar, SpellDef, SpellEffect};
 
 pub fn spellbar() -> SpellBar {
     // Icons are row-major indices into `assets/icons.png`.
@@ -12,6 +12,7 @@ pub fn spellbar() -> SpellBar {
                 damage: 28.0,
                 radius: 1.6,
                 range: 6.5,
+                element: DamageElement::Darkness,
             },
         },
         SpellDef {
@@ -32,12 +33,18 @@ pub fn spellbar() -> SpellBar {
                 radius: 2.2,
                 duration: 4.5,
                 range: 5.0,
+                element: DamageElement::Darkness,
             },
         },
         SpellDef {
             mana_cost: 24,
             icon_index: base + 4,
-            effect: SpellEffect::Heal(18.0),
+            effect: SpellEffect::ElementalBlast {
+                damage: 22.0,
+                radius: 1.3,
+                range: 7.5,
+                element: DamageElement::Frost,
+            },
         },
         SpellDef {
             // Q: Every class gets Dash here.
@@ -48,7 +55,12 @@ pub fn spellbar() -> SpellBar {
         SpellDef {
             mana_cost: 12,
             icon_index: base + 6,
-            effect: SpellEffect::ManaBurst(8.0),
+            effect: SpellEffect::ElementalBlast {
+                damage: 18.0,
+                radius: 1.2,
+                range: 8.0,
+                element: DamageElement::Fire,
+            },
         },
         SpellDef {
             mana_cost: 50,

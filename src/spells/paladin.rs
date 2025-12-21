@@ -1,4 +1,4 @@
-use crate::spells::{SpellBar, SpellDef, SpellEffect};
+use crate::spells::{DamageElement, SpellBar, SpellDef, SpellEffect};
 
 pub fn spellbar() -> SpellBar {
     // Paladin: different icon region so the bar looks distinct.
@@ -16,6 +16,7 @@ pub fn spellbar() -> SpellBar {
                 damage: 30.0,
                 radius: 1.8,
                 range: 6.0,
+                element: DamageElement::Holy,
             },
         },
         SpellDef {
@@ -26,6 +27,7 @@ pub fn spellbar() -> SpellBar {
                 radius: 2.4,
                 duration: 4.0,
                 range: 4.8,
+                element: DamageElement::Holy,
             },
         },
         SpellDef {
@@ -47,12 +49,22 @@ pub fn spellbar() -> SpellBar {
         SpellDef {
             mana_cost: 25,
             icon_index: base + 6,
-            effect: SpellEffect::ManaBurst(14.0),
+            effect: SpellEffect::ElementalBlast {
+                damage: 20.0,
+                radius: 1.2,
+                range: 8.0,
+                element: DamageElement::Fire,
+            },
         },
         SpellDef {
             mana_cost: 32,
             icon_index: base + 7,
-            effect: SpellEffect::ManaBurst(10.0),
+            effect: SpellEffect::ElementalBlast {
+                damage: 18.0,
+                radius: 1.1,
+                range: 8.5,
+                element: DamageElement::Frost,
+            },
         },
     ]
 }

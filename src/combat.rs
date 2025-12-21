@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::assets::MyStates;
 use crate::camera::ThirdPersonCamera;
+use crate::spells::DamageElement;
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Damageable {
@@ -15,6 +16,7 @@ pub struct DamageDealtEvent {
     pub target: Entity,
     pub pos: Vec3,
     pub amount: f32,
+    pub element: Option<DamageElement>,
 }
 
 pub struct CombatPlugin;
@@ -59,7 +61,7 @@ struct DamageNumber {
 
 #[derive(Default, Resource)]
 struct DamageNumberBuckets {
-    by_target: HashMap<Entity, DamageBucket>,
+    by_target: HashMap<(Entity, Option<DamageElement>), DamageBucket>,
 }
 
 #[derive(Clone, Copy)]
@@ -85,14 +87,14 @@ fn handle_damage_numbers(
     for e in ev.read() {
         // Big hits: show immediately.
         if e.amount >= 5.0 {
-            spawn_damage_number(&mut commands, e.pos, e.amount, true);
+            spawn_damage_number(&mut commands, e.pos, e.amount, true, e.element);
             continue;
         }
 
         // Small hits (DOT): accumulate and show periodically.
         buckets
             .by_target
-            .entry(e.target)
+            .entry((e.target, e.element))
             .and_modify(|b| {
                 b.pos = e.pos;
                 b.accum += e.amount;
@@ -109,11 +111,11 @@ fn handle_damage_numbers(
     // - only show if the rounded amount would be >= 1
     const FLUSH_INTERVAL: f32 = 0.25;
     let mut to_clear: Vec<Entity> = Vec::new();
-    for (&target, b) in buckets.by_target.iter_mut() {
+    for (&(target, element), b) in buckets.by_target.iter_mut() {
         if b.since_last >= FLUSH_INTERVAL {
             let shown = b.accum.round();
             if shown >= 1.0 {
-                spawn_damage_number(&mut commands, b.pos, shown, false);
+                spawn_damage_number(&mut commands, b.pos, shown, false, element);
             }
             b.accum = 0.0;
             b.since_last = 0.0;
@@ -125,18 +127,33 @@ fn handle_damage_numbers(
         }
     }
     for t in to_clear {
-        buckets.by_target.remove(&t);
+        buckets.by_target.retain(|(ent, _), _| *ent != t);
     }
 }
 
-fn spawn_damage_number(commands: &mut Commands, pos: Vec3, amount: f32, big: bool) {
+fn spawn_damage_number(
+    commands: &mut Commands,
+    pos: Vec3,
+    amount: f32,
+    big: bool,
+    element: Option<DamageElement>,
+) {
     let text = format!("{}", amount.round() as i32);
     let text_len = text.chars().count().max(1) as f32;
     let base = if big { 26.0 } else { 20.0 };
-    let color = if big {
-        Color::srgba(1.0, 0.85, 0.25, 1.0)
-    } else {
-        Color::srgba(0.95, 0.95, 0.95, 1.0)
+    let color = match (big, element) {
+        (true, Some(DamageElement::Holy)) => Color::srgba(1.0, 0.92, 0.35, 1.0),
+        (true, Some(DamageElement::Sonic)) => Color::srgba(0.35, 0.95, 1.0, 1.0),
+        (true, Some(DamageElement::Darkness)) => Color::srgba(0.75, 0.35, 1.0, 1.0),
+        (true, Some(DamageElement::Fire)) => Color::srgba(1.0, 0.45, 0.10, 1.0),
+        (true, Some(DamageElement::Frost)) => Color::srgba(0.45, 0.75, 1.0, 1.0),
+        (true, None) => Color::srgba(1.0, 0.85, 0.25, 1.0),
+        (false, Some(DamageElement::Holy)) => Color::srgba(1.0, 0.96, 0.75, 1.0),
+        (false, Some(DamageElement::Sonic)) => Color::srgba(0.70, 0.98, 1.0, 1.0),
+        (false, Some(DamageElement::Darkness)) => Color::srgba(0.88, 0.70, 1.0, 1.0),
+        (false, Some(DamageElement::Fire)) => Color::srgba(1.0, 0.78, 0.60, 1.0),
+        (false, Some(DamageElement::Frost)) => Color::srgba(0.82, 0.92, 1.0, 1.0),
+        (false, None) => Color::srgba(0.95, 0.95, 0.95, 1.0),
     };
 
     // Nudge up above the target.
