@@ -24,7 +24,7 @@ impl Plugin for ChunksPlugin {
 fn update_chunk_index(
     mut commands: Commands,
     q: Single<(&GlobalTransform, &ChunkObserver)>,
-    index: Res<ChunkIndex>,
+    mut index: ResMut<ChunkIndex>,
 ) {
     let (gt, _) = *q;
 
@@ -37,6 +37,15 @@ fn update_chunk_index(
             }
         }
     }
+
+    index.retain(|chunk_loc, entity| {
+        if loc.manhattan_distance(*chunk_loc) > 5 {
+            commands.entity(*entity).despawn();
+            false
+        } else {
+            true
+        }
+    });
 }
 
 fn spawn_chunk(

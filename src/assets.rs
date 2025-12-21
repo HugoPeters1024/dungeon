@@ -49,6 +49,9 @@ pub struct GameAssets {
     #[asset(path = "bong.glb#Material0")]
     pub bong_material: Handle<StandardMaterial>,
 
+    #[asset(path = "sword.glb#Scene0")]
+    pub sword: Handle<Scene>,
+
     #[asset(path = "torch.glb#Scene0")]
     pub torch: Handle<Scene>,
 

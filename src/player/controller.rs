@@ -132,7 +132,11 @@ pub fn cleanup_pickup_particles(
     }
 }
 
-pub fn add_mixamo_colliders(on: Query<(Entity, &Name), Added<Name>>, mut commands: Commands) {
+pub fn add_mixamo_colliders(
+    on: Query<(Entity, &Name), Added<Name>>,
+    mut commands: Commands,
+    assets: Res<GameAssets>,
+) {
     #[rustfmt::skip]
     let index = |name: &str| -> Option<(Collider, Transform)> {
         match name {
@@ -149,7 +153,7 @@ pub fn add_mixamo_colliders(on: Query<(Entity, &Name), Added<Name>>, mut command
 
     for (entity, name) in on.iter() {
         if name.as_str().contains("mixamo") {
-            warn!("{}", name.as_str());
+            //warn!("{}", name.as_str());
         }
 
         if let Some(collider) = index(name.as_str()) {
@@ -166,6 +170,16 @@ pub fn add_mixamo_colliders(on: Query<(Entity, &Name), Added<Name>>, mut command
                     .with_max_distance(0.4)
                     .with_query_filter(SpatialQueryFilter::from_mask(all_except_player())),
                 FootRayCaster,
+            ));
+        }
+
+        if name.as_str() == "mixamorigRightHand" {
+            commands.entity(entity).with_child((
+                SceneRoot(assets.sword.clone()),
+                Transform::from_translation(Vec3::new(88.3, 26.9, 0.0))
+                    .with_scale(Vec3::splat(40.0))
+                    .with_rotation(Quat::from_rotation_z(8.0)),
+                Name::new("Sword"),
             ));
         }
     }
