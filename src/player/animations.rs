@@ -109,6 +109,12 @@ pub fn animations_from_controller(
                     defeated: 1.0,
                     ..default()
                 };
+                if let Some(clip) = player.animation_mut(clips.walking) {
+                    clip.set_speed(0.0);
+                }
+                if let Some(clip) = player.animation_mut(clips.running) {
+                    clip.set_speed(0.0);
+                }
             }
             Moving => {
                 let forward = sensors
@@ -133,6 +139,21 @@ pub fn animations_from_controller(
                 w.left_strafe = left;
                 w.right_strafe = right;
                 *weights = w;
+
+                // Adjust animation speed to match movement speed
+                let speed = sensors.running_velocity.length();
+                const BASE_WALK_SPEED: f32 = 2.2;
+                const BASE_RUN_SPEED: f32 = 4.4; // Assuming run is 2x walk
+
+                let walk_speed_factor = speed / BASE_WALK_SPEED;
+                let run_speed_factor = speed / BASE_RUN_SPEED;
+
+                if let Some(clip) = player.animation_mut(clips.walking) {
+                    clip.set_speed(walk_speed_factor);
+                }
+                if let Some(clip) = player.animation_mut(clips.running) {
+                    clip.set_speed(run_speed_factor);
+                }
             }
             Jumping(_) => {
                 if state_transioned {

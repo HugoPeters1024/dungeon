@@ -89,3 +89,19 @@ fn torch_flickers(mut q: Query<(&mut PointLight, &Torch)>, time: Res<Time>) {
         p.intensity = light_consts::lumens::LUMENS_PER_LED_WATTS * (450.0 + 140.0 * noise)
     }
 }
+
+use crate::enemy::{Enemy, Patrol};
+
+pub fn spawn_enemy(mut commands: Commands, assets: Res<GameAssets>) {
+    commands.spawn((
+        SceneRoot(assets.player.clone()),
+        Enemy,
+        Patrol {
+            points: vec![Vec3::new(-5.0, 0.0, -5.0), Vec3::new(5.0, 0.0, -5.0)],
+            target: 0,
+        },
+        RigidBody::Kinematic,
+        Collider::capsule(1.0, 0.5),
+        Transform::from_xyz(-5.0, 0.0, -5.0),
+    ));
+}

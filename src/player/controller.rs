@@ -2,7 +2,7 @@ use std::ops::DerefMut;
 
 use avian3d::math::PI;
 use avian3d::prelude::*;
-use bevy::{platform::collections::HashSet, prelude::*};
+use bevy::{ecs::relationship::Relationship, platform::collections::HashSet, prelude::*};
 use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
@@ -140,25 +140,42 @@ pub fn cleanup_pickup_particles(
 }
 
 pub fn add_mixamo_colliders(
-    on: Query<(Entity, &Name), Added<Name>>,
+    named_entities: Query<(Entity, &Name, &ChildOf), Added<Name>>,
+    player_query: Query<Entity, With<PlayerRoot>>,
+    parents: Query<&ChildOf>,
     mut commands: Commands,
     assets: Res<GameAssets>,
 ) {
-    #[rustfmt::skip]
-    let index = |name: &str| -> Option<(Collider, Transform)> {
-        match name {
-            "mixamorigLeftUpLeg" | "mixamorigRightUpLeg" => Some((Collider::capsule(15.0, 30.0), Transform::from_xyz(0.0, 15.0, 0.0))),
-            "mixamorigLeftLeg" | "mixamorigRightLeg" => Some((Collider::capsule(13.0, 30.0), Transform::from_xyz(0.0, 15.0, 0.0))),
-            "mixamorigHips" => Some((Collider::cylinder(27.25, 30.25), Transform::default())),
-            "mixamorigHead" => Some((Collider::sphere(20.0), Transform::from_xyz(0.0, 15.0, 0.0))),
-            "mixamorigSpine" => Some((Collider::cylinder(24.25, 50.25), Transform::default())),
-            "mixamorigLeftArm" | "mixamorigRightArm" => Some((Collider::capsule(13.0, 30.0), Transform::from_xyz(0.0, 10.0, 0.0))),
-            "mixamorigLeftForeArm" | "mixamorigRightForeArm" => Some((Collider::capsule(13.0, 30.0), Transform::from_xyz(0.0, 10.0, 0.0))),
-            _ => None,
+    for (entity, name, parent) in named_entities.iter() {
+        // Check if this entity is a descendant of the PlayerRoot
+        let mut current_parent = Some(parent.get());
+        let mut is_player_descendant = false;
+        while let Some(parent_entity) = current_parent {
+            if player_query.get(parent_entity).is_ok() {
+                is_player_descendant = true;
+                break;
+            }
+            current_parent = parents.get(parent_entity).ok().map(|p| p.get());
         }
-    };
 
-    for (entity, name) in on.iter() {
+        if !is_player_descendant {
+            continue;
+        }
+
+        #[rustfmt::skip]
+        let index = |name: &str| -> Option<(Collider, Transform)> {
+            match name {
+                "mixamorigLeftUpLeg" | "mixamorigRightUpLeg" => Some((Collider::capsule(15.0, 30.0), Transform::from_xyz(0.0, 15.0, 0.0))),
+                "mixamorigLeftLeg" | "mixamorigRightLeg" => Some((Collider::capsule(13.0, 30.0), Transform::from_xyz(0.0, 15.0, 0.0))),
+                "mixamorigHips" => Some((Collider::cylinder(27.25, 30.25), Transform::default())),
+                "mixamorigHead" => Some((Collider::sphere(20.0), Transform::from_xyz(0.0, 15.0, 0.0))),
+                "mixamorigSpine" => Some((Collider::cylinder(24.25, 50.25), Transform::default())),
+                "mixamorigLeftArm" | "mixamorigRightArm" => Some((Collider::capsule(13.0, 30.0), Transform::from_xyz(0.0, 10.0, 0.0))),
+                "mixamorigLeftForeArm" | "mixamorigRightForeArm" => Some((Collider::capsule(13.0, 30.0), Transform::from_xyz(0.0, 10.0, 0.0))),
+                _ => None,
+            }
+        };
+
         if name.as_str().contains("mixamo") {
             //warn!("{}", name.as_str());
         }
@@ -194,13 +211,16 @@ pub fn add_mixamo_colliders(
 
 pub fn controller_update_sensors(
     mut commands: Commands,
-    q: Query<(
-        Entity,
-        &TnuaController,
-        &RayHits,
-        &Transform,
-        &LinearVelocity,
-    )>,
+    q: Query<
+        (
+            Entity,
+            &TnuaController,
+            &RayHits,
+            &Transform,
+            &LinearVelocity,
+        ),
+        With<PlayerRoot>,
+    >,
 ) {
     for (entity, controller, hits, transform, velocity) in q.iter() {
         let distance_to_ground = hits.iter_sorted().next().map_or(0.0, |h| h.distance);
@@ -251,12 +271,15 @@ pub fn controller_update_sensors(
 
 #[allow(clippy::too_many_arguments)]
 pub fn update_controller_state(
-    mut q: Query<(
-        &mut ControllerState,
-        &ControllerSensors,
-        &mut AirJumpState,
-        Forces,
-    )>,
+    mut q: Query<
+        (
+            &mut ControllerState,
+            &ControllerSensors,
+            &mut AirJumpState,
+            Forces,
+        ),
+        With<PlayerRoot>,
+    >,
     caster_and_hit: Single<(&RayCaster, &RayHits), With<FootRayCaster>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     ui_state: Res<TalentUiState>,
@@ -378,7 +401,7 @@ pub fn update_controller_state(
 
 pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut controller_query: Query<(&mut TnuaController, &ControllerState)>,
+    mut controller_query: Query<(&mut TnuaController, &ControllerState), With<PlayerRoot>>,
     camera: Single<&Transform, With<Camera>>,
     ui_state: Res<TalentUiState>,
     escape_ui: Res<EscapeMenuUiState>,
@@ -444,9 +467,13 @@ pub fn apply_controls(
     }
 }
 
+#[allow(clippy::type_complexity)]
 /// Rotates the character to always face away from the camera (like Elden Ring)
 pub fn rotate_character_to_movement(
-    mut query: Query<(&mut Transform, &mut ControllerSensors), With<TnuaController>>,
+    mut query: Query<
+        (&mut Transform, &mut ControllerSensors),
+        (With<TnuaController>, With<PlayerRoot>),
+    >,
     time: Res<Time>,
 ) {
     for (mut transform, sensors) in query.iter_mut() {

@@ -14,6 +14,7 @@ use bevy_tnua_avian3d::prelude::*;
 use crate::assets::*;
 use crate::camera::ThirdPersonCameraPlugin;
 use crate::chunks::ChunkObserver;
+use crate::enemy::EnemyPlugin;
 use crate::hud::HudPlugin;
 use crate::platform::PlatformPath;
 use crate::player::controller::PlayerRoot;
@@ -46,6 +47,7 @@ impl Plugin for GamePlugin {
         app.add_plugins(crate::platform::PlatformPlugin);
         app.add_plugins(crate::chunks::ChunksPlugin);
         app.add_plugins(ThirdPersonCameraPlugin);
+        app.add_plugins(EnemyPlugin);
         app.insert_resource(ClearColor(Color::srgb(0.08, 0.02, 0.02))); // Very dark black background
         app.add_systems(OnEnter(MyStates::Next), setup);
     }
@@ -224,4 +226,6 @@ fn setup(
     commands.spawn((SpawnTorch, Transform::from_xyz(2.0, 1.0, 0.0)));
 
     commands.spawn((ParticleEffect::new(assets.void.clone()),));
+
+    spawn_enemy(commands, assets);
 }
