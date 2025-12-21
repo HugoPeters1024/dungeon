@@ -47,20 +47,6 @@ pub type SpellBar = [SpellDef; SPELL_SLOTS];
 
 const DASH_SLOT: usize = 5; // Q
 
-fn dash_spell_for_class(class: TalentClass) -> SpellDef {
-    // Keep dash icons class-specific by using each class' icon region.
-    let (base, strength) = match class {
-        TalentClass::Cleric => (0, 6.0),
-        TalentClass::Bard => (24, 7.0),
-        TalentClass::Paladin => (48, 7.5),
-    };
-    SpellDef {
-        mana_cost: 20,
-        icon_index: base + DASH_SLOT,
-        effect: SpellEffect::Dash(strength),
-    }
-}
-
 pub fn spellbar_for_class(class: TalentClass) -> SpellBar {
     let mut bar = match class {
         TalentClass::Cleric => cleric::spellbar(),
@@ -68,15 +54,18 @@ pub fn spellbar_for_class(class: TalentClass) -> SpellBar {
         TalentClass::Paladin => paladin::spellbar(),
     };
 
-    // Every character gets dash on Q, always.
-    bar[DASH_SLOT] = dash_spell_for_class(class);
+    // Every character gets dash on Q, always (but the spell definition decides the icon).
+    // If a class file accidentally changes the slot, force the effect back to Dash while
+    // preserving mana/icon.
+    if !matches!(bar[DASH_SLOT].effect, SpellEffect::Dash(_)) {
+        bar[DASH_SLOT].effect = SpellEffect::Dash(6.0);
+    }
 
-    // And nowhere else.
-    debug_assert!(
-        bar.iter()
-            .enumerate()
-            .all(|(i, s)| i == DASH_SLOT || !matches!(s.effect, SpellEffect::Dash(_)))
-    );
+    // And nowhere else (enforced in debug builds).
+    debug_assert!(bar.iter().enumerate().all(|(i, s)| {
+        (i == DASH_SLOT && matches!(s.effect, SpellEffect::Dash(_)))
+            || (i != DASH_SLOT && !matches!(s.effect, SpellEffect::Dash(_)))
+    }));
 
     bar
 }

@@ -2,7 +2,7 @@ use crate::spells::{DamageElement, SpellBar, SpellDef, SpellEffect};
 
 pub fn spellbar() -> SpellBar {
     // Bard: different icon region so the bar looks distinct.
-    let base = 24;
+    let base = 38 * 2;
     [
         SpellDef {
             mana_cost: 35,
@@ -37,7 +37,7 @@ pub fn spellbar() -> SpellBar {
         },
         SpellDef {
             mana_cost: 28,
-            icon_index: base + 4,
+            icon_index: 12 * 19 + 2,
             effect: SpellEffect::ElementalBlast {
                 damage: 18.0,
                 radius: 1.2,
@@ -48,23 +48,26 @@ pub fn spellbar() -> SpellBar {
         SpellDef {
             // Q: Every class gets Dash here.
             mana_cost: 20,
-            icon_index: base + 5,
+            icon_index: 15,
             effect: SpellEffect::Dash(7.0),
         },
         SpellDef {
-            mana_cost: 30,
-            icon_index: base + 6,
-            effect: SpellEffect::Heal(16.0),
+            // E: Every class gets a pool.
+            mana_cost: 10,
+            icon_index: 7,
+            effect: SpellEffect::DamagePool {
+                dps: 6.0,
+                radius: 12.0,
+                duration: 4.5,
+                range: 9.0,
+                element: DamageElement::Sonic,
+            },
         },
         SpellDef {
-            mana_cost: 26,
-            icon_index: base + 7,
-            effect: SpellEffect::ElementalBlast {
-                damage: 16.0,
-                radius: 1.1,
-                range: 9.0,
-                element: DamageElement::Frost,
-            },
+            // R: Every class gets a heal.
+            mana_cost: 40,
+            icon_index: 10,
+            effect: SpellEffect::Heal(28.0),
         },
     ]
 }

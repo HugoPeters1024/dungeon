@@ -507,7 +507,9 @@ fn swap_action_icons_from_atlas(
 
 #[allow(clippy::type_complexity)]
 fn detect_icon_grid(image: &Image) -> Option<(Vec<(u32, u32)>, Vec<(u32, u32)>)> {
-    // Use near-black separator lines to infer cell boundaries.
+    // Use (near-)dark separator lines to infer cell boundaries.
+    // NOTE: Some separator rows/cols in `icons.png` are dark gray, not pure black, so we use a
+    // slightly relaxed threshold and (if needed) a second-pass looser separator fraction.
     let w = image.size().x;
     let h = image.size().y;
     let fmt = image.texture_descriptor.format;
@@ -520,25 +522,32 @@ fn detect_icon_grid(image: &Image) -> Option<(Vec<(u32, u32)>, Vec<(u32, u32)>)>
         return None;
     }
 
-    let mut col_black = vec![0u32; w as usize];
-    let mut row_black = vec![0u32; h as usize];
+    let mut col_dark = vec![0u32; w as usize];
+    let mut row_dark = vec![0u32; h as usize];
     for y in 0..h {
         for x in 0..w {
             let i = ((y * w + x) as usize) * bpp;
             let r = data[i];
             let g = data[i + 1];
             let b = data[i + 2];
-            if r < 8 && g < 8 && b < 8 {
-                col_black[x as usize] += 1;
-                row_black[y as usize] += 1;
+            // Treat very dark pixels as separator pixels.
+            // (We use max-channel threshold; it's robust for tinted dark lines.)
+            if r.max(g).max(b) <= 24 {
+                col_dark[x as usize] += 1;
+                row_dark[y as usize] += 1;
             }
         }
     }
 
-    let cols = find_separators(&col_black, h, 0.55);
-    let rows = find_separators(&row_black, w, 0.55);
+    // First pass: fairly strict (good when separators are solid).
+    let mut cols = find_separators(&col_dark, h, 0.50);
+    let mut rows = find_separators(&row_dark, w, 0.50);
+
+    // Second pass: looser (helps when a separator line isn't fully black across the whole atlas,
+    // which can cause two rows to be merged).
     if cols.len() < 2 || rows.len() < 2 {
-        return None;
+        cols = find_separators(&col_dark, h, 0.35);
+        rows = find_separators(&row_dark, w, 0.35);
     }
 
     let col_cells = runs_to_cells(&cols)?;

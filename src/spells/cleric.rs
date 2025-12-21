@@ -49,22 +49,25 @@ pub fn spellbar() -> SpellBar {
         SpellDef {
             // Q: Every class gets Dash here.
             mana_cost: 20,
-            icon_index: base + 5,
+            icon_index: 15,
             effect: SpellEffect::Dash(6.0),
         },
         SpellDef {
-            mana_cost: 12,
-            icon_index: base + 6,
-            effect: SpellEffect::ElementalBlast {
-                damage: 18.0,
-                radius: 1.2,
-                range: 8.0,
-                element: DamageElement::Fire,
+            // E: Every class gets a pool.
+            mana_cost: 10,
+            icon_index: 5,
+            effect: SpellEffect::DamagePool {
+                dps: 12.0,
+                radius: 7.0,
+                duration: 6.4,
+                range: 8.5,
+                element: DamageElement::Darkness,
             },
         },
         SpellDef {
-            mana_cost: 50,
-            icon_index: base + 7,
+            // R: Every class gets a heal.
+            mana_cost: 30,
+            icon_index: 10,
             effect: SpellEffect::Heal(28.0),
         },
     ]
