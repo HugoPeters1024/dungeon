@@ -120,6 +120,8 @@ pub enum TalentEffect {
     FallExtraGravityPctPerRank(f32),
     /// +N extra mid-air jumps per rank
     ExtraAirJumpPerRank(u8),
+    /// +% mana regeneration per rank
+    ManaRegenPctPerRank(f32),
     /// Placeholder (no runtime effect yet)
     Placeholder,
 }
@@ -198,6 +200,7 @@ pub struct TalentBonuses {
     pub jump_height_mult: f32,
     pub fall_extra_gravity_mult: f32,
     pub extra_air_jumps: u8,
+    pub mana_regen_mult: f32,
 }
 
 // --- UI state ---------------------------------------------------------------
@@ -602,9 +605,9 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         "Arcane Poise",
         3,
-        "Placeholder: +4% mana regen per rank.",
+        "+10% mana regeneration per rank.",
         None,
-        TalentEffect::Placeholder,
+        TalentEffect::ManaRegenPctPerRank(10.0),
     ),
     t(
         TalentTree::Sorcery,
@@ -1477,6 +1480,16 @@ fn effect_summary(def: &TalentDef, rank: u8) -> String {
                 )
             }
         }
+        TalentEffect::ManaRegenPctPerRank(p) => {
+            if rank == 0 {
+                format!("Effect: +{p:.0}% mana regeneration per rank")
+            } else {
+                format!(
+                    "Effect: +{p:.0}% mana regen per rank (current: +{cur:.0}%)",
+                    cur = p * rank as f32
+                )
+            }
+        }
         TalentEffect::Placeholder => "Effect: (placeholder)".to_string(),
     }
 }
@@ -1858,6 +1871,7 @@ fn recompute_bonuses(talents: Res<TalentsState>, mut bonuses: ResMut<TalentBonus
         jump_height_mult: 1.0,
         fall_extra_gravity_mult: 1.0,
         extra_air_jumps: 0,
+        mana_regen_mult: 1.0,
     };
 
     for def in TALENTS.iter() {
@@ -1880,6 +1894,9 @@ fn recompute_bonuses(talents: Res<TalentsState>, mut bonuses: ResMut<TalentBonus
             }
             TalentEffect::ExtraAirJumpPerRank(n) => {
                 out.extra_air_jumps = out.extra_air_jumps.saturating_add((n as f32 * rank) as u8);
+            }
+            TalentEffect::ManaRegenPctPerRank(p) => {
+                out.mana_regen_mult *= 1.0 + (p / 100.0) * rank;
             }
             TalentEffect::Placeholder => {}
         }
