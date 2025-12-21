@@ -14,9 +14,31 @@ pub struct ChunksPlugin;
 
 const FLOOR_SIZE: i32 = 8;
 
+/// Controls how many terrain chunks are kept around the player.
+/// `spawn_radius` of 2 means a 5x5 square (from -2..=2 in x/y).
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct ChunkRenderSettings {
+    pub spawn_radius: i32,
+    /// Chunks beyond this radius will be despawned to avoid unbounded growth.
+    /// Kept slightly larger than spawn_radius to reduce pop-in when moving quickly.
+    pub despawn_radius: i32,
+}
+
+impl Default for ChunkRenderSettings {
+    fn default() -> Self {
+        Self {
+            // 3 => 7x7 chunks visible around the player
+            spawn_radius: 3,
+            // keep extra margin to reduce pop-in when moving quickly (11x11 max kept)
+            despawn_radius: 5,
+        }
+    }
+}
+
 impl Plugin for ChunksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ChunkIndex>();
+        app.init_resource::<ChunkRenderSettings>();
         app.add_systems(Update, update_chunk_index.run_if(in_state(MyStates::Next)));
     }
 }
@@ -25,17 +47,39 @@ fn update_chunk_index(
     mut commands: Commands,
     q: Single<(&GlobalTransform, &ChunkObserver)>,
     index: Res<ChunkIndex>,
+    settings: Res<ChunkRenderSettings>,
 ) {
     let (gt, _) = *q;
 
     let loc = gt.translation().xz().as_ivec2() / IVec2::splat(FLOOR_SIZE);
-    for y in -1..=1 {
-        for x in -1..=1 {
+    for y in -settings.spawn_radius..=settings.spawn_radius {
+        for x in -settings.spawn_radius..=settings.spawn_radius {
             let key = loc + IVec2::new(x, y);
             if !index.contains_key(&key) {
                 commands.run_system_cached_with(spawn_chunk, key);
             }
         }
+    }
+
+    // Despawn chunks that are too far away to keep memory/meshes bounded.
+    if settings.despawn_radius >= 0 {
+        let mut to_remove: Vec<IVec2> = Vec::new();
+        for (key, entity) in index.iter() {
+            let d = *key - loc;
+            if d.x.abs() > settings.despawn_radius || d.y.abs() > settings.despawn_radius {
+                commands.entity(*entity).despawn();
+                to_remove.push(*key);
+            }
+        }
+        if !to_remove.is_empty() {
+            commands.run_system_cached_with(remove_chunks_from_index, to_remove);
+        }
+    }
+}
+
+fn remove_chunks_from_index(In(keys): In<Vec<IVec2>>, mut index: ResMut<ChunkIndex>) {
+    for k in keys {
+        index.remove(&k);
     }
 }
 

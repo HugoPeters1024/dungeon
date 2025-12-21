@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use bevy::ui::{ComputedNode, UiGlobalTransform};
+use strum_macros::Display;
 
 use crate::assets::MyStates;
 
@@ -43,7 +44,7 @@ impl Plugin for TalentsPlugin {
 
 // --- Data model -------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum TalentClass {
     Cleric,
     Bard,
@@ -52,14 +53,6 @@ pub enum TalentClass {
 
 impl TalentClass {
     pub const ALL: [TalentClass; 3] = [TalentClass::Cleric, TalentClass::Bard, TalentClass::Paladin];
-
-    pub fn title(self) -> &'static str {
-        match self {
-            TalentClass::Cleric => "Cleric",
-            TalentClass::Bard => "Bard",
-            TalentClass::Paladin => "Paladin",
-        }
-    }
 }
 
 #[derive(Resource, Debug, Clone, Copy)]
@@ -71,7 +64,7 @@ impl Default for SelectedTalentClass {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum TalentTree {
     Vigor,
     Guile,
@@ -80,14 +73,6 @@ pub enum TalentTree {
 
 impl TalentTree {
     pub const ALL: [TalentTree; 3] = [TalentTree::Vigor, TalentTree::Guile, TalentTree::Sorcery];
-
-    pub fn debug_title(self) -> &'static str {
-        match self {
-            TalentTree::Vigor => "Vigor",
-            TalentTree::Guile => "Guile",
-            TalentTree::Sorcery => "Sorcery",
-        }
-    }
 }
 
 fn tree_title_for_class(class: TalentClass, tree: TalentTree) -> &'static str {
@@ -134,6 +119,8 @@ pub enum TalentEffect {
     JumpHeightPctPerRank(f32),
     /// -% extra fall gravity per rank (1.0 means unchanged, lower means floatier)
     FallExtraGravityPctPerRank(f32),
+    /// +N extra mid-air jumps per rank
+    ExtraAirJumpPerRank(u8),
     /// Placeholder (no runtime effect yet)
     Placeholder,
 }
@@ -211,6 +198,7 @@ pub struct TalentBonuses {
     pub sprint_mult: f32,
     pub jump_height_mult: f32,
     pub fall_extra_gravity_mult: f32,
+    pub extra_air_jumps: u8,
 }
 
 // --- UI state ---------------------------------------------------------------
@@ -694,10 +682,10 @@ pub const TALENTS: &[TalentDef] = &[
         4,
         0,
         "Airwalk",
-        2,
-        "Placeholder: +1 mid-air jump per rank.",
+        1,
+        "+1 mid-air jump.",
         None,
-        TalentEffect::Placeholder,
+        TalentEffect::ExtraAirJumpPerRank(1),
     ),
     t(
         TalentTree::Sorcery,
@@ -1480,6 +1468,13 @@ fn effect_summary(def: &TalentDef, rank: u8) -> String {
                 )
             }
         }
+        TalentEffect::ExtraAirJumpPerRank(n) => {
+            if rank == 0 {
+                format!("Effect: +{n} mid-air jump")
+            } else {
+                format!("Effect: +{count} mid-air jump", count = n as u32 * rank as u32)
+            }
+        }
         TalentEffect::Placeholder => "Effect: (placeholder)".to_string(),
     }
 }
@@ -1859,6 +1854,7 @@ fn recompute_bonuses(
         sprint_mult: 1.0,
         jump_height_mult: 1.0,
         fall_extra_gravity_mult: 1.0,
+        extra_air_jumps: 0,
     };
 
     for def in TALENTS.iter() {
@@ -1878,6 +1874,9 @@ fn recompute_bonuses(
             }
             TalentEffect::FallExtraGravityPctPerRank(p) => {
                 out.fall_extra_gravity_mult *= 1.0 - (p / 100.0) * rank;
+            }
+            TalentEffect::ExtraAirJumpPerRank(n) => {
+                out.extra_air_jumps = out.extra_air_jumps.saturating_add((n as f32 * rank) as u8);
             }
             TalentEffect::Placeholder => {}
         }
