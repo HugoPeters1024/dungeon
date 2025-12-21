@@ -6,7 +6,7 @@ use crate::assets::MyStates;
 use crate::combat::Damageable;
 use crate::player::controller::{ControllerSensors, PlayerRoot};
 use crate::spells::{SPELL_SLOTS, SpellBar, SpellDef, SpellEffect, spellbar_for_class};
-use crate::talents::{SelectedTalentClass, TalentBonuses, TalentClass};
+use crate::talents::{InfiniteMana, SelectedTalentClass, TalentBonuses, TalentClass};
 use avian3d::prelude::{Forces, RigidBodyForces};
 
 pub struct HudPlugin;
@@ -102,7 +102,16 @@ impl Default for Vitals {
     }
 }
 
-fn regen_mana(time: Res<Time>, bonuses: Res<TalentBonuses>, mut vitals: ResMut<Vitals>) {
+fn regen_mana(
+    time: Res<Time>,
+    bonuses: Res<TalentBonuses>,
+    infinite: Option<Res<InfiniteMana>>,
+    mut vitals: ResMut<Vitals>,
+) {
+    if infinite.as_ref().is_some_and(|i| i.0) {
+        vitals.mana = vitals.max_mana;
+        return;
+    }
     // Placeholder base regen until spells/abilities exist.
     const BASE_MANA_REGEN_PER_SEC: f32 = 2.0;
     let regen = BASE_MANA_REGEN_PER_SEC * bonuses.mana_regen_mult;
@@ -691,6 +700,7 @@ fn handle_action_bar_casts(
     mut damageables: Query<(Entity, &GlobalTransform, &mut Damageable)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    infinite: Option<Res<InfiniteMana>>,
     bar: Res<ActiveSpellBar>,
     slots: Query<(Entity, &ActionSlotBind), With<ActionSlot>>,
     clicks: Query<
@@ -699,6 +709,7 @@ fn handle_action_bar_casts(
     >,
 ) {
     let spells = bar.0;
+    let infinite = infinite.as_ref().is_some_and(|i| i.0);
 
     // Keyboard activations
     for (entity, bind) in slots.iter() {
@@ -717,6 +728,7 @@ fn handle_action_bar_casts(
                 &mut materials,
                 entity,
                 spells[slot],
+                infinite,
             );
         }
     }
@@ -738,6 +750,7 @@ fn handle_action_bar_casts(
                 &mut materials,
                 entity,
                 spells[slot],
+                infinite,
             );
         }
     }
@@ -755,15 +768,19 @@ fn try_cast(
     materials: &mut Assets<StandardMaterial>,
     slot_entity: Entity,
     spell: SpellDef,
+    infinite: bool,
 ) {
     // Deterministic "randomness" reserved for later (crit/variation etc).
     rng.0 = rng.0.wrapping_mul(1664525).wrapping_add(1013904223);
 
     // Use floor(mana) for both display + gating so players never see "20" but can't cast 20.
+    // If infinite mana is enabled, always succeed and don't spend.
     let available = vitals.mana.max(0.0).floor() as u32;
-    let success = available >= spell.mana_cost;
+    let success = infinite || available >= spell.mana_cost;
     if success {
-        vitals.mana = (vitals.mana - spell.mana_cost as f32).max(0.0);
+        if !infinite {
+            vitals.mana = (vitals.mana - spell.mana_cost as f32).max(0.0);
+        }
         apply_spell_effect(vitals, player, spell.effect);
         apply_damage_spell_effect(
             commands,
