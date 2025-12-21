@@ -56,11 +56,12 @@ struct HudImages {
 }
 
 fn spawn_hud(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    let mut hud_images = HudImages::default();
-    hud_images.frame = images.add(make_orb_frame_image(256));
-    hud_images.gloss = images.add(make_orb_gloss_image(256));
-    hud_images.hp_fill = images.add(make_orb_fill_image(256, Color::srgb(0.78, 0.08, 0.12)));
-    hud_images.mp_fill = images.add(make_orb_fill_image(256, Color::srgb(0.10, 0.30, 0.86)));
+    let hud_images = HudImages {
+        frame: images.add(make_orb_frame_image(256)),
+        gloss: images.add(make_orb_gloss_image(256)),
+        hp_fill: images.add(make_orb_fill_image(256, Color::srgb(0.78, 0.08, 0.12))),
+        mp_fill: images.add(make_orb_fill_image(256, Color::srgb(0.10, 0.30, 0.86))),
+    };
     commands.insert_resource(hud_images);
 
     // Root overlay (non-interactive).
@@ -369,7 +370,11 @@ fn make_orb_fill_image(size: u32, base: Color) -> Image {
 
             let edge = (1.0 - (d / r)).clamp(0.0, 1.0);
             let v = (fy / size as f32).clamp(0.0, 1.0);
-            let swirl = (((x as u32 * 1103515245 + y as u32 * 12345) & 0xff) as f32 / 255.0)
+            // Use wrapping math to avoid debug overflow panics.
+            let hash = x
+                .wrapping_mul(1103515245)
+                .wrapping_add(y.wrapping_mul(12345));
+            let swirl = (((hash & 0xff) as f32) / 255.0)
                 * 0.06
                 - 0.03;
             let bright = (0.55 + edge * 0.50 + (1.0 - v) * 0.18 + swirl).clamp(0.0, 1.0);

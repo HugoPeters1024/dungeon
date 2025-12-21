@@ -235,6 +235,7 @@ pub fn controller_update_sensors(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_controller_state(
     mut q: Query<(&mut ControllerState, &ControllerSensors, &mut AirJumpState, Forces)>,
     caster_and_hit: Single<(&RayCaster, &RayHits), With<FootRayCaster>>,

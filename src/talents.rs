@@ -55,14 +55,8 @@ impl TalentClass {
     pub const ALL: [TalentClass; 3] = [TalentClass::Cleric, TalentClass::Bard, TalentClass::Paladin];
 }
 
-#[derive(Resource, Debug, Clone, Copy)]
+#[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct SelectedTalentClass(pub Option<TalentClass>);
-
-impl Default for SelectedTalentClass {
-    fn default() -> Self {
-        Self(None)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum TalentTree {
@@ -747,6 +741,7 @@ pub const TALENTS: &[TalentDef] = &[
     ),
 ];
 
+#[allow(clippy::too_many_arguments)]
 const fn t(
     tree: TalentTree,
     tier: Tier,
@@ -1084,7 +1079,7 @@ fn spawn_talents_ui(mut commands: Commands) {
     for tree in TalentTree::ALL {
         let tree_col = commands
             .spawn((
-                Name::new(format!("Tree: {}", tree.debug_title())),
+                Name::new(format!("Tree: {tree}")),
                 Node {
                     width: Val::Percent(33.0),
                     height: Val::Percent(100.0),
@@ -1240,6 +1235,7 @@ fn spawn_talents_ui(mut commands: Commands) {
         ));
 }
 
+#[allow(clippy::type_complexity)]
 fn refresh_class_dependent_text(
     selected: Res<SelectedTalentClass>,
     escape_ui: Res<EscapeMenuUiState>,
@@ -1257,19 +1253,17 @@ fn refresh_class_dependent_text(
     let class = selected.0.unwrap_or(TalentClass::Paladin);
     if let Ok(mut t) = set.p1().single_mut() {
         if let Some(sel) = selected.0 {
-            *t = Text::new(format!("Class: {}", sel.title()));
+            *t = Text::new(format!("Class: {sel}"));
         } else {
             *t = Text::new("Class: —");
         }
     }
 
-    if selected.is_changed() || escape_ui.is_changed() {
-        if let Ok(mut t) = set.p0().single_mut() {
-            if let Some(sel) = selected.0 {
-                *t = Text::new(format!("Menu — Class: {}", sel.title()));
-            } else {
-                *t = Text::new("Menu — Class: —");
-            }
+    if (selected.is_changed() || escape_ui.is_changed()) && let Ok(mut t) = set.p0().single_mut() {
+        if let Some(sel) = selected.0 {
+            *t = Text::new(format!("Menu — Class: {sel}"));
+        } else {
+            *t = Text::new("Menu — Class: —");
         }
     }
 
@@ -1305,10 +1299,10 @@ fn can_invest(talents: &TalentsState, points: &TalentPoints, id: TalentId) -> (b
         return (false, "Not enough points in this tree");
     }
 
-    if let Some(pr) = def.prereq {
-        if talents.rank(pr) == 0 {
-            return (false, "Requires prerequisite talent");
-        }
+    if let Some(pr) = def.prereq
+        && talents.rank(pr) == 0
+    {
+        return (false, "Requires prerequisite talent");
     }
 
     (true, "OK")
@@ -1359,27 +1353,27 @@ fn talent_ui_button_interactions(
         }
     }
 
-    if let Some(interaction) = reset_btn.iter().next() {
-        if *interaction == Interaction::Pressed {
-            talents.ranks.clear();
-            talents.spent_stack.clear();
-            points.available = 51;
-        }
+    if let Some(interaction) = reset_btn.iter().next()
+        && *interaction == Interaction::Pressed
+    {
+        talents.ranks.clear();
+        talents.spent_stack.clear();
+        points.available = 51;
     }
 
-    if let Some(interaction) = refund_btn.iter().next() {
-        if *interaction == Interaction::Pressed {
-            if let Some(last) = talents.spent_stack.pop() {
-                let current = talents.rank(last);
-                if current > 0 {
-                    talents.set_rank(last, current - 1);
-                    points.available = points.available.saturating_add(1);
-                }
-            }
+    if let Some(interaction) = refund_btn.iter().next()
+        && *interaction == Interaction::Pressed
+        && let Some(last) = talents.spent_stack.pop()
+    {
+        let current = talents.rank(last);
+        if current > 0 {
+            talents.set_rank(last, current - 1);
+            points.available = points.available.saturating_add(1);
         }
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn update_talent_buttons_visuals(
     talents: Res<TalentsState>,
     points: Res<TalentPoints>,
@@ -1479,6 +1473,8 @@ fn effect_summary(def: &TalentDef, rank: u8) -> String {
     }
 }
 
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 fn update_talent_tooltip(
     ui_state: Res<TalentUiState>,
     selection: Res<TalentUiSelection>,
@@ -1656,7 +1652,7 @@ fn class_pick_button(class: TalentClass, wood: Color, gold: Color) -> impl Bundl
     (
         ClassPickButton { class },
         Button,
-        Name::new(format!("Pick Class: {}", class.title())),
+        Name::new(format!("Pick Class: {class}")),
         Node {
             width: Val::Px(165.0),
             height: Val::Px(44.0),
@@ -1668,7 +1664,7 @@ fn class_pick_button(class: TalentClass, wood: Color, gold: Color) -> impl Bundl
         BackgroundColor(wood),
         BorderColor::all(gold),
         children![(
-            Text::new(class.title()),
+            Text::new(class.to_string()),
             TextFont {
                 font_size: 16.0,
                 ..default()
@@ -1758,6 +1754,7 @@ fn spawn_escape_menu_ui(mut commands: Commands) {
         ));
 }
 
+#[allow(clippy::too_many_arguments)]
 fn enforce_class_selection_flow(
     class: Res<SelectedTalentClass>,
     mut class_ui: ResMut<ClassSelectUiState>,
@@ -1796,6 +1793,7 @@ fn enforce_class_selection_flow(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn class_pick_button_interactions(
     mut interactions: Query<(&Interaction, &ClassPickButton), Changed<Interaction>>,
     mut selected: ResMut<SelectedTalentClass>,

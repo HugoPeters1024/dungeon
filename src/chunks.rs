@@ -262,15 +262,15 @@ mod tests {
 
         // Write PPM header (P3 = ASCII format)
         writeln!(file, "P3").expect("Failed to write header");
-        writeln!(file, "{} {}", IMAGE_SIZE, IMAGE_SIZE).expect("Failed to write dimensions");
+        writeln!(file, "{IMAGE_SIZE} {IMAGE_SIZE}").expect("Failed to write dimensions");
         writeln!(file, "255").expect("Failed to write max color value");
 
         // Write pixel data
         for (i, &value) in pixels.iter().enumerate() {
-            if i % 3 == 0 && i > 0 {
-                write!(file, "\n").expect("Failed to write newline");
+            if i.is_multiple_of(3) && i > 0 {
+                writeln!(file).expect("Failed to write newline");
             }
-            write!(file, "{} ", value).expect("Failed to write pixel value");
+            write!(file, "{value} ").expect("Failed to write pixel value");
         }
 
         println!("Generated layered_perlin_noise.ppm (256x256)");
