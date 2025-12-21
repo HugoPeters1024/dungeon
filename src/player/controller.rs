@@ -271,12 +271,15 @@ pub fn controller_update_sensors(
 
 #[allow(clippy::too_many_arguments)]
 pub fn update_controller_state(
-    mut q: Query<(
-        &mut ControllerState,
-        &ControllerSensors,
-        &mut AirJumpState,
-        Forces,
-    ), With<PlayerRoot>>,
+    mut q: Query<
+        (
+            &mut ControllerState,
+            &ControllerSensors,
+            &mut AirJumpState,
+            Forces,
+        ),
+        With<PlayerRoot>,
+    >,
     caster_and_hit: Single<(&RayCaster, &RayHits), With<FootRayCaster>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     ui_state: Res<TalentUiState>,
