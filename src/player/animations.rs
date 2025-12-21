@@ -105,12 +105,15 @@ pub fn animations_from_controller(
         use ControllerState::*;
         match state {
             Idle => {
-                *weights = AnimationWeights::default();
+                *weights = AnimationWeights {
+                    defeated: 1.0,
+                    ..default()
+                };
                 if let Some(clip) = player.animation_mut(clips.walking) {
-                    clip.set_speed(1.0);
+                    clip.set_speed(0.0);
                 }
                 if let Some(clip) = player.animation_mut(clips.running) {
-                    clip.set_speed(1.0);
+                    clip.set_speed(0.0);
                 }
             }
             Moving => {
