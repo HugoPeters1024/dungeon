@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::{
     animations_utils::AnimationPlayerOf,
     assets::GameAssets,
-    player::controller::{ControllerSensors, ControllerState, PlayerRoot},
+    player::controller::{ControllerSensors, ControllerState},
 };
 
 #[derive(Debug, Default, Component)]
@@ -90,7 +90,7 @@ pub fn animations_from_controller(
         &AnimationClips,
         &mut AnimationWeights,
         &AnimationPlayerOf,
-    ), With<PlayerRoot>>,
+    )>,
     c: Query<(&ControllerState, &ControllerSensors)>,
     mut prev_state: Local<ControllerState>,
 ) {
@@ -105,10 +105,7 @@ pub fn animations_from_controller(
         use ControllerState::*;
         match state {
             Idle => {
-                *weights = AnimationWeights {
-                    defeated: 1.0,
-                    ..default()
-                };
+                *weights = AnimationWeights::default();
             }
             Moving => {
                 let forward = sensors
@@ -133,6 +130,21 @@ pub fn animations_from_controller(
                 w.left_strafe = left;
                 w.right_strafe = right;
                 *weights = w;
+
+                // Adjust animation speed to match movement speed
+                let speed = sensors.running_velocity.length();
+                const BASE_WALK_SPEED: f32 = 2.2;
+                const BASE_RUN_SPEED: f32 = 4.4; // Assuming run is 2x walk
+
+                let walk_speed_factor = speed / BASE_WALK_SPEED;
+                let run_speed_factor = speed / BASE_RUN_SPEED;
+
+                if let Some(clip) = player.animation_mut(clips.walking) {
+                    clip.set_speed(walk_speed_factor);
+                }
+                if let Some(clip) = player.animation_mut(clips.running) {
+                    clip.set_speed(run_speed_factor);
+                }
             }
             Jumping(_) => {
                 if state_transioned {
@@ -176,7 +188,7 @@ pub fn animations_from_controller(
 }
 
 pub fn apply_animation_weights(
-    mut q: Query<(&AnimationWeights, &AnimationClips, &mut AnimationPlayer), With<PlayerRoot>>,
+    mut q: Query<(&AnimationWeights, &AnimationClips, &mut AnimationPlayer)>,
     time: Res<Time>,
 ) {
     for (weights, clips, mut player) in q.iter_mut() {
