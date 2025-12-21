@@ -193,7 +193,7 @@ pub fn controller_update_sensors(
         &RayHits,
         &Transform,
         &LinearVelocity,
-    )>,
+    ), With<PlayerRoot>>,
 ) {
     for (entity, controller, hits, transform, velocity) in q.iter() {
         let distance_to_ground = hits.iter_sorted().next().map_or(0.0, |h| h.distance);
@@ -243,7 +243,7 @@ pub fn controller_update_sensors(
 }
 
 pub fn update_controller_state(
-    mut q: Query<(&mut ControllerState, &ControllerSensors, Forces)>,
+    mut q: Query<(&mut ControllerState, &ControllerSensors, Forces), With<PlayerRoot>>,
     caster_and_hit: Single<(&RayCaster, &RayHits), With<FootRayCaster>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
@@ -334,7 +334,7 @@ pub fn update_controller_state(
 
 pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut controller_query: Query<(&mut TnuaController, &ControllerState)>,
+    mut controller_query: Query<(&mut TnuaController, &ControllerState), With<PlayerRoot>>,
     camera: Single<&Transform, With<Camera>>,
 ) {
     let Ok((mut controller, state)) = controller_query.single_mut() else {
@@ -391,7 +391,7 @@ pub fn apply_controls(
 
 /// Rotates the character to always face away from the camera (like Elden Ring)
 pub fn rotate_character_to_movement(
-    mut query: Query<(&mut Transform, &mut ControllerSensors), With<TnuaController>>,
+    mut query: Query<(&mut Transform, &mut ControllerSensors), (With<TnuaController>, With<PlayerRoot>)>,
     time: Res<Time>,
 ) {
     for (mut transform, sensors) in query.iter_mut() {

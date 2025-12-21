@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use crate::{
     animations_utils::AnimationPlayerOf,
     assets::GameAssets,
-    player::controller::{ControllerSensors, ControllerState},
+    player::controller::{ControllerSensors, ControllerState, PlayerRoot},
 };
 
 #[derive(Debug, Default, Component)]
@@ -90,7 +90,7 @@ pub fn animations_from_controller(
         &AnimationClips,
         &mut AnimationWeights,
         &AnimationPlayerOf,
-    )>,
+    ), With<PlayerRoot>>,
     c: Query<(&ControllerState, &ControllerSensors)>,
     mut prev_state: Local<ControllerState>,
 ) {
@@ -176,7 +176,7 @@ pub fn animations_from_controller(
 }
 
 pub fn apply_animation_weights(
-    mut q: Query<(&AnimationWeights, &AnimationClips, &mut AnimationPlayer)>,
+    mut q: Query<(&AnimationWeights, &AnimationClips, &mut AnimationPlayer), With<PlayerRoot>>,
     time: Res<Time>,
 ) {
     for (weights, clips, mut player) in q.iter_mut() {
