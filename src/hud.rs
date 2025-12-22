@@ -2,11 +2,16 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::HashMap;
 
-use crate::assets::MyStates;
+use crate::assets::{GameAssets, MyStates};
+use crate::camera::ThirdPersonCamera;
+use crate::combat::{DamageDealtEvent, Damageable};
 use crate::player::controller::{ControllerSensors, PlayerRoot};
-use crate::spells::{SPELL_SLOTS, SpellBar, SpellDef, SpellEffect, spellbar_for_class};
-use crate::talents::{SelectedTalentClass, TalentBonuses, TalentClass};
-use avian3d::prelude::{Forces, RigidBodyForces};
+use crate::spells::{
+    DamageElement, SPELL_SLOTS, SpellBar, SpellDef, SpellEffect, spellbar_for_class,
+};
+use crate::talents::{InfiniteMana, SelectedTalentClass, TalentBonuses, TalentClass};
+use avian3d::prelude::{Forces, RigidBodyForces, SpatialQuery, SpatialQueryFilter};
+use bevy_hanabi::prelude::ParticleEffect;
 
 pub struct HudPlugin;
 
@@ -49,6 +54,9 @@ impl Plugin for HudPlugin {
                     regen_mana,
                     sync_spellbar_from_class,
                     handle_action_bar_casts,
+                    tick_elemental_orbs,
+                    update_damage_pools_surface,
+                    tick_damage_pools,
                     animate_action_cast_fx,
                     update_hud_from_vitals,
                     animate_action_bar_slots,
@@ -58,6 +66,14 @@ impl Plugin for HudPlugin {
                     .run_if(in_state(MyStates::Next)),
             );
     }
+}
+
+#[derive(Component)]
+struct DamagePoolFx {
+    dps: f32,
+    radius: f32,
+    remaining: f32,
+    element: DamageElement,
 }
 
 fn sync_spellbar_from_class(
@@ -93,7 +109,16 @@ impl Default for Vitals {
     }
 }
 
-fn regen_mana(time: Res<Time>, bonuses: Res<TalentBonuses>, mut vitals: ResMut<Vitals>) {
+fn regen_mana(
+    time: Res<Time>,
+    bonuses: Res<TalentBonuses>,
+    infinite: Option<Res<InfiniteMana>>,
+    mut vitals: ResMut<Vitals>,
+) {
+    if infinite.as_ref().is_some_and(|i| i.0) {
+        vitals.mana = vitals.max_mana;
+        return;
+    }
     // Placeholder base regen until spells/abilities exist.
     const BASE_MANA_REGEN_PER_SEC: f32 = 2.0;
     let regen = BASE_MANA_REGEN_PER_SEC * bonuses.mana_regen_mult;
@@ -482,7 +507,9 @@ fn swap_action_icons_from_atlas(
 
 #[allow(clippy::type_complexity)]
 fn detect_icon_grid(image: &Image) -> Option<(Vec<(u32, u32)>, Vec<(u32, u32)>)> {
-    // Use near-black separator lines to infer cell boundaries.
+    // Use (near-)dark separator lines to infer cell boundaries.
+    // NOTE: Some separator rows/cols in `icons.png` are dark gray, not pure black, so we use a
+    // slightly relaxed threshold and (if needed) a second-pass looser separator fraction.
     let w = image.size().x;
     let h = image.size().y;
     let fmt = image.texture_descriptor.format;
@@ -495,25 +522,32 @@ fn detect_icon_grid(image: &Image) -> Option<(Vec<(u32, u32)>, Vec<(u32, u32)>)>
         return None;
     }
 
-    let mut col_black = vec![0u32; w as usize];
-    let mut row_black = vec![0u32; h as usize];
+    let mut col_dark = vec![0u32; w as usize];
+    let mut row_dark = vec![0u32; h as usize];
     for y in 0..h {
         for x in 0..w {
             let i = ((y * w + x) as usize) * bpp;
             let r = data[i];
             let g = data[i + 1];
             let b = data[i + 2];
-            if r < 8 && g < 8 && b < 8 {
-                col_black[x as usize] += 1;
-                row_black[y as usize] += 1;
+            // Treat very dark pixels as separator pixels.
+            // (We use max-channel threshold; it's robust for tinted dark lines.)
+            if r.max(g).max(b) <= 24 {
+                col_dark[x as usize] += 1;
+                row_dark[y as usize] += 1;
             }
         }
     }
 
-    let cols = find_separators(&col_black, h, 0.55);
-    let rows = find_separators(&row_black, w, 0.55);
+    // First pass: fairly strict (good when separators are solid).
+    let mut cols = find_separators(&col_dark, h, 0.50);
+    let mut rows = find_separators(&row_dark, w, 0.50);
+
+    // Second pass: looser (helps when a separator line isn't fully black across the whole atlas,
+    // which can cause two rows to be merged).
     if cols.len() < 2 || rows.len() < 2 {
-        return None;
+        cols = find_separators(&col_dark, h, 0.35);
+        rows = find_separators(&row_dark, w, 0.35);
     }
 
     let col_cells = runs_to_cells(&cols)?;
@@ -678,6 +712,12 @@ fn handle_action_bar_casts(
     mut rng: ResMut<SkillCastRng>,
     mut vitals: ResMut<Vitals>,
     mut player: Query<(Forces, Option<&ControllerSensors>), With<PlayerRoot>>,
+    player_tf: Query<&GlobalTransform, With<PlayerRoot>>,
+    camera_tf: Query<&GlobalTransform, (With<Camera3d>, With<ThirdPersonCamera>)>,
+    spatial_query: SpatialQuery,
+    mut damageables: Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    assets: Res<GameAssets>,
+    infinite: Option<Res<InfiniteMana>>,
     bar: Res<ActiveSpellBar>,
     slots: Query<(Entity, &ActionSlotBind), With<ActionSlot>>,
     clicks: Query<
@@ -686,6 +726,7 @@ fn handle_action_bar_casts(
     >,
 ) {
     let spells = bar.0;
+    let infinite = infinite.as_ref().is_some_and(|i| i.0);
 
     // Keyboard activations
     for (entity, bind) in slots.iter() {
@@ -698,8 +739,14 @@ fn handle_action_bar_casts(
                 &mut rng,
                 &mut vitals,
                 &mut player,
+                &player_tf,
+                &camera_tf,
+                &spatial_query,
+                &mut damageables,
+                &assets,
                 entity,
                 spells[slot],
+                infinite,
             );
         }
     }
@@ -715,32 +762,498 @@ fn handle_action_bar_casts(
                 &mut rng,
                 &mut vitals,
                 &mut player,
+                &player_tf,
+                &camera_tf,
+                &spatial_query,
+                &mut damageables,
+                &assets,
                 entity,
                 spells[slot],
+                infinite,
             );
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_cast(
     commands: &mut Commands,
     rng: &mut SkillCastRng,
     vitals: &mut Vitals,
     player: &mut Query<(Forces, Option<&ControllerSensors>), With<PlayerRoot>>,
+    player_tf: &Query<&GlobalTransform, With<PlayerRoot>>,
+    camera_tf: &Query<&GlobalTransform, (With<Camera3d>, With<ThirdPersonCamera>)>,
+    spatial_query: &SpatialQuery,
+    damageables: &mut Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    assets: &GameAssets,
     slot_entity: Entity,
     spell: SpellDef,
+    infinite: bool,
 ) {
     // Deterministic "randomness" reserved for later (crit/variation etc).
     rng.0 = rng.0.wrapping_mul(1664525).wrapping_add(1013904223);
 
     // Use floor(mana) for both display + gating so players never see "20" but can't cast 20.
+    // If infinite mana is enabled, always succeed and don't spend.
     let available = vitals.mana.max(0.0).floor() as u32;
-    let success = available >= spell.mana_cost;
+    let success = infinite || available >= spell.mana_cost;
     if success {
-        vitals.mana = (vitals.mana - spell.mana_cost as f32).max(0.0);
+        if !infinite {
+            vitals.mana = (vitals.mana - spell.mana_cost as f32).max(0.0);
+        }
         apply_spell_effect(vitals, player, spell.effect);
+        apply_damage_spell_effect(
+            commands,
+            player,
+            player_tf,
+            camera_tf,
+            spatial_query,
+            damageables,
+            assets,
+            spell.effect,
+        );
     }
     spawn_cast_fx(commands, slot_entity, success);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_damage_spell_effect(
+    commands: &mut Commands,
+    _player: &mut Query<(Forces, Option<&ControllerSensors>), With<PlayerRoot>>,
+    player_tf: &Query<&GlobalTransform, With<PlayerRoot>>,
+    camera_tf: &Query<&GlobalTransform, (With<Camera3d>, With<ThirdPersonCamera>)>,
+    spatial_query: &SpatialQuery,
+    _damageables: &mut Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    assets: &GameAssets,
+    effect: SpellEffect,
+) {
+    let Ok(gt) = player_tf.single() else {
+        return;
+    };
+    let origin = gt.translation();
+    let cam = camera_tf.single().ok();
+
+    match effect {
+        SpellEffect::ElementalBlast {
+            damage,
+            radius,
+            range: _,
+            element,
+        } => {
+            // True projectile:
+            // - Spawn from just in front of the player (so it never hits the player)
+            // - Fly along camera aim
+            // - Detonate on first contact
+            const ORB_MAX_DISTANCE: f32 = 140.0;
+            const ORB_SPAWN_FORWARD: f32 = 0.55;
+
+            let (spawn_pos, dir, max_distance) = cam.map_or_else(
+                || {
+                    let dir = Vec3::Z;
+                    let spawn_pos = origin + Vec3::Y * 1.1 + aim_dir_xz(dir) * ORB_SPAWN_FORWARD;
+                    (spawn_pos, dir, ORB_MAX_DISTANCE)
+                },
+                |c| {
+                    aim_projectile_from_camera(
+                        spatial_query,
+                        origin,
+                        c,
+                        ORB_MAX_DISTANCE,
+                        ORB_SPAWN_FORWARD,
+                    )
+                },
+            );
+
+            spawn_elemental_orb(
+                commands,
+                assets,
+                spawn_pos,
+                dir,
+                damage,
+                radius,
+                max_distance,
+                Some(element),
+            );
+        }
+        SpellEffect::DamagePool {
+            dps,
+            radius,
+            duration,
+            range,
+            element,
+        } => {
+            let (_spawn_pos, p) = cam
+                .map_or((origin + Vec3::Y * 1.2, origin + Vec3::Z * range), |c| {
+                    aim_from_camera_world(spatial_query, origin, c, range)
+                });
+            spawn_pool(commands, assets, p, dps, radius, duration, element);
+        }
+        _ => {}
+    }
+}
+
+fn aim_from_camera_world(
+    spatial_query: &SpatialQuery,
+    player_origin: Vec3,
+    camera: &GlobalTransform,
+    max_range: f32,
+) -> (Vec3, Vec3) {
+    // Prefer "real" world raycast from camera (terrain, dummies, props).
+    // Then clamp the final target around the player so range is consistent.
+    let ray_o = camera.translation();
+    let ray_dir: Vec3 = *camera.forward();
+    let dir3 = Dir3::new(ray_dir).unwrap_or(Dir3::Z);
+    let filter = SpatialQueryFilter::default();
+    let target = spatial_query
+        .cast_ray(ray_o, dir3, max_range, true, &filter)
+        .map_or_else(
+            || {
+                // Fallback: intersect with the player's height plane.
+                let target_y = player_origin.y;
+                let mut p = if ray_dir.y.abs() > 1e-3 {
+                    let t = (target_y - ray_o.y) / ray_dir.y;
+                    if t > 0.0 {
+                        ray_o + ray_dir * t
+                    } else {
+                        player_origin + aim_dir_xz(ray_dir) * max_range
+                    }
+                } else {
+                    player_origin + aim_dir_xz(ray_dir) * max_range
+                };
+
+                // Clamp to range around the player (not the camera), for consistent gameplay.
+                let delta = p - player_origin;
+                let delta_xz = Vec3::new(delta.x, 0.0, delta.z);
+                let dist = delta_xz.length();
+                if dist > max_range {
+                    p = player_origin + delta_xz.normalize_or_zero() * max_range;
+                }
+                p.y = target_y;
+                p
+            },
+            |hit| ray_o + ray_dir.normalize_or_zero() * hit.distance,
+        );
+
+    // Spawn the projectile slightly in front of camera so it doesn't instantly collide with nearby geometry.
+    let spawn_pos = ray_o + ray_dir.normalize_or_zero() * 0.8;
+    (spawn_pos, target)
+}
+
+fn aim_dir_xz(v: Vec3) -> Vec3 {
+    Vec3::new(v.x, 0.0, v.z).normalize_or_zero()
+}
+
+#[derive(Component)]
+struct ElementalOrb {
+    dir: Vec3,
+    speed: f32,
+    damage: f32,
+    radius: f32,
+    remaining: f32,
+    traveled: f32,
+    max_distance: f32,
+    element: Option<DamageElement>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_elemental_orb(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    spawn_pos: Vec3,
+    dir: Vec3,
+    damage: f32,
+    radius: f32,
+    max_distance: f32,
+    element: Option<DamageElement>,
+) {
+    commands.spawn((
+        Name::new("Elemental Orb"),
+        Transform::from_translation(spawn_pos),
+        ParticleEffect {
+            handle: match element.unwrap_or(DamageElement::Holy) {
+                DamageElement::Darkness => assets.spell_orb_darkness.clone(),
+                DamageElement::Sonic => assets.spell_orb_sonic.clone(),
+                DamageElement::Holy => assets.spell_orb_holy.clone(),
+                DamageElement::Fire => assets.spell_orb_fire.clone(),
+                DamageElement::Frost => assets.spell_orb_frost.clone(),
+            },
+            prng_seed: None,
+        },
+        ElementalOrb {
+            dir: dir.normalize_or_zero(),
+            speed: 18.0,
+            damage,
+            radius,
+            remaining: 8.0,
+            traveled: 0.0,
+            max_distance,
+            element,
+        },
+    ));
+}
+
+fn aim_projectile_from_camera(
+    spatial_query: &SpatialQuery,
+    player_origin: Vec3,
+    camera: &GlobalTransform,
+    max_distance: f32,
+    spawn_forward: f32,
+) -> (Vec3, Vec3, f32) {
+    // Spawn just in front of the character, but direction is based on the camera view.
+    let ray_dir: Vec3 = *camera.forward();
+    let dir = ray_dir.normalize_or_zero();
+
+    // Keep spawn offset on XZ so pitch doesn't spawn into the player capsule.
+    let forward_xz = aim_dir_xz(dir);
+    let spawn_pos = player_origin + Vec3::Y * 1.1 + forward_xz * spawn_forward;
+
+    // If there's something immediately in front, shrink max travel so it detonates right away.
+    let filter = SpatialQueryFilter::default();
+    let dir3 = Dir3::new(dir).unwrap_or(Dir3::Z);
+    let max_dist = spatial_query
+        .cast_ray(spawn_pos, dir3, 1.25, true, &filter)
+        .map_or(max_distance, |hit| hit.distance.max(0.2));
+
+    (spawn_pos, dir, max_dist)
+}
+
+fn tick_elemental_orbs(
+    mut commands: Commands,
+    time: Res<Time>,
+    spatial_query: SpatialQuery,
+    assets: Res<GameAssets>,
+    mut orbs: Query<(Entity, &mut Transform, &mut ElementalOrb)>,
+    mut damageables: Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    mut damage_events: MessageWriter<DamageDealtEvent>,
+) {
+    let dt = time.delta_secs();
+    let filter = SpatialQueryFilter::default();
+
+    for (e, mut tf, mut orb) in orbs.iter_mut() {
+        orb.remaining -= dt;
+        let pos = tf.translation;
+        let dir = orb.dir.normalize_or_zero();
+        let step = (orb.speed * dt).max(0.0);
+
+        let mut explode_at: Option<Vec3> = None;
+
+        if orb.remaining <= 0.0 || orb.traveled >= orb.max_distance {
+            explode_at = Some(pos);
+        } else if dir.length_squared() > 0.0 {
+            let dir3 = Dir3::new(dir).unwrap_or(Dir3::Z);
+            // Raycast ahead by one step to detect first contact with any collider (terrain, props, dummies).
+            if let Some(hit) = spatial_query.cast_ray(pos, dir3, step, true, &filter) {
+                explode_at = Some(pos + dir * hit.distance);
+            }
+        }
+
+        if let Some(p) = explode_at {
+            deal_damage_in_radius(
+                &mut commands,
+                &mut damageables,
+                &mut damage_events,
+                p,
+                orb.radius,
+                orb.damage,
+                orb.element,
+            );
+            spawn_blast_vfx(&mut commands, &assets, p, orb.element);
+            commands.entity(e).despawn();
+        } else {
+            tf.translation = pos + dir * step;
+            orb.traveled += step;
+        }
+    }
+}
+
+fn deal_damage_in_radius(
+    commands: &mut Commands,
+    damageables: &mut Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    damage_events: &mut MessageWriter<DamageDealtEvent>,
+    center: Vec3,
+    radius: f32,
+    damage: f32,
+    element: Option<DamageElement>,
+) {
+    let r2 = radius * radius;
+    for (e, gt, mut d) in damageables.iter_mut() {
+        let p = gt.translation();
+        if p.distance_squared(center) <= r2 {
+            d.hp -= damage;
+            damage_events.write(DamageDealtEvent {
+                target: e,
+                pos: p,
+                amount: damage,
+                element,
+            });
+            if d.hp <= 0.0 {
+                commands.entity(e).despawn();
+            }
+        }
+    }
+}
+
+fn spawn_blast_vfx(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    pos: Vec3,
+    element: Option<DamageElement>,
+) {
+    let element = element.unwrap_or(DamageElement::Holy);
+    let handle = match element {
+        DamageElement::Darkness => assets.spell_blast_darkness.clone(),
+        DamageElement::Sonic => assets.spell_blast_sonic.clone(),
+        DamageElement::Holy => assets.spell_blast_holy.clone(),
+        DamageElement::Fire => assets.spell_blast_fire.clone(),
+        DamageElement::Frost => assets.spell_blast_frost.clone(),
+    };
+    commands.spawn((
+        Name::new(format!("Elemental Blast VFX ({element:?})")),
+        Transform::from_translation(pos),
+        ParticleEffect {
+            handle,
+            prng_seed: None,
+        },
+        DespawnAfter { t: 0.30 },
+    ));
+}
+
+#[derive(Component)]
+struct DespawnAfter {
+    t: f32,
+}
+
+fn spawn_pool(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    pos: Vec3,
+    dps: f32,
+    radius: f32,
+    duration: f32,
+    element: DamageElement,
+) {
+    let root = commands
+        .spawn((
+            Name::new("Damage Pool"),
+            DamagePoolFx {
+                dps,
+                radius,
+                remaining: duration,
+                element,
+            },
+            // Root stays on XZ; children will be terrain-snapped in Y.
+            Transform::from_translation(Vec3::new(pos.x, pos.y, pos.z)),
+            GlobalTransform::default(),
+        ))
+        .id();
+
+    // Multiple emitters approximates "conforming" to uneven terrain without needing true mesh decals.
+    // Offsets are in the pool local space.
+    let ring_r = radius * 0.35;
+    let offsets = [
+        Vec2::ZERO,
+        Vec2::new(ring_r, 0.0),
+        Vec2::new(-ring_r, 0.0),
+        Vec2::new(0.0, ring_r),
+        Vec2::new(0.0, -ring_r),
+        Vec2::new(ring_r * 0.7, ring_r * 0.7),
+        Vec2::new(-ring_r * 0.7, -ring_r * 0.7),
+    ];
+
+    let emitter_scale = Vec3::new(radius * 0.55, 1.0, radius * 0.55);
+    let pool_handle = match element {
+        DamageElement::Darkness => assets.spell_pool_darkness.clone(),
+        DamageElement::Sonic => assets.spell_pool_sonic.clone(),
+        DamageElement::Holy => assets.spell_pool_holy.clone(),
+        DamageElement::Fire => assets.spell_pool_fire.clone(),
+        DamageElement::Frost => assets.spell_pool_frost.clone(),
+    };
+    commands.entity(root).with_children(|c| {
+        for (i, off) in offsets.into_iter().enumerate() {
+            c.spawn((
+                Name::new(format!("Damage Pool Emitter {i}")),
+                PoolSurfaceSample { offset: off },
+                Transform::from_translation(Vec3::new(off.x, 0.05, off.y))
+                    .with_scale(emitter_scale),
+                ParticleEffect {
+                    handle: pool_handle.clone(),
+                    prng_seed: None,
+                },
+            ));
+        }
+    });
+}
+
+#[derive(Component, Clone, Copy)]
+struct PoolSurfaceSample {
+    offset: Vec2,
+}
+
+fn update_damage_pools_surface(
+    spatial_query: SpatialQuery,
+    pools: Query<(&GlobalTransform, &DamagePoolFx, &Children)>,
+    mut samples: Query<(&PoolSurfaceSample, &mut Transform)>,
+) {
+    // Snap each sample emitter onto the terrain beneath it (approximation, but looks very "ground-hugging").
+    let filter = SpatialQueryFilter::default();
+    let up = 40.0;
+    let max_distance = 120.0;
+
+    for (root_gt, _pool, children) in pools.iter() {
+        let root = root_gt.translation();
+        for child in children.iter() {
+            let Ok((sample, mut tf)) = samples.get_mut(child) else {
+                continue;
+            };
+
+            let world_x = root.x + sample.offset.x;
+            let world_z = root.z + sample.offset.y;
+            let origin = Vec3::new(world_x, root.y + up, world_z);
+            if let Some(hit) =
+                spatial_query.cast_ray(origin, Dir3::NEG_Y, max_distance, true, &filter)
+            {
+                let ground_y = origin.y - hit.distance;
+                tf.translation.y = (ground_y + 0.05) - root.y;
+            }
+        }
+    }
+}
+
+fn tick_damage_pools(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut pools: Query<(Entity, &GlobalTransform, &mut DamagePoolFx)>,
+    mut damageables: Query<(Entity, &GlobalTransform, &mut Damageable)>,
+    mut vfx: Query<(Entity, &mut DespawnAfter)>,
+    mut damage_events: MessageWriter<DamageDealtEvent>,
+) {
+    // Tick pool damage
+    let dt = time.delta_secs();
+    for (e, gt, mut pool) in pools.iter_mut() {
+        pool.remaining -= dt;
+        let center = gt.translation();
+        let dmg = pool.dps * dt;
+        deal_damage_in_radius(
+            &mut commands,
+            &mut damageables,
+            &mut damage_events,
+            center,
+            pool.radius,
+            dmg,
+            Some(pool.element),
+        );
+        if pool.remaining <= 0.0 {
+            commands.entity(e).despawn();
+        }
+    }
+
+    // Tick VFX despawns
+    for (e, mut d) in vfx.iter_mut() {
+        d.t -= dt;
+        if d.t <= 0.0 {
+            commands.entity(e).despawn();
+        }
+    }
 }
 
 fn apply_spell_effect(
@@ -767,6 +1280,9 @@ fn apply_spell_effect(
                 }
             }
         }
+        // Damage spells are handled in `handle_action_bar_casts` because they need world queries
+        // (damageables, transforms, meshes/materials). Keeping this match exhaustive for clarity.
+        SpellEffect::ElementalBlast { .. } | SpellEffect::DamagePool { .. } => {}
     }
 }
 

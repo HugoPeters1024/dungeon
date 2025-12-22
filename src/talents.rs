@@ -15,6 +15,7 @@ impl Plugin for TalentsPlugin {
             .init_resource::<SelectedTalentClass>()
             .init_resource::<ClassSelectUiState>()
             .init_resource::<EscapeMenuUiState>()
+            .init_resource::<InfiniteMana>()
             .init_resource::<TalentPoints>()
             .init_resource::<TalentsState>()
             .init_resource::<TalentBonuses>()
@@ -39,6 +40,7 @@ impl Plugin for TalentsPlugin {
                     sync_cursor_visibility_with_talents_ui,
                     refresh_class_dependent_text,
                     update_talent_icons_from_atlas,
+                    infinite_mana_toggle_interactions,
                     class_pick_button_interactions,
                     talent_ui_button_interactions,
                     update_talent_buttons_visuals,
@@ -66,6 +68,9 @@ impl TalentClass {
 
 #[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct SelectedTalentClass(pub Option<TalentClass>);
+
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct InfiniteMana(pub bool);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum TalentTree {
@@ -300,6 +305,12 @@ struct SelectedClassText;
 
 #[derive(Component)]
 struct EscapeMenuTitleText;
+
+#[derive(Component)]
+struct InfiniteManaToggleButton;
+
+#[derive(Component)]
+struct InfiniteManaToggleStateText;
 
 #[derive(Resource, Debug, Default)]
 struct TalentLoadoutStore {
@@ -2010,6 +2021,50 @@ fn spawn_escape_menu_ui(mut commands: Commands) {
                     ]
                 ),
                 (
+                    Name::new("Infinite Mana Row"),
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Px(44.0),
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    children![
+                        (
+                            Text::new("Infinite Mana"),
+                            TextFont {
+                                font_size: 16.0,
+                                ..default()
+                            },
+                            TextColor(ink),
+                        ),
+                        (
+                            InfiniteManaToggleButton,
+                            Button,
+                            Name::new("Infinite Mana Toggle"),
+                            Node {
+                                width: Val::Px(86.0),
+                                height: Val::Px(34.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(Val::Px(2.0)),
+                                ..default()
+                            },
+                            BackgroundColor(wood),
+                            BorderColor::all(gold),
+                            children![(
+                                InfiniteManaToggleStateText,
+                                Text::new("OFF"),
+                                TextFont {
+                                    font_size: 14.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.95, 0.92, 0.86)),
+                            )],
+                        ),
+                    ]
+                ),
+                (
                     Text::new("Press Esc to close."),
                     TextFont {
                         font_size: 13.0,
@@ -2103,6 +2158,33 @@ fn class_pick_button_interactions(
                 commands.entity(er).insert(Visibility::Hidden);
             }
         }
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn infinite_mana_toggle_interactions(
+    mut infinite: ResMut<InfiniteMana>,
+    interactions: Query<&Interaction, (With<InfiniteManaToggleButton>, Changed<Interaction>)>,
+    mut label: Query<&mut Text, With<InfiniteManaToggleStateText>>,
+    mut button_colors: Query<&mut BackgroundColor, With<InfiniteManaToggleButton>>,
+) {
+    let Some(interaction) = interactions.iter().next() else {
+        return;
+    };
+    if *interaction != Interaction::Pressed {
+        return;
+    }
+
+    infinite.0 = !infinite.0;
+    if let Ok(mut t) = label.single_mut() {
+        *t = Text::new(if infinite.0 { "ON" } else { "OFF" });
+    }
+    if let Ok(mut bg) = button_colors.single_mut() {
+        bg.0 = if infinite.0 {
+            Color::srgb(0.18, 0.34, 0.18)
+        } else {
+            Color::srgb(0.22, 0.13, 0.08)
+        };
     }
 }
 
