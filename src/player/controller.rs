@@ -2,7 +2,7 @@ use std::ops::DerefMut;
 
 use avian3d::math::PI;
 use avian3d::prelude::*;
-use bevy::{platform::collections::HashSet, prelude::*};
+use bevy::{math::VectorSpace, platform::collections::HashSet, prelude::*};
 use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
@@ -67,7 +67,7 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
         ControllerSensors::default(),
         ControllerState::Idle,
-        LockedAxes::ROTATION_LOCKED,
+        //LockedAxes::ROTATION_LOCKED,
         children![(
             SceneRoot(assets.player.clone()),
             Transform::from_scale(Vec3::splat(0.008)),
@@ -384,6 +384,16 @@ pub fn apply_controls(
         direction -= sideways;
     }
 
+    if !matches!(
+        state,
+        ControllerState::Idle { .. }
+            | ControllerState::Moving { .. }
+            | ControllerState::Jumping { .. }
+            | ControllerState::Falling { .. },
+    ) {
+        direction = Vec3::ZERO;
+    }
+
     // Feed the basis every frame. Even if the player doesn't move - just use `desired_velocity:
     // Vec3::ZERO`. `TnuaController` starts without a basis, which will make the character collider
     // just fall.
@@ -394,8 +404,8 @@ pub fn apply_controls(
         // character's center and the lowest point of its collider.
         float_height: 0.85,
         max_slope: PI / 3.0,
-        acceleration: 30.0,
-        spring_strength: 2700.0,
+        acceleration: 20.0,
+        spring_strength: 700.0,
         ..Default::default()
     });
 

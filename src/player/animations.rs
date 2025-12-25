@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Deref, Div};
 
 use bevy::{
     animation::{AnimationTarget, AnimationTargetId},
@@ -72,16 +72,6 @@ pub fn on_animation_player_loaded(
         })
         .collect();
 
-    for parent_to_mask in ["mixamorigLeftUpLeg", "mixamorigRightUpLeg"] {
-        let parent = &bone_lookup[parent_to_mask];
-        graph.add_target_to_mask_group(parent.1, 3);
-        for target in children
-            .iter_descendants(parent.0)
-            .flat_map(|e| bones.get(e))
-        {
-            graph.add_target_to_mask_group(target.1.id, 3);
-        }
-    }
     graph.add_target_to_mask_group(bone_lookup["mixamorigSpine"].1, 3);
 
     let clips = AnimationClips {
@@ -154,6 +144,14 @@ pub fn animations_from_controller(
                     .running_velocity
                     .dot(sensors.facing_direction.cross(Vec3::Y))
                     .max(0.0);
+
+                player
+                    .animation_mut(clips.walking)
+                    .map(|a| a.set_speed(sensors.running_velocity.length().sqrt().min(1.0)));
+
+                player
+                    .animation_mut(clips.running)
+                    .map(|a| a.set_speed(sensors.running_velocity.length().sqrt().min(1.0)));
 
                 let mut w = AnimationWeights::default();
                 if forward > 3.0 {

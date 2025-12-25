@@ -39,7 +39,7 @@ fn update_chunk_index(
     }
 
     index.retain(|chunk_loc, entity| {
-        if loc.manhattan_distance(*chunk_loc) > 5 {
+        if loc.manhattan_distance(*chunk_loc) > 50 {
             commands.entity(*entity).despawn();
             false
         } else {
@@ -66,7 +66,7 @@ fn spawn_chunk(
             Mesh3d(heightfield_handle),
             MeshMaterial3d(materials.add(StandardMaterial {
                 base_color_texture: Some(assets.outside_grass.clone()),
-                uv_transform: Affine2::from_scale(Vec2::new(10.0, 10.0)),
+                uv_transform: Affine2::from_scale(Vec2::new(2.0, 2.0)),
                 perceptual_roughness: 1.0,
                 ..default()
             })),
@@ -99,7 +99,7 @@ impl LayeredPerlin {
         LayeredPerlin {
             layers: (0u32..num_layers).map(Perlin::new).collect(),
             lacunarity: 2.0,
-            persistance: 0.5,
+            persistance: 0.6,
         }
     }
 
@@ -122,8 +122,8 @@ impl LayeredPerlin {
 /// Returns (mesh, heights) where heights is a 2D array for the collider
 fn generate_heightfield_mesh(offset: IVec2, resolution: usize) -> (Mesh, Vec<Vec<f32>>) {
     let perlin = LayeredPerlin::new(8);
-    let noise_scale = 0.02;
-    let height_scale = 6.0;
+    let noise_scale = 0.002;
+    let height_scale = 16.0;
 
     let mut positions = Vec::new();
     let mut uvs = Vec::new();
