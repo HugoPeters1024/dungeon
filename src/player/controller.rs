@@ -2,7 +2,7 @@ use std::ops::DerefMut;
 
 use avian3d::math::PI;
 use avian3d::prelude::*;
-use bevy::{math::VectorSpace, platform::collections::HashSet, prelude::*};
+use bevy::{platform::collections::HashSet, prelude::*};
 use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
@@ -386,10 +386,10 @@ pub fn apply_controls(
 
     if !matches!(
         state,
-        ControllerState::Idle { .. }
-            | ControllerState::Moving { .. }
+        ControllerState::Idle
+            | ControllerState::Moving
             | ControllerState::Jumping { .. }
-            | ControllerState::Falling { .. },
+            | ControllerState::Falling,
     ) {
         direction = Vec3::ZERO;
     }

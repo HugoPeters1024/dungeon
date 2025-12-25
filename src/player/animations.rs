@@ -1,4 +1,4 @@
-use std::ops::{Deref, Div};
+use std::ops::Deref;
 
 use bevy::{
     animation::{AnimationTarget, AnimationTargetId},
