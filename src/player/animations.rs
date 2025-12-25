@@ -128,7 +128,7 @@ pub fn animations_from_controller(
                     .max(0.0);
 
                 let mut w = AnimationWeights::default();
-                if forward > 2.2 {
+                if forward > 3.0 {
                     w.running = forward
                 } else {
                     w.walking = forward
@@ -173,7 +173,7 @@ pub fn animations_from_controller(
             }
             Attacking(_) => {
                 if state_transioned {
-                    player.start(clips.slash).set_seek_time(0.0).set_speed(1.2);
+                    player.start(clips.slash).set_seek_time(0.0).set_speed(1.8);
                 }
                 *weights = AnimationWeights {
                     slash: 1.0,

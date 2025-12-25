@@ -58,9 +58,10 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         // Capsule bottom should be at ground level, so center at 0.05 + 0.8 = 0.85
         Transform::from_xyz(0.0, 0.85, 0.0),
         InheritedVisibility::default(),
+        MassPropertiesBundle::default(),
         RigidBody::Dynamic,
-        //Collider::cuboid(0.1, 0.1, 0.1),
         Friction::new(0.1),
+        //Collider::cuboid(0.1, 0.1, 0.1),
         TnuaController::default(),
         TnuaAvian3dSensorShape(Collider::cylinder(0.20, 0.1)),
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
@@ -251,7 +252,7 @@ pub fn update_controller_state(
 ) {
     let jump_action = TnuaBuiltinJump {
         height: 2.5,
-        fall_extra_gravity: 3.5,
+        fall_extra_gravity: 7.5,
         ..default()
     };
 
@@ -277,9 +278,9 @@ pub fn update_controller_state(
                     );
                 }
 
-                if !blocked && keyboard.just_pressed(KeyCode::KeyV) {
+                if keyboard.just_pressed(KeyCode::KeyV) {
                     *state = Attacking(
-                        Timer::from_seconds(1.3, TimerMode::Once),
+                        Timer::from_seconds(0.9, TimerMode::Once),
                     );
                 }
             }
@@ -303,9 +304,9 @@ pub fn update_controller_state(
                     );
                 }
 
-                if !blocked && keyboard.just_pressed(KeyCode::KeyV) {
+                if keyboard.just_pressed(KeyCode::KeyV) {
                     *state = Attacking(
-                        Timer::from_seconds(1.3, TimerMode::Once),
+                        Timer::from_seconds(0.9, TimerMode::Once),
                     );
                 }
             }
@@ -365,7 +366,7 @@ pub fn apply_controls(
     let forward = Vec3::new(forward.x, 0.0, forward.y);
     let sideways = (camera.rotation * Vec3::NEG_X).xz().normalize_or_zero();
     let sideways = Vec3::new(sideways.x, 0.0, sideways.y);
-    const SPEED: f32 = 3.4;
+    const SPEED: f32 = 2.7;
 
     let sprint_factor = if keyboard.pressed(KeyCode::ShiftLeft) {
         2.0
