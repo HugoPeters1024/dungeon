@@ -1,6 +1,10 @@
 use std::ops::Deref;
 
-use bevy::prelude::*;
+use bevy::{
+    animation::{AnimationTarget, AnimationTargetId},
+    prelude::*,
+};
+use bevy_inspector_egui::egui::ahash::HashMap;
 
 use crate::{
     animations_utils::AnimationPlayerOf,
@@ -54,8 +58,32 @@ pub fn on_animation_player_loaded(
     mut players: Query<&mut AnimationPlayer>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut commands: Commands,
+    bones: Query<(&Name, &AnimationTarget)>,
+    children: Query<&Children>,
 ) -> Result {
     let mut graph = AnimationGraph::new();
+
+    let bone_lookup: HashMap<&str, (Entity, AnimationTargetId)> = children
+        .iter_descendants(on.event_target())
+        .flat_map(|e| {
+            bones
+                .get(e)
+                .map(|(name, target)| (name.as_str(), (e, target.id)))
+        })
+        .collect();
+
+    for parent_to_mask in ["mixamorigLeftUpLeg", "mixamorigRightUpLeg"] {
+        let parent = &bone_lookup[parent_to_mask];
+        graph.add_target_to_mask_group(parent.1, 3);
+        for target in children
+            .iter_descendants(parent.0)
+            .flat_map(|e| bones.get(e))
+        {
+            graph.add_target_to_mask_group(target.1.id, 3);
+        }
+    }
+    graph.add_target_to_mask_group(bone_lookup["mixamorigSpine"].1, 3);
+
     let clips = AnimationClips {
         defeated: graph.add_clip(assets.player_clips[0].clone(), 1.0, graph.root),
         running: graph.add_clip(assets.player_clips[1].clone(), 1.0, graph.root),
@@ -65,7 +93,7 @@ pub fn on_animation_player_loaded(
         jump: graph.add_clip(assets.player_clips[5].clone(), 1.0, graph.root),
         landing: graph.add_clip(assets.player_clips[6].clone(), 1.0, graph.root),
         walking: graph.add_clip(assets.player_clips[7].clone(), 1.0, graph.root),
-        slash: graph.add_clip(assets.player_clips[8].clone(), 1.0, graph.root),
+        slash: graph.add_clip_with_mask(assets.player_clips[8].clone(), 0b1000, 1.0, graph.root),
         drop_kick: graph.add_clip(assets.player_clips[9].clone(), 1.0, graph.root),
     };
 
@@ -195,7 +223,7 @@ pub fn apply_animation_weights(
             if let Some(clip) = player.animation_mut(clip) {
                 let current_weight = clip.weight();
                 let target_weight = weight;
-                let interpolation_speed = 7.0;
+                let interpolation_speed = 5.0;
                 let new_weight = current_weight
                     + (target_weight - current_weight) * interpolation_speed * time.delta_secs();
 

@@ -279,9 +279,7 @@ pub fn update_controller_state(
                 }
 
                 if keyboard.just_pressed(KeyCode::KeyV) {
-                    *state = Attacking(
-                        Timer::from_seconds(0.9, TimerMode::Once),
-                    );
+                    *state = Attacking(Timer::from_seconds(0.9, TimerMode::Once));
                 }
             }
             Idle => {
@@ -305,9 +303,7 @@ pub fn update_controller_state(
                 }
 
                 if keyboard.just_pressed(KeyCode::KeyV) {
-                    *state = Attacking(
-                        Timer::from_seconds(0.9, TimerMode::Once),
-                    );
+                    *state = Attacking(Timer::from_seconds(0.9, TimerMode::Once));
                 }
             }
             Jumping(_) => {
