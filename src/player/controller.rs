@@ -7,7 +7,6 @@ use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::GameAssets;
-use crate::talents::{ClassSelectUiState, EscapeMenuUiState, TalentBonuses, TalentUiState};
 use bevy_hanabi::prelude::*;
 
 use crate::game::Pickupable;
@@ -53,11 +52,6 @@ pub enum ControllerState {
 #[derive(Component)]
 pub struct FootRayCaster;
 
-#[derive(Component, Default, Debug, Clone, Copy)]
-pub struct AirJumpState {
-    pub used: bool,
-}
-
 pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<GameAssets>) {
     commands.entity(on.event_target()).insert((
         // Spawn at appropriate height: ground is at Y=0.05 (top of 0.1 thick floor)
@@ -72,7 +66,6 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
         ControllerSensors::default(),
         ControllerState::Idle,
-        AirJumpState::default(),
         LockedAxes::ROTATION_LOCKED,
         children![(
             SceneRoot(assets.player.clone()),
@@ -250,57 +243,20 @@ pub fn controller_update_sensors(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn update_controller_state(
-    mut q: Query<(
-        &mut ControllerState,
-        &ControllerSensors,
-        &mut AirJumpState,
-        Forces,
-    )>,
+    mut q: Query<(&mut ControllerState, &ControllerSensors, Forces)>,
     caster_and_hit: Single<(&RayCaster, &RayHits), With<FootRayCaster>>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    ui_state: Res<TalentUiState>,
-    escape_ui: Res<EscapeMenuUiState>,
-    class_select_ui: Res<ClassSelectUiState>,
-    bonuses: Res<TalentBonuses>,
     time: Res<Time>,
 ) {
     let jump_action = TnuaBuiltinJump {
-        height: 2.5 * bonuses.jump_height_mult,
-        fall_extra_gravity: 3.5 * bonuses.fall_extra_gravity_mult,
+        height: 2.5,
+        fall_extra_gravity: 3.5,
         ..default()
     };
 
-    let blocked = ui_state.open || escape_ui.open || class_select_ui.open;
-
-    for (mut state, sensors, mut air_jump, mut forces) in q.iter_mut() {
+    for (mut state, sensors, mut forces) in q.iter_mut() {
         use ControllerState::*;
-
-        // Reset air-jump when we touch ground.
-        if sensors.standing_on_ground {
-            air_jump.used = false;
-        }
-
-        // Mid-air jump (double jump) from talent.
-        if !blocked
-            && !sensors.standing_on_ground
-            && bonuses.extra_air_jumps > 0
-            && !air_jump.used
-            && keyboard.just_pressed(KeyCode::Space)
-        {
-            air_jump.used = true;
-
-            // Apply an instant upward impulse so the jump always happens even if Tnua jump
-            // action refuses to trigger while airborne.
-            //
-            // Tune: this gives a nice, snappy mid-air jump without being a full ground jump.
-            const AIR_JUMP_IMPULSE: f32 = 3.6;
-            forces.apply_linear_impulse(Vec3::Y * AIR_JUMP_IMPULSE);
-
-            *state = Jumping(jump_action.clone());
-        }
-
         match state.deref_mut() {
             Moving => {
                 if !sensors.standing_on_ground {
@@ -310,11 +266,11 @@ pub fn update_controller_state(
                     *state = Idle;
                 }
 
-                if !blocked && keyboard.just_pressed(KeyCode::Space) {
+                if keyboard.just_pressed(KeyCode::Space) {
                     *state = Jumping(jump_action.clone());
                 }
 
-                if !blocked && keyboard.just_pressed(KeyCode::KeyO) {
+                if keyboard.just_pressed(KeyCode::KeyO) {
                     *state = DropKicking(
                         Timer::from_seconds(1.2, TimerMode::Once),
                         Timer::from_seconds(2.0, TimerMode::Once),
@@ -336,11 +292,11 @@ pub fn update_controller_state(
                     *state = Falling;
                 }
 
-                if !blocked && keyboard.just_pressed(KeyCode::Space) {
+                if keyboard.just_pressed(KeyCode::Space) {
                     *state = Jumping(jump_action.clone());
                 }
 
-                if !blocked && keyboard.just_pressed(KeyCode::KeyO) {
+                if keyboard.just_pressed(KeyCode::KeyO) {
                     *state = DropKicking(
                         Timer::from_seconds(1.2, TimerMode::Once),
                         Timer::from_seconds(2.0, TimerMode::Once),
@@ -400,10 +356,6 @@ pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut controller_query: Query<(&mut TnuaController, &ControllerState)>,
     camera: Single<&Transform, With<Camera>>,
-    ui_state: Res<TalentUiState>,
-    escape_ui: Res<EscapeMenuUiState>,
-    class_select_ui: Res<ClassSelectUiState>,
-    bonuses: Res<TalentBonuses>,
 ) {
     let Ok((mut controller, state)) = controller_query.single_mut() else {
         return;
@@ -413,28 +365,25 @@ pub fn apply_controls(
     let forward = Vec3::new(forward.x, 0.0, forward.y);
     let sideways = (camera.rotation * Vec3::NEG_X).xz().normalize_or_zero();
     let sideways = Vec3::new(sideways.x, 0.0, sideways.y);
-    const BASE_SPEED: f32 = 2.0;
+    const SPEED: f32 = 3.4;
 
     let sprint_factor = if keyboard.pressed(KeyCode::ShiftLeft) {
         2.0
     } else {
         1.0
     };
-    let sprint_factor = sprint_factor * bonuses.sprint_mult;
-
-    let blocked = ui_state.open || escape_ui.open || class_select_ui.open;
 
     let mut direction = Vec3::ZERO;
-    if !blocked && keyboard.pressed(KeyCode::KeyW) {
+    if keyboard.pressed(KeyCode::KeyW) {
         direction += forward;
     }
-    if !blocked && keyboard.pressed(KeyCode::KeyS) {
+    if keyboard.pressed(KeyCode::KeyS) {
         direction -= forward;
     }
-    if !blocked && keyboard.pressed(KeyCode::KeyA) {
+    if keyboard.pressed(KeyCode::KeyA) {
         direction += sideways;
     }
-    if !blocked && keyboard.pressed(KeyCode::KeyD) {
+    if keyboard.pressed(KeyCode::KeyD) {
         direction -= sideways;
     }
 
@@ -443,10 +392,7 @@ pub fn apply_controls(
     // just fall.
     controller.basis(TnuaBuiltinWalk {
         // The `desired_velocity` determines how the character will move.
-        desired_velocity: direction.normalize_or_zero()
-            * BASE_SPEED
-            * bonuses.move_speed_mult
-            * sprint_factor,
+        desired_velocity: direction.normalize_or_zero() * SPEED * sprint_factor,
         // The `float_height` must be greater (even if by little) from the distance between the
         // character's center and the lowest point of its collider.
         float_height: 0.85,
@@ -456,8 +402,7 @@ pub fn apply_controls(
         ..Default::default()
     });
 
-    if !blocked
-        && let ControllerState::Jumping(jump) = state
+    if let ControllerState::Jumping(jump) = state
         && keyboard.pressed(KeyCode::Space)
     {
         controller.action(jump.clone());

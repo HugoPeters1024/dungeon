@@ -14,11 +14,9 @@ use bevy_tnua_avian3d::prelude::*;
 use crate::assets::*;
 use crate::camera::ThirdPersonCameraPlugin;
 use crate::chunks::ChunkObserver;
-use crate::hud::HudPlugin;
 use crate::platform::PlatformPath;
 use crate::player::controller::PlayerRoot;
 use crate::spawners::*;
-use crate::talents::TalentsPlugin;
 
 pub struct GamePlugin;
 
@@ -40,8 +38,6 @@ impl Plugin for GamePlugin {
         app.add_plugins(HanabiPlugin);
         app.add_plugins(crate::assets::AssetPlugin);
         app.add_plugins(crate::spawners::SpawnPlugin);
-        app.add_plugins(TalentsPlugin);
-        app.add_plugins(HudPlugin);
         app.add_plugins(crate::player::PlayerPlugin);
         app.add_plugins(crate::platform::PlatformPlugin);
         app.add_plugins(crate::chunks::ChunksPlugin);

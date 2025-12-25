@@ -14,31 +14,9 @@ pub struct ChunksPlugin;
 
 const FLOOR_SIZE: i32 = 8;
 
-/// Controls how many terrain chunks are kept around the player.
-/// `spawn_radius` of 2 means a 5x5 square (from -2..=2 in x/y).
-#[derive(Resource, Debug, Clone, Copy)]
-pub struct ChunkRenderSettings {
-    pub spawn_radius: i32,
-    /// Chunks beyond this radius will be despawned to avoid unbounded growth.
-    /// Kept slightly larger than spawn_radius to reduce pop-in when moving quickly.
-    pub despawn_radius: i32,
-}
-
-impl Default for ChunkRenderSettings {
-    fn default() -> Self {
-        Self {
-            // 3 => 7x7 chunks visible around the player
-            spawn_radius: 3,
-            // keep extra margin to reduce pop-in when moving quickly (11x11 max kept)
-            despawn_radius: 5,
-        }
-    }
-}
-
 impl Plugin for ChunksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ChunkIndex>();
-        app.init_resource::<ChunkRenderSettings>();
         app.add_systems(Update, update_chunk_index.run_if(in_state(MyStates::Next)));
     }
 }
@@ -46,14 +24,13 @@ impl Plugin for ChunksPlugin {
 fn update_chunk_index(
     mut commands: Commands,
     q: Single<(&GlobalTransform, &ChunkObserver)>,
-    settings: Res<ChunkRenderSettings>,
     mut index: ResMut<ChunkIndex>,
 ) {
     let (gt, _) = *q;
 
     let loc = gt.translation().xz().as_ivec2() / IVec2::splat(FLOOR_SIZE);
-    for y in -settings.spawn_radius..=settings.spawn_radius {
-        for x in -settings.spawn_radius..=settings.spawn_radius {
+    for y in -1..=1 {
+        for x in -1..=1 {
             let key = loc + IVec2::new(x, y);
             if !index.contains_key(&key) {
                 commands.run_system_cached_with(spawn_chunk, key);
@@ -61,20 +38,14 @@ fn update_chunk_index(
         }
     }
 
-    // Despawn chunks that are too far away to keep memory/meshes bounded.
-    if settings.despawn_radius >= 0 {
-        let mut to_remove: Vec<IVec2> = Vec::new();
-        for (key, entity) in index.iter() {
-            let d = *key - loc;
-            if d.x.abs() > settings.despawn_radius || d.y.abs() > settings.despawn_radius {
-                commands.entity(*entity).despawn();
-                to_remove.push(*key);
-            }
+    index.retain(|chunk_loc, entity| {
+        if loc.manhattan_distance(*chunk_loc) > 5 {
+            commands.entity(*entity).despawn();
+            false
+        } else {
+            true
         }
-        for k in to_remove {
-            index.remove(&k);
-        }
-    }
+    });
 }
 
 fn spawn_chunk(
@@ -256,15 +227,15 @@ mod tests {
 
         // Write PPM header (P3 = ASCII format)
         writeln!(file, "P3").expect("Failed to write header");
-        writeln!(file, "{IMAGE_SIZE} {IMAGE_SIZE}").expect("Failed to write dimensions");
+        writeln!(file, "{} {}", IMAGE_SIZE, IMAGE_SIZE).expect("Failed to write dimensions");
         writeln!(file, "255").expect("Failed to write max color value");
 
         // Write pixel data
         for (i, &value) in pixels.iter().enumerate() {
-            if i.is_multiple_of(3) && i > 0 {
-                writeln!(file).expect("Failed to write newline");
+            if i % 3 == 0 && i > 0 {
+                write!(file, "\n").expect("Failed to write newline");
             }
-            write!(file, "{value} ").expect("Failed to write pixel value");
+            write!(file, "{} ", value).expect("Failed to write pixel value");
         }
 
         println!("Generated layered_perlin_noise.ppm (256x256)");
