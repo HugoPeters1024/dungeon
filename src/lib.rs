@@ -7,7 +7,6 @@ pub mod hud;
 pub mod platform;
 pub mod player;
 pub mod spawners;
-pub mod spells;
 pub mod talents;
 
 // Re-export commonly used items

@@ -1,8 +1,6 @@
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use std::collections::HashMap;
 use strum_macros::Display;
 
 use crate::assets::MyStates;
@@ -21,7 +19,6 @@ impl Plugin for TalentsPlugin {
             .init_resource::<TalentUiSelection>()
             .init_resource::<TalentLoadoutStore>()
             .init_resource::<CursorRestoreState>()
-            .init_resource::<TalentIconAtlasState>()
             .add_systems(
                 OnEnter(MyStates::Next),
                 (
@@ -38,7 +35,6 @@ impl Plugin for TalentsPlugin {
                     toggle_escape_menu_ui,
                     sync_cursor_visibility_with_talents_ui,
                     refresh_class_dependent_text,
-                    update_talent_icons_from_atlas,
                     class_pick_button_interactions,
                     talent_ui_button_interactions,
                     update_talent_buttons_visuals,
@@ -124,8 +120,6 @@ pub enum TalentEffect {
     FallExtraGravityPctPerRank(f32),
     /// +N extra mid-air jumps per rank
     ExtraAirJumpPerRank(u8),
-    /// +% mana regeneration per rank
-    ManaRegenPctPerRank(f32),
     /// Placeholder (no runtime effect yet)
     Placeholder,
 }
@@ -204,7 +198,6 @@ pub struct TalentBonuses {
     pub jump_height_mult: f32,
     pub fall_extra_gravity_mult: f32,
     pub extra_air_jumps: u8,
-    pub mana_regen_mult: f32,
 }
 
 // --- UI state ---------------------------------------------------------------
@@ -263,11 +256,6 @@ struct TalentNameText {
 }
 
 #[derive(Component)]
-struct TalentIconImage {
-    id: TalentId,
-}
-
-#[derive(Component)]
 struct TreeTitleText {
     tree: TalentTree,
 }
@@ -304,230 +292,6 @@ struct EscapeMenuTitleText;
 #[derive(Resource, Debug, Default)]
 struct TalentLoadoutStore {
     by_class: std::collections::HashMap<TalentClass, (TalentsState, TalentPoints)>,
-}
-
-fn class_icon_base_row(class: TalentClass) -> usize {
-    match class {
-        TalentClass::Cleric => 0,
-        TalentClass::Bard => 4,
-        TalentClass::Paladin => 8,
-    }
-}
-
-fn update_talent_icons_from_atlas(
-    selected: Res<SelectedTalentClass>,
-    mut atlas: ResMut<TalentIconAtlasState>,
-    mut images: ResMut<Assets<Image>>,
-    mut icon_nodes: Query<(&TalentIconImage, &mut ImageNode)>,
-) {
-    // Ensure we have an id -> ordinal map.
-    if atlas.id_to_ord.is_empty() {
-        for (ord, def) in TALENTS.iter().enumerate() {
-            atlas.id_to_ord.insert(def.id, ord);
-        }
-    }
-
-    // Build sliced icons once the atlas has loaded.
-    if !atlas.built {
-        let Some(src) = images.get(&atlas.source).cloned() else {
-            return;
-        };
-        let Some((cols, rows)) = detect_icon_grid(&src) else {
-            return;
-        };
-        let cols_n = cols.len();
-        let rows_n = rows.len();
-        if cols_n == 0 || rows_n == 0 {
-            return;
-        }
-
-        atlas.cols = cols;
-        atlas.rows = rows;
-
-        let total_icons = cols_n * rows_n;
-        let talents_n = TALENTS.len();
-
-        atlas.icons_by_class.clear();
-        for class in TalentClass::ALL {
-            let base_row = class_icon_base_row(class).min(rows_n.saturating_sub(1));
-            let base = (base_row * cols_n) % total_icons;
-
-            let mut out: Vec<Handle<Image>> = Vec::with_capacity(talents_n);
-            for ord in 0..talents_n {
-                let idx = (base + ord) % total_icons;
-                if let Some(icon_img) = extract_icon(&src, &atlas.cols, &atlas.rows, idx) {
-                    out.push(images.add(icon_img));
-                }
-            }
-            if out.len() == talents_n {
-                atlas.icons_by_class.insert(class, out);
-            }
-        }
-
-        if atlas.icons_by_class.len() == TalentClass::ALL.len() {
-            atlas.built = true;
-        } else {
-            return;
-        }
-    }
-
-    let class = selected.0.unwrap_or(TalentClass::Paladin);
-    if atlas.last_applied == Some(class) && !selected.is_changed() {
-        return;
-    }
-    atlas.last_applied = Some(class);
-
-    let Some(icon_list) = atlas.icons_by_class.get(&class) else {
-        return;
-    };
-    for (icon, mut node) in icon_nodes.iter_mut() {
-        let Some(&ord) = atlas.id_to_ord.get(&icon.id) else {
-            continue;
-        };
-        if let Some(h) = icon_list.get(ord).cloned() {
-            node.image = h;
-        }
-    }
-}
-
-#[allow(clippy::type_complexity)]
-fn detect_icon_grid(image: &Image) -> Option<(Vec<(u32, u32)>, Vec<(u32, u32)>)> {
-    let w = image.size().x;
-    let h = image.size().y;
-    let fmt = image.texture_descriptor.format;
-    let bpp = match fmt {
-        TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => 4,
-        _ => return None,
-    };
-    let data = image.data.as_ref()?;
-    if data.len() < (w as usize * h as usize * bpp) {
-        return None;
-    }
-
-    let mut col_black = vec![0u32; w as usize];
-    let mut row_black = vec![0u32; h as usize];
-    for y in 0..h {
-        for x in 0..w {
-            let i = ((y * w + x) as usize) * bpp;
-            let r = data[i];
-            let g = data[i + 1];
-            let b = data[i + 2];
-            if r < 8 && g < 8 && b < 8 {
-                col_black[x as usize] += 1;
-                row_black[y as usize] += 1;
-            }
-        }
-    }
-
-    let cols = find_separators(&col_black, h, 0.55);
-    let rows = find_separators(&row_black, w, 0.55);
-    if cols.len() < 2 || rows.len() < 2 {
-        return None;
-    }
-
-    let col_cells = runs_to_cells(&cols)?;
-    let row_cells = runs_to_cells(&rows)?;
-    Some((col_cells, row_cells))
-}
-
-fn find_separators(counts: &[u32], len_other_axis: u32, threshold: f32) -> Vec<(u32, u32)> {
-    let mut out: Vec<(u32, u32)> = Vec::new();
-    let mut in_run = false;
-    let mut start = 0u32;
-    for (i, &c) in counts.iter().enumerate() {
-        let frac = c as f32 / len_other_axis as f32;
-        let is_sep = frac >= threshold;
-        if is_sep && !in_run {
-            in_run = true;
-            start = i as u32;
-        } else if !is_sep && in_run {
-            in_run = false;
-            out.push((start, i as u32 - 1));
-        }
-    }
-    if in_run {
-        out.push((start, counts.len() as u32 - 1));
-    }
-    out
-}
-
-fn runs_to_cells(runs: &[(u32, u32)]) -> Option<Vec<(u32, u32)>> {
-    let mut cells = Vec::new();
-    for w in runs.windows(2) {
-        let a = w[0];
-        let b = w[1];
-        let x0 = a.1.saturating_add(1);
-        let x1 = b.0.saturating_sub(1);
-        if x1 > x0 + 8 {
-            cells.push((x0, x1));
-        }
-    }
-    if cells.is_empty() { None } else { Some(cells) }
-}
-
-fn extract_icon(
-    image: &Image,
-    cols: &[(u32, u32)],
-    rows: &[(u32, u32)],
-    idx: usize,
-) -> Option<Image> {
-    let w = image.size().x;
-    let fmt = image.texture_descriptor.format;
-    let bpp = match fmt {
-        TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => 4,
-        _ => return None,
-    };
-    let data = image.data.as_ref()?;
-    let cols_n = cols.len();
-    let rows_n = rows.len();
-    let row = idx / cols_n;
-    let col = idx % cols_n;
-    if row >= rows_n {
-        return None;
-    }
-    let (x0, x1) = cols[col];
-    let (y0, y1) = rows[row];
-    let tw = x1 - x0 + 1;
-    let th = y1 - y0 + 1;
-
-    let mut out = vec![0u8; (tw * th * 4) as usize];
-    for oy in 0..th {
-        let sy = y0 + oy;
-        for ox in 0..tw {
-            let sx = x0 + ox;
-            let si = ((sy * w + sx) as usize) * bpp;
-            let di = ((oy * tw + ox) as usize) * 4;
-            out[di] = data[si];
-            out[di + 1] = data[si + 1];
-            out[di + 2] = data[si + 2];
-            out[di + 3] = data[si + 3];
-        }
-    }
-
-    Some(Image::new(
-        Extent3d {
-            width: tw,
-            height: th,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        out,
-        TextureFormat::Rgba8UnormSrgb,
-        bevy::asset::RenderAssetUsages::MAIN_WORLD | bevy::asset::RenderAssetUsages::RENDER_WORLD,
-    ))
-}
-
-const ICON_ATLAS_PATH: &str = "icons.png";
-
-#[derive(Resource, Default)]
-struct TalentIconAtlasState {
-    source: Handle<Image>,
-    built: bool,
-    cols: Vec<(u32, u32)>,
-    rows: Vec<(u32, u32)>,
-    id_to_ord: HashMap<TalentId, usize>,
-    icons_by_class: HashMap<TalentClass, Vec<Handle<Image>>>,
-    last_applied: Option<TalentClass>,
 }
 
 // --- Talent definitions -----------------------------------------------------
@@ -838,9 +602,9 @@ pub const TALENTS: &[TalentDef] = &[
         0,
         "Arcane Poise",
         3,
-        "+10% mana regeneration per rank.",
+        "Placeholder: +4% mana regen per rank.",
         None,
-        TalentEffect::ManaRegenPctPerRank(10.0),
+        TalentEffect::Placeholder,
     ),
     t(
         TalentTree::Sorcery,
@@ -1120,16 +884,7 @@ fn sync_cursor_visibility_with_talents_ui(
     }
 }
 
-fn spawn_talents_ui(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut icon_state: ResMut<TalentIconAtlasState>,
-) {
-    // Start loading the icon atlas for talent buttons (we'll slice once decoded).
-    icon_state.source = asset_server.load::<Image>(ICON_ATLAS_PATH);
-    icon_state.built = false;
-    icon_state.last_applied = None;
-
+fn spawn_talents_ui(mut commands: Commands) {
     // Colors tuned for “medieval parchment + dark wood” vibe.
     let overlay = Color::srgba(0.02, 0.02, 0.02, 0.75);
     let parchment = Color::srgb(0.88, 0.83, 0.70);
@@ -1390,7 +1145,7 @@ fn spawn_talents_ui(
                         Node {
                             width: Val::Px(104.0),
                             height: Val::Px(56.0),
-                            padding: UiRect::all(Val::Px(4.0)),
+                            padding: UiRect::all(Val::Px(6.0)),
                             border: UiRect::all(Val::Px(2.0)),
                             flex_direction: FlexDirection::Column,
                             justify_content: JustifyContent::Center,
@@ -1403,17 +1158,15 @@ fn spawn_talents_ui(
                     ))
                     .id();
 
-                // Icon-only button. Details are shown via hover tooltip.
-                let icon = commands
+                let name = commands
                     .spawn((
-                        TalentIconImage { id: def.id },
-                        Name::new("Talent Icon"),
-                        Node {
-                            width: Val::Px(44.0),
-                            height: Val::Px(44.0),
+                        TalentNameText { id: def.id },
+                        Text::new(talent_display_name(default_class, def)),
+                        TextFont {
+                            font_size: 12.0,
                             ..default()
                         },
-                        ImageNode::default(),
+                        TextColor(Color::srgb(0.96, 0.94, 0.90)),
                     ))
                     .id();
 
@@ -1436,7 +1189,7 @@ fn spawn_talents_ui(
                     ))
                     .id();
 
-                commands.entity(button).add_child(icon);
+                commands.entity(button).add_child(name);
                 commands.entity(button).add_child(rank);
                 commands.entity(tier_row).add_child(button);
             }
@@ -1564,7 +1317,7 @@ fn talent_ui_button_interactions(
     interactions: Query<(Entity, &Interaction, &TalentButton), Changed<Interaction>>,
     reset_btn: Query<&Interaction, (Changed<Interaction>, With<ResetTalentsButton>)>,
     refund_btn: Query<&Interaction, (Changed<Interaction>, With<RefundLastButton>)>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     mut talents: ResMut<TalentsState>,
     mut points: ResMut<TalentPoints>,
     mut selection: ResMut<TalentUiSelection>,
@@ -1583,23 +1336,16 @@ fn talent_ui_button_interactions(
                 }
             }
             Interaction::Pressed => {
-                // Right-click refunds one rank.
-                if mouse.just_pressed(MouseButton::Right) {
+                let shift_refund =
+                    keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+
+                if shift_refund {
                     let current = talents.rank(btn.id);
                     if current > 0 {
                         talents.set_rank(btn.id, current - 1);
                         points.available = points.available.saturating_add(1);
-                        // Keep refund-last consistent by removing the most recent spend of this id.
-                        if let Some(pos) = talents
-                            .spent_stack
-                            .iter()
-                            .rposition(|&spent| spent == btn.id)
-                        {
-                            talents.spent_stack.remove(pos);
-                        }
                     }
                 } else {
-                    // Left-click invests one rank.
                     let (ok, _reason) = can_invest(&talents, &points, btn.id);
                     if ok {
                         let current = talents.rank(btn.id);
@@ -1731,16 +1477,6 @@ fn effect_summary(def: &TalentDef, rank: u8) -> String {
                 )
             }
         }
-        TalentEffect::ManaRegenPctPerRank(p) => {
-            if rank == 0 {
-                format!("Effect: +{p:.0}% mana regeneration per rank")
-            } else {
-                format!(
-                    "Effect: +{p:.0}% mana regen per rank (current: +{cur:.0}%)",
-                    cur = p * rank as f32
-                )
-            }
-        }
         TalentEffect::Placeholder => "Effect: (placeholder)".to_string(),
     }
 }
@@ -1820,16 +1556,21 @@ fn update_talent_tooltip(
         format!("Requires: {pr_name}\n")
     });
 
-    let (_ok, _) = can_invest(&talents, &points, id);
+    let (ok, _) = can_invest(&talents, &points, id);
     if let Ok(mut b) = set.p1().single_mut() {
         *b = Text::new(format!(
-            "Rank: {rank}/{max}\n{effect}\nUnlock row: {spent}/{req}\n{prereq}{desc}",
+            "Rank: {rank}/{max}\n{effect}\nUnlock row: {spent}/{req}\n{prereq}{desc}\n\n{hint}",
             max = def.max_rank,
             effect = effect_summary(def, rank),
             spent = spent_in_tree,
             req = tier_req,
             prereq = prereq_line,
             desc = def.description,
+            hint = if ok {
+                "Click to invest | Shift+Click to refund"
+            } else {
+                "Shift+Click to refund"
+            }
         ));
     }
 }
@@ -2117,7 +1858,6 @@ fn recompute_bonuses(talents: Res<TalentsState>, mut bonuses: ResMut<TalentBonus
         jump_height_mult: 1.0,
         fall_extra_gravity_mult: 1.0,
         extra_air_jumps: 0,
-        mana_regen_mult: 1.0,
     };
 
     for def in TALENTS.iter() {
@@ -2140,9 +1880,6 @@ fn recompute_bonuses(talents: Res<TalentsState>, mut bonuses: ResMut<TalentBonus
             }
             TalentEffect::ExtraAirJumpPerRank(n) => {
                 out.extra_air_jumps = out.extra_air_jumps.saturating_add((n as f32 * rank) as u8);
-            }
-            TalentEffect::ManaRegenPctPerRank(p) => {
-                out.mana_regen_mult *= 1.0 + (p / 100.0) * rank;
             }
             TalentEffect::Placeholder => {}
         }
