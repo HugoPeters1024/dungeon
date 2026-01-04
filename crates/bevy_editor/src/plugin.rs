@@ -62,6 +62,16 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, draw_axes);
 
         app.insert_resource(UiState::new());
+        app.init_resource::<GrabModeState>();
+
+        app.add_systems(
+            Update,
+            (
+                handle_grab_mode_input,
+                handle_grab_mode_movement,
+                handle_grab_mode_exit,
+            ),
+        );
 
         {
             let mut system = show_ui_system.into_configs();
@@ -212,6 +222,25 @@ impl egui_dock::TabViewer for UiViewer<'_> {
 }
 
 #[derive(Resource)]
+struct GrabModeState {
+    is_active: bool,
+    initial_mouse_pos: Option<Vec2>,
+    initial_entity_pos: Option<Vec3>,
+    axis_mask: u8,
+}
+
+impl Default for GrabModeState {
+    fn default() -> Self {
+        Self {
+            is_active: false,
+            initial_mouse_pos: None,
+            initial_entity_pos: None,
+            axis_mask: 0b111,
+        }
+    }
+}
+
+#[derive(Resource)]
 struct UiState {
     state: DockState<EguiWindow>,
     viewport: egui::Rect,
@@ -288,14 +317,11 @@ fn set_camera_viewport(
 
     let window_size = window.physical_size();
     if rect.x <= window_size.x && rect.y <= window_size.y {
-        cam.is_active = true;
         cam.viewport = Some(Viewport {
             physical_position,
             physical_size,
             depth: 0.0..1.0,
         });
-    } else {
-        cam.is_active = false;
     }
 }
 
@@ -322,6 +348,9 @@ fn test(
     if !ui_state.pointer_in_viewport {
         return;
     }
+    if trigger.button != PointerButton::Primary {
+        return;
+    }
     println!(
         "test function called entity={}, name={:?}",
         trigger.event_target(),
@@ -342,5 +371,193 @@ fn draw_axes(mut gizmos: Gizmos, query: Query<&GlobalTransform>, ui_state: Res<U
         && let Ok(transform) = query.get(entity)
     {
         gizmos.axes(*transform, 1.5);
+    }
+}
+
+fn handle_grab_mode_input(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    ui_state: Res<UiState>,
+    mut grab_mode: ResMut<GrabModeState>,
+) {
+    // Enter grab mode when 'G' is pressed and an entity is selected
+    if keyboard_input.just_pressed(KeyCode::KeyG) && !grab_mode.is_active {
+        if ui_state.selected_entity.is_some() && ui_state.pointer_in_viewport {
+            grab_mode.is_active = true;
+            grab_mode.initial_mouse_pos = None;
+            grab_mode.initial_entity_pos = None;
+            grab_mode.axis_mask = 0b111;
+        }
+    }
+
+    if grab_mode.is_active {
+        if keyboard_input.just_pressed(KeyCode::KeyX) {
+            grab_mode.axis_mask = 0b100;
+        }
+        if keyboard_input.just_pressed(KeyCode::KeyY) {
+            grab_mode.axis_mask = 0b010;
+        }
+        if keyboard_input.just_pressed(KeyCode::KeyZ) {
+            grab_mode.axis_mask = 0b001;
+        }
+    }
+}
+
+fn handle_grab_mode_movement(
+    mut grab_mode: ResMut<GrabModeState>,
+    ui_state: Res<UiState>,
+    mut transforms: Query<&mut Transform>,
+    camera_query: Query<(&Camera, &Projection, &GlobalTransform), With<EditorCamera>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+) {
+    if !grab_mode.is_active {
+        return;
+    }
+
+    // Only process movement when pointer is in viewport
+    if !ui_state.pointer_in_viewport {
+        return;
+    }
+
+    let Some(selected_entity) = ui_state.selected_entity else {
+        return;
+    };
+
+    let Ok(mut transform) = transforms.get_mut(selected_entity) else {
+        return;
+    };
+
+    let Ok((camera, projection, camera_transform)) = camera_query.single() else {
+        return;
+    };
+
+    let Ok(window) = window.single() else {
+        return;
+    };
+
+    // Get current mouse position in viewport coordinates
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+
+    // Convert cursor position to viewport coordinates
+    let viewport = camera.logical_viewport_rect().unwrap_or_default();
+    let viewport_cursor = cursor_pos - viewport.min;
+
+    // Initialize grab mode state on first movement
+    if grab_mode.initial_mouse_pos.is_none() {
+        grab_mode.initial_mouse_pos = Some(viewport_cursor);
+        grab_mode.initial_entity_pos = Some(transform.translation);
+    }
+
+    let initial_pos = grab_mode.initial_entity_pos.unwrap();
+    let camera_pos = camera_transform.translation();
+    let camera_forward = *camera_transform.forward();
+
+    // Define a plane perpendicular to camera forward, passing through initial object position
+    // Plane equation: dot(point - plane_point, plane_normal) = 0
+    let plane_normal = camera_forward;
+    let plane_point = initial_pos;
+
+    // Convert screen coordinates to normalized device coordinates (NDC)
+    // NDC ranges from -1 to 1 in both axes
+    let viewport_size = viewport.size();
+    let ndc_x = (viewport_cursor.x / viewport_size.x) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (viewport_cursor.y / viewport_size.y) * 2.0; // Invert Y axis
+
+    // Get camera's right and up vectors for constructing the ray
+    let camera_right = *camera_transform.right();
+    let camera_up = *camera_transform.up();
+
+    // Calculate aspect ratio and FOV
+    // For perspective projection, we need to account for FOV
+    let aspect = viewport_size.x / viewport_size.y;
+
+    // Get FOV from projection
+    let fov_y = match projection {
+        Projection::Perspective(perspective_projection) => perspective_projection.fov,
+        _ => std::f32::consts::PI / 4.0, // 45 degrees default
+    };
+    let tan_half_fov = (fov_y / 2.0).tan();
+
+    // Convert NDC to view space direction
+    let view_space_x = ndc_x * aspect * tan_half_fov;
+    let view_space_y = ndc_y * tan_half_fov;
+    let view_space_dir = Vec3::new(view_space_x, view_space_y, -1.0).normalize();
+
+    // Transform view space direction to world space
+    // View space: +X right, +Y up, -Z forward
+    // World space: use camera's right, up, forward vectors
+    let world_space_dir = (camera_right * view_space_dir.x
+        + camera_up * view_space_dir.y
+        + camera_forward * -view_space_dir.z)
+        .normalize();
+
+    // Cast ray from camera through mouse cursor
+    let ray_origin = camera_pos;
+    let ray_direction = world_space_dir;
+
+    // Calculate intersection of ray with plane
+    // Ray: P = ray_origin + t * ray_direction
+    // Plane: dot(P - plane_point, plane_normal) = 0
+    // Solving: dot(ray_origin + t * ray_direction - plane_point, plane_normal) = 0
+    // t = dot(plane_point - ray_origin, plane_normal) / dot(ray_direction, plane_normal)
+    let denominator = ray_direction.dot(plane_normal);
+
+    // Avoid division by zero (ray parallel to plane)
+    if denominator.abs() < 1e-6 {
+        return;
+    }
+
+    let numerator = (plane_point - ray_origin).dot(plane_normal);
+    let t = numerator / denominator;
+
+    // Calculate intersection point
+    let intersection_point = ray_origin + ray_direction * t;
+
+    // Update transform to intersection point
+    if let Some(initial_pos) = grab_mode.initial_entity_pos {
+        transform.translation = initial_pos;
+    }
+    if (grab_mode.axis_mask & 0b100) != 0 {
+        transform.translation.x = intersection_point.x;
+    }
+    if (grab_mode.axis_mask & 0b010) != 0 {
+        transform.translation.y = intersection_point.y;
+    }
+    if (grab_mode.axis_mask & 0b001) != 0 {
+        transform.translation.z = intersection_point.z;
+    }
+}
+
+fn handle_grab_mode_exit(
+    mut grab_mode: ResMut<GrabModeState>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    ui_state: Res<UiState>,
+    mut transforms: Query<&mut Transform>,
+) {
+    if !grab_mode.is_active {
+        return;
+    }
+
+    // Exit grab mode when left mouse button is clicked (confirms the move)
+    if mouse_button.just_pressed(MouseButton::Left) {
+        grab_mode.is_active = false;
+        grab_mode.initial_mouse_pos = None;
+        grab_mode.initial_entity_pos = None;
+    }
+
+    // Exit grab mode when Escape is pressed (cancels the move and restores position)
+    if keyboard_input.just_pressed(KeyCode::Escape) {
+        if let Some(selected_entity) = ui_state.selected_entity {
+            if let Ok(mut transform) = transforms.get_mut(selected_entity) {
+                if let Some(initial_pos) = grab_mode.initial_entity_pos {
+                    transform.translation = initial_pos;
+                }
+            }
+        }
+        grab_mode.is_active = false;
+        grab_mode.initial_mouse_pos = None;
+        grab_mode.initial_entity_pos = None;
     }
 }
