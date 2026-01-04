@@ -248,7 +248,7 @@ fn toggle_editor_mode(
     mut next_state: ResMut<NextState<MyStates>>,
     mut cursor_options: Query<&mut bevy::window::CursorOptions>,
 ) {
-    if keyboard.just_pressed(KeyCode::Escape) {
+    if keyboard.just_pressed(KeyCode::Backquote) {
         // Ungrab cursor when toggling
         for mut cursor_options in cursor_options.iter_mut() {
             cursor_options.grab_mode = bevy::window::CursorGrabMode::None;
@@ -260,6 +260,14 @@ fn toggle_editor_mode(
             MyStates::Editor => next_state.set(MyStates::Next),
             MyStates::Next => next_state.set(MyStates::Editor),
             _ => {} // Don't toggle from other states
+        }
+    }
+
+    if keyboard.just_pressed(KeyCode::Escape) {
+        // Ungrab cursor when toggling
+        for mut cursor_options in cursor_options.iter_mut() {
+            cursor_options.grab_mode = bevy::window::CursorGrabMode::None;
+            cursor_options.visible = true;
         }
     }
 }
