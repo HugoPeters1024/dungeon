@@ -2,7 +2,6 @@ use std::f32::consts::PI;
 
 use avian3d::prelude::*;
 use bevy::light::CascadeShadowConfigBuilder;
-use bevy::post_process::bloom::Bloom;
 use bevy::post_process::motion_blur::MotionBlur;
 use bevy::{math::Affine2, prelude::*};
 use bevy_editor::EditorCamera;
@@ -30,7 +29,7 @@ impl Plugin for GamePlugin {
         //app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
         app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
-        //app.add_plugins(EguiPlugin::default());
+        app.add_plugins(EguiPlugin::default());
 
         app.add_plugins(HanabiPlugin);
 
@@ -217,7 +216,7 @@ fn setup(
         crate::player::controller::ControllerCamera,
         Transform::from_xyz(0.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
         // Disabled to make the editor work for now, see https://github.com/bevyengine/bevy/issues/22376
-        //Bloom::NATURAL,
+       // bevy::post_process::bloom::Bloom::NATURAL,
         MotionBlur {
             shutter_angle: 1.25,
             samples: 2,
