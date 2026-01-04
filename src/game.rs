@@ -5,9 +5,9 @@ use bevy::light::CascadeShadowConfigBuilder;
 use bevy::post_process::bloom::Bloom;
 use bevy::post_process::motion_blur::MotionBlur;
 use bevy::{math::Affine2, prelude::*};
+use bevy_editor::EditorCamera;
 use bevy_hanabi::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_tnua::{TnuaNotPlatform, prelude::*};
 use bevy_tnua_avian3d::prelude::*;
 
@@ -30,20 +30,27 @@ impl Plugin for GamePlugin {
         //app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
         app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
-        app.add_plugins(EguiPlugin::default());
-
-        #[cfg(not(target_arch = "wasm32"))]
-        app.add_plugins(WorldInspectorPlugin::new());
+        //app.add_plugins(EguiPlugin::default());
 
         app.add_plugins(HanabiPlugin);
+
+        app.add_plugins(crate::editor::EditorPlugin);
         app.add_plugins(crate::assets::AssetPlugin);
         app.add_plugins(crate::spawners::SpawnPlugin);
         app.add_plugins(crate::player::PlayerPlugin);
         app.add_plugins(crate::platform::PlatformPlugin);
         app.add_plugins(crate::chunks::ChunksPlugin);
         app.add_plugins(ThirdPersonCameraPlugin);
-        app.insert_resource(ClearColor(Color::srgb(0.08, 0.02, 0.02))); // Very dark black background
-        app.add_systems(OnEnter(MyStates::Next), setup);
+        //app.insert_resource(ClearColor(Color::srgb(0.08, 0.02, 0.02))); // Very dark black background
+        app.add_systems(
+            OnTransition {
+                exited: MyStates::AssetPreparing,
+                entered: MyStates::Next,
+            },
+            setup,
+        );
+        app.add_systems(OnEnter(MyStates::Editor), ungrab_cursor_on_editor_enter);
+        app.add_systems(Update, toggle_editor_mode);
     }
 }
 
@@ -56,6 +63,8 @@ fn setup(
     assets: Res<GameAssets>,
 ) {
     ambient_light.brightness = 100.0;
+
+    commands.spawn(SceneRoot(assets.castle.clone()));
 
     commands.spawn((
         DirectionalLight {
@@ -201,17 +210,19 @@ fn setup(
     ));
 
     // Player-following camera
-    let mut camera_entity = commands.spawn((
+    commands.spawn((
+        EditorCamera,
         Camera3d::default(),
         crate::camera::ThirdPersonCamera::default(),
+        crate::player::controller::ControllerCamera,
         Transform::from_xyz(0.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
-        Bloom::NATURAL,
+        // Disabled to make the editor work for now, see https://github.com/bevyengine/bevy/issues/22376
+        //Bloom::NATURAL,
+        MotionBlur {
+            shutter_angle: 1.25,
+            samples: 2,
+        },
     ));
-
-    camera_entity.insert(MotionBlur {
-        shutter_angle: 1.25,
-        samples: 2,
-    });
 
     commands.spawn((PlayerRoot, Name::new("Player"), ChunkObserver));
 
@@ -220,4 +231,35 @@ fn setup(
     commands.spawn((SpawnTorch, Transform::from_xyz(2.0, 1.0, 0.0)));
 
     commands.spawn((ParticleEffect::new(assets.void.clone()),));
+}
+
+/// Ensure cursor is ungrabed when entering editor mode
+fn ungrab_cursor_on_editor_enter(mut cursor_options: Query<&mut bevy::window::CursorOptions>) {
+    for mut cursor_options in cursor_options.iter_mut() {
+        cursor_options.grab_mode = bevy::window::CursorGrabMode::None;
+        cursor_options.visible = true;
+    }
+}
+
+/// Toggle between Editor and Next states when Escape is pressed
+fn toggle_editor_mode(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    current_state: Res<State<MyStates>>,
+    mut next_state: ResMut<NextState<MyStates>>,
+    mut cursor_options: Query<&mut bevy::window::CursorOptions>,
+) {
+    if keyboard.just_pressed(KeyCode::Escape) {
+        // Ungrab cursor when toggling
+        for mut cursor_options in cursor_options.iter_mut() {
+            cursor_options.grab_mode = bevy::window::CursorGrabMode::None;
+            cursor_options.visible = true;
+        }
+
+        // Toggle between Editor and Next states
+        match current_state.get() {
+            MyStates::Editor => next_state.set(MyStates::Next),
+            MyStates::Next => next_state.set(MyStates::Editor),
+            _ => {} // Don't toggle from other states
+        }
+    }
 }

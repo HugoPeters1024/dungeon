@@ -8,6 +8,7 @@ pub enum MyStates {
     AssetLoading,
     AssetPreparing,
     Next,
+    Editor,
 }
 
 #[derive(Resource, AssetCollection)]
@@ -42,6 +43,9 @@ pub struct GameAssets {
 
     #[asset(path = "trophy.glb#Material0")]
     pub trophy_material: Handle<StandardMaterial>,
+
+    #[asset(path = "castle.glb#Scene0")]
+    pub castle: Handle<Scene>,
 
     #[asset(path = "bong.glb#Mesh0/Primitive0")]
     pub bong: Handle<Mesh>,

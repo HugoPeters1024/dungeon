@@ -15,6 +15,9 @@ use crate::game::Pickupable;
 #[require(Transform, InheritedVisibility)]
 pub struct PlayerRoot;
 
+#[derive(Component, Default)]
+pub struct ControllerCamera;
+
 #[derive(PhysicsLayer, Default)]
 enum GameLayer {
     #[default]
@@ -352,7 +355,7 @@ pub fn update_controller_state(
 pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut controller_query: Query<(&mut TnuaController, &ControllerState)>,
-    camera: Single<&Transform, With<Camera>>,
+    camera: Single<&Transform, With<ControllerCamera>>,
 ) {
     let Ok((mut controller, state)) = controller_query.single_mut() else {
         return;

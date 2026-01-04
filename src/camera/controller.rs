@@ -1,6 +1,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::window::CursorOptions;
+use crate::assets::MyStates;
 
 /// Component for third-person camera controller
 #[derive(Component)]
@@ -69,10 +70,19 @@ pub fn handle_mouse_look(
     mut cursor_events: MessageReader<bevy::input::mouse::MouseMotion>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    state: Res<State<MyStates>>,
 ) {
     let Ok(mut camera) = camera_query.single_mut() else {
         return;
     };
+
+    // Don't handle mouse look in editor mode
+    if state.get() == &MyStates::Editor {
+        // Ensure cursor is not grabbed in editor mode
+        cursor_options.grab_mode = bevy::window::CursorGrabMode::None;
+        cursor_options.visible = true;
+        return;
+    }
 
     // Collect mouse delta from events
     let mut delta = Vec2::ZERO;
@@ -80,15 +90,10 @@ pub fn handle_mouse_look(
         delta += event.delta;
     }
 
-    // Lock cursor for better camera control
+    // Lock cursor for better camera control (only in Next state)
     if mouse.just_pressed(MouseButton::Left) && !keyboard.pressed(KeyCode::ControlRight) {
         cursor_options.grab_mode = bevy::window::CursorGrabMode::Locked;
         cursor_options.visible = false;
-    }
-
-    if keyboard.just_pressed(KeyCode::Escape) {
-        cursor_options.grab_mode = bevy::window::CursorGrabMode::None;
-        cursor_options.visible = true;
     }
 
     // Update camera rotation when cursor is locked
