@@ -19,14 +19,6 @@ pub enum AxisMask {
     Z,
 }
 
-#[derive(Default)]
-pub struct GrabModeState {
-    pub is_active: bool,
-    pub initial_mouse_pos: Option<Vec2>,
-    pub initial_entity_pos: Option<Vec3>,
-    pub axis_mask: Option<AxisMask>,
-}
-
 #[derive(Resource, Default, Deref)]
 pub struct Prefabs {
     pub prefabs: HashMap<String, SystemId>,
@@ -61,14 +53,26 @@ impl UiDockState {
     }
 }
 
+pub enum SelectedAction {
+    Grab {
+        mask: Option<AxisMask>,
+        initial_mouse_pos: Option<Vec2>,
+        initial_entity_pos: Vec3,
+    },
+}
+
+#[derive(Resource)]
+pub struct Selected {
+    pub entity: Entity,
+    pub action: Option<SelectedAction>,
+}
+
 #[derive(Resource)]
 pub struct UiState {
     pub viewport: egui::Rect,
     pub pointer_in_viewport: bool,
-    pub selected_entity: Option<Entity>,
     pub context_menu: ContextMenu,
     pub egui_wants_pointer_input: bool,
-    pub grab_mode: GrabModeState,
 }
 
 impl Default for UiState {
@@ -76,10 +80,8 @@ impl Default for UiState {
         Self {
             viewport: egui::Rect::NOTHING,
             pointer_in_viewport: false,
-            selected_entity: None,
             context_menu: ContextMenu::Closed,
             egui_wants_pointer_input: false,
-            grab_mode: GrabModeState::default(),
         }
     }
 }

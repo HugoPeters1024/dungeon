@@ -2,7 +2,10 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_world};
 
-use crate::state::{ContextMenu, EguiWindow, Prefabs, UiState};
+use crate::{
+    Selected,
+    state::{EguiWindow, Prefabs, UiState},
+};
 
 pub struct UiViewer<'a> {
     pub world: &'a mut World,
@@ -31,33 +34,33 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                     self.state.viewport.shrink(16.),
                 );
 
-                match self.state.context_menu {
-                    ContextMenu::Closed => {}
-                    ContextMenu::Open(vec2) => {
-                        egui::Area::new(egui::Id::new("context_menu"))
-                            .fixed_pos(egui::Pos2 {
-                                x: vec2.x,
-                                y: vec2.y,
-                            })
-                            .show(ui.ctx(), |ui| {
-                                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                    if self.state.selected_entity.is_some() {
-                                        if ui.button("Duplicate").clicked() {}
-                                    } else {
-                                        if ui.button("Option 1").clicked() {
-                                            // Handle option 1
-                                        }
-                                        if ui.button("Option 2").clicked() {
-                                            // Handle option 2
-                                        }
-                                        if ui.button("Option 3").clicked() {
-                                            // Handle option 3
-                                        }
-                                    }
-                                });
-                            });
-                    }
-                }
+                //match self.state.context_menu {
+                //    ContextMenu::Closed => {}
+                //    ContextMenu::Open(vec2) => {
+                //        egui::Area::new(egui::Id::new("context_menu"))
+                //            .fixed_pos(egui::Pos2 {
+                //                x: vec2.x,
+                //                y: vec2.y,
+                //            })
+                //            .show(ui.ctx(), |ui| {
+                //                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                //                    if self.state.selected_entity.is_some() {
+                //                        if ui.button("Duplicate").clicked() {}
+                //                    } else {
+                //                        if ui.button("Option 1").clicked() {
+                //                            // Handle option 1
+                //                        }
+                //                        if ui.button("Option 2").clicked() {
+                //                            // Handle option 2
+                //                        }
+                //                        if ui.button("Option 3").clicked() {
+                //                            // Handle option 3
+                //                        }
+                //                    }
+                //                });
+                //            });
+                //    }
+                //}
             }
             EguiWindow::Prefabs => {
                 ui.label("Prefabs");
@@ -71,16 +74,19 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                 ui_for_world(self.world, ui);
             }
             EguiWindow::SelectedInspector => {
-                if let Some(entity) = self.state.selected_entity.as_mut()
-                    && let Ok(child_of) = self.world.query::<&ChildOf>().get(self.world, *entity)
-                {
-                    if ui.button("Go to parent").clicked() {
-                        *entity = child_of.0;
-                    }
-                    ui_for_entity_with_children(self.world, *entity, ui);
-                } else {
-                    ui.label("No entity selected");
-                }
+                self.world
+                    .try_resource_scope::<Selected, ()>(|world, mut selected| {
+                        if let Ok(child_of) = world.query::<&ChildOf>().get(world, selected.entity)
+                            && selected.action.is_none()
+                        {
+                            if ui.button("Go to parent").clicked() {
+                                selected.entity = child_of.0;
+                            }
+                            ui_for_entity_with_children(world, selected.entity, ui);
+                        } else {
+                            ui.label("No entity selected");
+                        }
+                    });
             }
         };
     }

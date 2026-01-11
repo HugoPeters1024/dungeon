@@ -11,7 +11,8 @@ use bevy::{ecs::schedule::BoxedCondition, window::PrimaryWindow};
 use bevy_egui::prelude::*;
 use bevy_panorbit_camera::PanOrbitCameraPlugin;
 
-use crate::state::{AxisMask, ContextMenu, Prefabs, UiDockState, UiState};
+use crate::state::{AxisMask, Prefabs, UiDockState, UiState};
+use crate::{Selected, SelectedAction};
 
 const CLICK_DURATION: Duration = Duration::from_millis(500);
 
@@ -56,18 +57,17 @@ impl Plugin for EditorPlugin {
         app.add_systems(Startup, spawn_wireframe_plane);
         app.add_observer(set_selected_entity_on_click);
 
-        app.add_systems(Update, draw_axes);
-
         app.insert_resource(UiDockState::initialize());
         app.insert_resource(UiState::new());
 
         app.add_systems(
             Update,
             (
-                handle_grab_mode_input,
+                draw_axes,
+                handle_selected_action_keys,
                 handle_grab_mode_movement,
-                handle_grab_mode_exit,
-            ),
+            )
+                .run_if(resource_exists::<Selected>),
         );
 
         {
@@ -204,11 +204,16 @@ fn show_ui_system(world: &mut World) -> Result {
 
 fn set_selected_entity_on_click(
     mut trigger: On<Pointer<Click>>,
+    mut commands: Commands,
     names: Query<&Name>,
     windows: Query<&Window>,
-    mut ui_state: ResMut<UiState>,
+    ui_state: Res<UiState>,
+    mut selected: Option<ResMut<Selected>>,
 ) {
     if !(ui_state.pointer_in_viewport || ui_state.egui_wants_pointer_input) {
+        return;
+    }
+    if trigger.duration > CLICK_DURATION {
         return;
     }
     println!(
@@ -218,98 +223,108 @@ fn set_selected_entity_on_click(
     );
 
     let clicked_in_void = windows.contains(trigger.event_target());
+    let is_performing_action = selected.as_ref().map_or(false, |s| s.action.is_some());
+    let is_primary = trigger.button == PointerButton::Primary;
+    let is_secondary = trigger.button == PointerButton::Secondary;
 
     trigger.propagate(false);
-    if trigger.duration < CLICK_DURATION {
-        if clicked_in_void {
-            match trigger.button {
-                PointerButton::Primary => {
-                    ui_state.selected_entity = None;
-                    ui_state.context_menu = ContextMenu::Closed;
+
+    if clicked_in_void {
+        if is_primary {
+            if is_performing_action {
+                if let Some(selected) = selected.as_mut() {
+                    selected.action = None;
                 }
-                PointerButton::Secondary => {
-                    ui_state.context_menu = ContextMenu::Open(trigger.pointer_location.position)
-                }
-                PointerButton::Middle => {}
+            } else {
+                commands.remove_resource::<Selected>();
             }
-        } else {
-            match trigger.button {
-                PointerButton::Primary => {
-                    ui_state.context_menu = ContextMenu::Closed;
-                    ui_state.selected_entity = Some(trigger.event_target());
-                }
-                PointerButton::Secondary => {
-                    ui_state.context_menu = ContextMenu::Open(trigger.pointer_location.position);
-                    ui_state.selected_entity = Some(trigger.event_target());
-                }
-                PointerButton::Middle => {}
-            };
+        }
+    } else {
+        if is_primary {
+            commands.insert_resource(Selected {
+                entity: trigger.event_target(),
+                action: None,
+            });
         }
     }
 }
 
-fn draw_axes(mut gizmos: Gizmos, query: Query<&GlobalTransform>, ui_state: Res<UiState>) {
-    if let Some(entity) = ui_state.selected_entity
-        && let Ok(transform) = query.get(entity)
-    {
+fn draw_axes(mut gizmos: Gizmos, query: Query<&GlobalTransform>, selected: Res<Selected>) {
+    if let Ok(transform) = query.get(selected.entity) {
         gizmos.axes(*transform, 1.5);
     }
 }
 
-fn handle_grab_mode_input(keyboard_input: Res<ButtonInput<KeyCode>>, mut ui: ResMut<UiState>) {
-    // Enter grab mode when 'G' is pressed and an entity is selected
-    if keyboard_input.just_pressed(KeyCode::KeyG)
-        && !ui.grab_mode.is_active
-        && ui.selected_entity.is_some()
-        && ui.pointer_in_viewport
-    {
-        ui.grab_mode.is_active = true;
-        ui.grab_mode.initial_mouse_pos = None;
-        ui.grab_mode.initial_entity_pos = None;
-        ui.grab_mode.axis_mask = None;
-    }
+fn handle_selected_action_keys(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut transforms: Query<&mut Transform>,
+    mut selected: ResMut<Selected>,
+) {
+    let entity = selected.entity;
+    match &mut selected.action {
+        None if keyboard_input.just_pressed(KeyCode::KeyG) => {
+            let Ok(transform) = transforms.get(selected.entity) else {
+                return;
+            };
+            selected.action = Some(SelectedAction::Grab {
+                mask: None,
+                initial_mouse_pos: None,
+                initial_entity_pos: transform.translation,
+            });
+        }
+        None => {}
+        Some(SelectedAction::Grab {
+            mask,
+            initial_entity_pos,
+            ..
+        }) => {
+            if keyboard_input.just_pressed(KeyCode::KeyX) {
+                *mask = Some(AxisMask::X);
+            }
+            if keyboard_input.just_pressed(KeyCode::KeyY) {
+                *mask = Some(AxisMask::Y);
+            }
+            if keyboard_input.just_pressed(KeyCode::KeyZ) {
+                *mask = Some(AxisMask::Z);
+            }
 
-    if ui.grab_mode.is_active {
-        if keyboard_input.just_pressed(KeyCode::KeyX) {
-            ui.grab_mode.axis_mask = Some(AxisMask::X);
-        }
-        if keyboard_input.just_pressed(KeyCode::KeyY) {
-            ui.grab_mode.axis_mask = Some(AxisMask::Y);
-        }
-        if keyboard_input.just_pressed(KeyCode::KeyZ) {
-            ui.grab_mode.axis_mask = Some(AxisMask::Z);
+            if keyboard_input.just_pressed(KeyCode::Escape) {
+                if let Ok(mut transform) = transforms.get_mut(entity) {
+                    transform.translation = *initial_entity_pos;
+                };
+                selected.action = None;
+            }
         }
     }
 }
 
 fn handle_grab_mode_movement(
-    mut ui: ResMut<UiState>,
+    ui: Res<UiState>,
     mut transforms: Query<&mut Transform>,
     camera_query: Query<(&Camera, &Projection, &GlobalTransform), With<EditorCamera>>,
-    window: Query<&Window, With<PrimaryWindow>>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut selected: ResMut<Selected>,
 ) {
-    if !ui.grab_mode.is_active {
-        return;
-    }
-
-    // Only process movement when pointer is in viewport
     if !ui.pointer_in_viewport {
         return;
     }
 
-    let Some(selected_entity) = ui.selected_entity else {
+    let entity = selected.entity;
+
+    let Some(SelectedAction::Grab {
+        mask,
+        initial_mouse_pos,
+        initial_entity_pos,
+    }) = &mut selected.action
+    else {
         return;
     };
 
-    let Ok(mut transform) = transforms.get_mut(selected_entity) else {
+    let Ok(mut transform) = transforms.get_mut(entity) else {
         return;
     };
 
     let Ok((camera, projection, camera_transform)) = camera_query.single() else {
-        return;
-    };
-
-    let Ok(window) = window.single() else {
         return;
     };
 
@@ -323,19 +338,17 @@ fn handle_grab_mode_movement(
     let viewport_cursor = cursor_pos - viewport.min;
 
     // Initialize grab mode state on first movement
-    if ui.grab_mode.initial_mouse_pos.is_none() {
-        ui.grab_mode.initial_mouse_pos = Some(viewport_cursor);
-        ui.grab_mode.initial_entity_pos = Some(transform.translation);
+    if initial_mouse_pos.is_none() {
+        *initial_mouse_pos = Some(viewport_cursor);
     }
 
-    let initial_pos = ui.grab_mode.initial_entity_pos.unwrap();
     let camera_pos = camera_transform.translation();
     let camera_forward = *camera_transform.forward();
 
     // Define a plane perpendicular to camera forward, passing through initial object position
     // Plane equation: dot(point - plane_point, plane_normal) = 0
     let plane_normal = camera_forward;
-    let plane_point = initial_pos;
+    let plane_point = *initial_entity_pos;
 
     // Convert screen coordinates to normalized device coordinates (NDC)
     // NDC ranges from -1 to 1 in both axes
@@ -394,10 +407,8 @@ fn handle_grab_mode_movement(
     let intersection_point = ray_origin + ray_direction * t;
 
     // Update transform to intersection point
-    if let Some(initial_pos) = ui.grab_mode.initial_entity_pos {
-        transform.translation = initial_pos;
-    }
-    if let Some(axis) = &ui.grab_mode.axis_mask {
+    transform.translation = *initial_entity_pos;
+    if let Some(axis) = &mask {
         match axis {
             AxisMask::X => transform.translation.x = intersection_point.x,
             AxisMask::Y => transform.translation.y = intersection_point.y,
@@ -405,36 +416,5 @@ fn handle_grab_mode_movement(
         }
     } else {
         transform.translation = intersection_point;
-    }
-}
-
-fn handle_grab_mode_exit(
-    mouse_button: Res<ButtonInput<MouseButton>>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut ui: ResMut<UiState>,
-    mut transforms: Query<&mut Transform>,
-) {
-    if !ui.grab_mode.is_active {
-        return;
-    }
-
-    // Exit grab mode when left mouse button is clicked (confirms the move)
-    if mouse_button.just_pressed(MouseButton::Left) {
-        ui.grab_mode.is_active = false;
-        ui.grab_mode.initial_mouse_pos = None;
-        ui.grab_mode.initial_entity_pos = None;
-    }
-
-    // Exit grab mode when Escape is pressed (cancels the move and restores position)
-    if keyboard_input.just_pressed(KeyCode::Escape) {
-        if let Some(selected_entity) = ui.selected_entity
-            && let Ok(mut transform) = transforms.get_mut(selected_entity)
-            && let Some(initial_pos) = ui.grab_mode.initial_entity_pos
-        {
-            transform.translation = initial_pos;
-        }
-        ui.grab_mode.is_active = false;
-        ui.grab_mode.initial_mouse_pos = None;
-        ui.grab_mode.initial_entity_pos = None;
     }
 }
