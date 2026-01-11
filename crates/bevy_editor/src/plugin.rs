@@ -3,7 +3,9 @@ use std::time::Duration;
 
 use bevy::camera::Viewport;
 use bevy::camera::visibility::RenderLayers;
+use bevy::color::palettes::tailwind::{PINK_100, RED_500};
 use bevy::mesh::Indices;
+use bevy::picking::pointer::PointerInteraction;
 use bevy::picking::prelude::Pickable;
 use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
@@ -12,7 +14,7 @@ use bevy_egui::prelude::*;
 use bevy_panorbit_camera::PanOrbitCameraPlugin;
 
 use crate::state::{AxisMask, Prefabs, UiDockState, UiState};
-use crate::{Selected, SelectedAction};
+use crate::{ContextMenu, HoverNormal, Selected, SelectedAction};
 
 const CLICK_DURATION: Duration = Duration::from_millis(500);
 
@@ -64,6 +66,7 @@ impl Plugin for EditorPlugin {
             Update,
             (
                 draw_axes,
+                set_hover_normal,
                 handle_selected_action_keys,
                 handle_grab_mode_movement,
             )
@@ -207,10 +210,10 @@ fn set_selected_entity_on_click(
     mut commands: Commands,
     names: Query<&Name>,
     windows: Query<&Window>,
-    ui_state: Res<UiState>,
+    mut ui_state: ResMut<UiState>,
     mut selected: Option<ResMut<Selected>>,
 ) {
-    if !(ui_state.pointer_in_viewport || ui_state.egui_wants_pointer_input) {
+    if !ui_state.pointer_in_viewport || ui_state.egui_wants_pointer_input {
         return;
     }
     if trigger.duration > CLICK_DURATION {
@@ -223,14 +226,16 @@ fn set_selected_entity_on_click(
     );
 
     let clicked_in_void = windows.contains(trigger.event_target());
-    let is_performing_action = selected.as_ref().map_or(false, |s| s.action.is_some());
+    let is_performing_action = selected.as_ref().is_some_and(|s| s.action.is_some());
     let is_primary = trigger.button == PointerButton::Primary;
     let is_secondary = trigger.button == PointerButton::Secondary;
+    let hover_normal = selected.as_ref().and_then(|s| s.hover_normal.clone());
 
     trigger.propagate(false);
 
     if clicked_in_void {
         if is_primary {
+            ui_state.context_menu = ContextMenu::Closed;
             if is_performing_action {
                 if let Some(selected) = selected.as_mut() {
                     selected.action = None;
@@ -239,12 +244,34 @@ fn set_selected_entity_on_click(
                 commands.remove_resource::<Selected>();
             }
         }
+
+        if let Some(hover_normal) = hover_normal
+            && is_secondary
+            && !is_performing_action
+        {
+            ui_state.context_menu = ContextMenu::Open {
+                window_location: trigger.pointer_location.position,
+                hover_normal,
+            }
+        }
     } else {
         if is_primary {
+            ui_state.context_menu = ContextMenu::Closed;
             commands.insert_resource(Selected {
                 entity: trigger.event_target(),
+                hover_normal: None,
                 action: None,
             });
+        }
+
+        if let Some(hover_normal) = hover_normal
+            && is_secondary
+            && !is_performing_action
+        {
+            ui_state.context_menu = ContextMenu::Open {
+                window_location: trigger.pointer_location.position,
+                hover_normal,
+            }
         }
     }
 }
@@ -252,6 +279,36 @@ fn set_selected_entity_on_click(
 fn draw_axes(mut gizmos: Gizmos, query: Query<&GlobalTransform>, selected: Res<Selected>) {
     if let Ok(transform) = query.get(selected.entity) {
         gizmos.axes(*transform, 1.5);
+    }
+}
+
+/// Draws normals at the mouse hover position, but only if the hovered entity
+/// is the currently selected entity.
+fn set_hover_normal(
+    pointers: Query<&PointerInteraction>,
+    mut selected: ResMut<Selected>,
+    mut gizmos: Gizmos,
+) {
+    let selected_entity = selected.entity;
+    selected.hover_normal = None;
+    for (point, normal) in pointers
+        .iter()
+        .filter_map(|interaction| interaction.get_nearest_hit())
+        .filter(|(entity, _hit)| *entity == selected_entity)
+        .filter_map(|(_entity, hit)| hit.position.zip(hit.normal))
+    {
+        if selected.action.is_none() {
+            selected.hover_normal = Some(HoverNormal { point, normal });
+        }
+    }
+
+    if let Some(hover_normal) = selected.hover_normal.as_ref() {
+        gizmos.sphere(hover_normal.point, 0.05, RED_500);
+        gizmos.arrow(
+            hover_normal.point,
+            hover_normal.point + hover_normal.normal * 0.5,
+            PINK_100,
+        );
     }
 }
 

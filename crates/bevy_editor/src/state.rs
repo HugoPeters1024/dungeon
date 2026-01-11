@@ -32,7 +32,10 @@ impl Prefabs {
 
 pub enum ContextMenu {
     Closed,
-    Open(Vec2),
+    Open {
+        window_location: Vec2,
+        hover_normal: HoverNormal,
+    },
 }
 
 #[derive(Resource)]
@@ -61,9 +64,16 @@ pub enum SelectedAction {
     },
 }
 
+#[derive(Clone)]
+pub struct HoverNormal {
+    pub point: Vec3,
+    pub normal: Vec3,
+}
+
 #[derive(Resource)]
 pub struct Selected {
     pub entity: Entity,
+    pub hover_normal: Option<HoverNormal>,
     pub action: Option<SelectedAction>,
 }
 
