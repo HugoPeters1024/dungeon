@@ -1,7 +1,7 @@
+use crate::assets::MyStates;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::window::CursorOptions;
-use crate::assets::MyStates;
 
 /// Component for third-person camera controller
 #[derive(Component)]

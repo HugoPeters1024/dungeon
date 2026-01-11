@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_editor::{EditorPlugin, Prefabs, EditorCamera};
+use bevy_editor::{EditorCamera, EditorPlugin, Prefabs};
 use bevy_panorbit_camera::PanOrbitCamera;
 
 fn main() {

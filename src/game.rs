@@ -216,7 +216,7 @@ fn setup(
         crate::player::controller::ControllerCamera,
         Transform::from_xyz(0.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
         // Disabled to make the editor work for now, see https://github.com/bevyengine/bevy/issues/22376
-       // bevy::post_process::bloom::Bloom::NATURAL,
+        // bevy::post_process::bloom::Bloom::NATURAL,
         MotionBlur {
             shutter_angle: 1.25,
             samples: 2,
