@@ -83,6 +83,8 @@ pub struct UiState {
     pub pointer_in_viewport: bool,
     pub context_menu: ContextMenu,
     pub egui_wants_pointer_input: bool,
+    /// Distance from camera at which new prefabs are spawned
+    pub spawn_distance: f32,
 }
 
 impl Default for UiState {
@@ -92,6 +94,7 @@ impl Default for UiState {
             pointer_in_viewport: false,
             context_menu: ContextMenu::Closed,
             egui_wants_pointer_input: false,
+            spawn_distance: 3.0,
         }
     }
 }

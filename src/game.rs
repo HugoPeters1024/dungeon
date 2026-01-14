@@ -4,7 +4,6 @@ use avian3d::prelude::*;
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::post_process::motion_blur::MotionBlur;
 use bevy::{math::Affine2, prelude::*};
-use bevy_editor::EditorCamera;
 use bevy_hanabi::prelude::*;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_tnua::{TnuaNotPlatform, prelude::*};
@@ -210,7 +209,7 @@ fn setup(
 
     // Player-following camera
     commands.spawn((
-        EditorCamera,
+        Name::new("Player Camera"),
         Camera3d::default(),
         crate::camera::ThirdPersonCamera::default(),
         crate::player::controller::ControllerCamera,
