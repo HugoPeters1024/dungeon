@@ -8,7 +8,7 @@ use bevy::{
     gltf::{GltfMesh, GltfNode},
     prelude::*,
 };
-use bevy_editor::{bevy_panorbit_camera::PanOrbitCamera, EditorCamera, Prefabs};
+use bevy_editor::{bevy_panorbit_camera::PanOrbitCamera, EditorCamera, Prefabs, SpawnPosition};
 use bevy_tnua::TnuaNotPlatform;
 
 pub struct EditorPlugin;
@@ -78,49 +78,92 @@ fn setup_prefabs(
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
 ) {
-
     prefabs.add(
-        "The test",
-        commands.register_system(|mut commands: Commands, assets: Res<GameAssets>| {
-            commands.spawn((
-                Mesh3d(assets.bong.clone()),
-                MeshMaterial3d(assets.bong_material.clone()),
-                Transform::from_xyz(2.0, 14.0, 4.0).with_scale(Vec3::splat(0.3)),
-                Name::new("Bong"),
-                Pickupable,
-                Mass(0.5),
-                RigidBody::Dynamic,
-                TnuaNotPlatform,
-                ColliderConstructor::Cuboid {
-                    x_length: 2.5,
-                    y_length: 4.0,
-                    z_length: 2.5,
-                },
-            ));
-        }),
+        "Bong",
+        commands.register_system(
+            |mut commands: Commands, assets: Res<GameAssets>, spawn_pos: Res<SpawnPosition>| {
+                commands.spawn((
+                    Mesh3d(assets.bong.clone()),
+                    MeshMaterial3d(assets.bong_material.clone()),
+                    Transform::from_translation(spawn_pos.0).with_scale(Vec3::splat(0.3)),
+                    Name::new("Bong"),
+                    Pickupable,
+                    Mass(0.5),
+                    RigidBody::Dynamic,
+                    TnuaNotPlatform,
+                    ColliderConstructor::Cuboid {
+                        x_length: 2.5,
+                        y_length: 4.0,
+                        z_length: 2.5,
+                    },
+                ));
+            },
+        ),
     );
-
-    fn f(node: Handle<GltfNode>) -> impl Fn(Commands) {
-        move |commands: Commands| {
-            g(commands, node.clone());
-        }
-    }
-
-    fn g(mut commands: Commands, node: Handle<GltfNode>) {
-        commands.run_system_cached_with(spawn_gltf_node, node);
-    }
 
     let gltf = gltfs.get(assets.castle_test.id()).unwrap();
     for (name, node) in gltf.named_nodes.iter() {
-        prefabs.add(name.clone(), commands.register_system(f(node.clone())));
+        prefabs.add(
+            name.clone(),
+            commands.register_system(spawn_gltf_node_system(node.clone())),
+        );
+    }
+}
+
+fn spawn_gltf_node_system(
+    node: Handle<GltfNode>,
+) -> impl Fn(Commands, Res<SpawnPosition>, Res<Assets<GltfNode>>, Res<Assets<GltfMesh>>) {
+    move |mut commands: Commands,
+          spawn_pos: Res<SpawnPosition>,
+          nodes: Res<Assets<GltfNode>>,
+          meshes: Res<Assets<GltfMesh>>| {
+        spawn_gltf_node(&mut commands, &spawn_pos, &nodes, &meshes, node.clone());
     }
 }
 
 fn spawn_gltf_node(
-    In(node_handle): In<Handle<GltfNode>>,
-    mut commands: Commands,
-    nodes: Res<Assets<GltfNode>>,
-    meshes: Res<Assets<GltfMesh>>,
+    commands: &mut Commands,
+    spawn_pos: &Res<SpawnPosition>,
+    nodes: &Res<Assets<GltfNode>>,
+    meshes: &Res<Assets<GltfMesh>>,
+    node_handle: Handle<GltfNode>,
+) {
+    let Some(node) = nodes.get(node_handle.id()) else {
+        return;
+    };
+    let mut builder = commands.spawn((
+        Name::new(node.name.clone()),
+        InheritedVisibility::default(),
+        Transform::from_translation(spawn_pos.0),
+    ));
+    if let Some(mesh_handle) = node.mesh.as_ref() {
+        if let Some(mesh) = meshes.get(mesh_handle.id()).as_ref() {
+            builder.with_children(|parent| {
+                for primitive in mesh.primitives.iter() {
+                    let mut child = parent.spawn((
+                        Mesh3d(primitive.mesh.clone()),
+                        Name::new(primitive.name.clone()),
+                    ));
+
+                    if let Some(material) = primitive.material.as_ref() {
+                        child.insert(MeshMaterial3d(material.clone()));
+                    }
+                }
+            });
+
+            for child_node in node.children.iter() {
+                // Child nodes spawn at origin relative to parent, not at spawn_pos
+                spawn_gltf_node_child(commands, nodes, meshes, child_node.clone());
+            }
+        }
+    }
+}
+
+fn spawn_gltf_node_child(
+    commands: &mut Commands,
+    nodes: &Res<Assets<GltfNode>>,
+    meshes: &Res<Assets<GltfMesh>>,
+    node_handle: Handle<GltfNode>,
 ) {
     let Some(node) = nodes.get(node_handle.id()) else {
         return;
@@ -145,8 +188,8 @@ fn spawn_gltf_node(
                 }
             });
 
-            for node in node.children.iter() {
-                commands.run_system_cached_with(spawn_gltf_node, node.clone());
+            for child_node in node.children.iter() {
+                spawn_gltf_node_child(commands, nodes, meshes, child_node.clone());
             }
         }
     }

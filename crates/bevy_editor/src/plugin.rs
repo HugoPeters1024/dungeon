@@ -13,7 +13,7 @@ use bevy::{ecs::schedule::BoxedCondition, window::PrimaryWindow};
 use bevy_egui::prelude::*;
 use bevy_panorbit_camera::PanOrbitCameraPlugin;
 
-use crate::state::{AxisMask, Prefabs, UiDockState, UiState};
+use crate::state::{AxisMask, Prefabs, SpawnPosition, UiDockState, UiState};
 use crate::{ContextMenu, HoverNormal, Selected, SelectedAction};
 
 const CLICK_DURATION: Duration = Duration::from_millis(500);
@@ -55,6 +55,7 @@ impl Plugin for EditorPlugin {
 
         app.add_plugins(PanOrbitCameraPlugin);
         app.init_resource::<Prefabs>();
+        app.init_resource::<SpawnPosition>();
         app.add_systems(Startup, setup_ui);
         app.add_systems(Startup, spawn_wireframe_plane);
         app.add_observer(on_click_in_void);

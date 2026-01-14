@@ -3,7 +3,7 @@ use bevy_egui::egui;
 use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_world};
 
 use crate::{
-    ContextMenu, EditorCamera, Selected,
+    ContextMenu, EditorCamera, Selected, SpawnPosition,
     state::{EguiWindow, Prefabs, UiState},
 };
 
@@ -77,8 +77,8 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                 ui.label("Prefabs");
                 for (name, on_click) in self.prefabs.iter() {
                     if ui.button(name).clicked() {
-                        // Get the editor camera transform to calculate spawn position
-                        let spawn_position = self
+                        // Calculate spawn position from editor camera
+                        let spawn_pos = self
                             .world
                             .query_filtered::<&Transform, With<EditorCamera>>()
                             .iter(self.world)
@@ -86,46 +86,14 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                             .map(|cam_transform| {
                                 let forward = cam_transform.forward();
                                 cam_transform.translation + *forward * self.state.spawn_distance
-                            });
+                            })
+                            .unwrap_or(Vec3::ZERO);
 
-                        // Collect existing entities with transforms before spawning
-                        let existing_entities: Vec<Entity> = self
-                            .world
-                            .query_filtered::<Entity, With<Transform>>()
-                            .iter(self.world)
-                            .collect();
+                        // Set the spawn position resource so prefab systems can use it
+                        self.world.insert_resource(SpawnPosition(spawn_pos));
 
                         // Run the spawn system
                         self.world.run_system(*on_click).unwrap();
-
-                        // Find and move newly spawned entities to the camera spawn position
-                        if let Some(spawn_pos) = spawn_position {
-                            let new_entities: Vec<Entity> = self
-                                .world
-                                .query_filtered::<Entity, With<Transform>>()
-                                .iter(self.world)
-                                .filter(|e| !existing_entities.contains(e))
-                                .collect();
-
-                            // Move only root entities (those without a parent) to spawn position
-                            for entity in new_entities {
-                                let has_parent = self
-                                    .world
-                                    .query::<&ChildOf>()
-                                    .get(self.world, entity)
-                                    .is_ok();
-
-                                if !has_parent {
-                                    if let Ok(mut transform) = self
-                                        .world
-                                        .query::<&mut Transform>()
-                                        .get_mut(self.world, entity)
-                                    {
-                                        transform.translation = spawn_pos;
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }

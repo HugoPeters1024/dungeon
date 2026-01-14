@@ -5,6 +5,11 @@ use bevy_egui::egui;
 
 use crate::ui::UiViewer;
 
+/// Resource that holds the position where new prefabs should be spawned.
+/// Prefab systems can read this to spawn at the correct location.
+#[derive(Resource, Default)]
+pub struct SpawnPosition(pub Vec3);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EguiWindow {
     GameView,
