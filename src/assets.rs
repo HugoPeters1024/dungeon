@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{gltf::GltfNode, prelude::*};
 use bevy_asset_loader::prelude::*;
 use bevy_hanabi::prelude::*;
 
@@ -46,6 +46,9 @@ pub struct GameAssets {
 
     #[asset(path = "castle.glb#Scene0")]
     pub castle: Handle<Scene>,
+
+    #[asset(path = "castle.glb")]
+    pub castle_test: Handle<Gltf>,
 
     #[asset(path = "bong.glb#Mesh0/Primitive0")]
     pub bong: Handle<Mesh>,

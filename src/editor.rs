@@ -4,7 +4,10 @@ use crate::{
     player::controller::ControllerCamera,
 };
 use avian3d::prelude::*;
-use bevy::prelude::*;
+use bevy::{
+    gltf::{GltfMesh, GltfNode},
+    prelude::*,
+};
 use bevy_editor::Prefabs;
 use bevy_tnua::TnuaNotPlatform;
 
@@ -25,8 +28,13 @@ impl Plugin for EditorPlugin {
     }
 }
 
-fn setup_prefabs(mut commands: Commands) {
-    let mut prefabs = Prefabs::default();
+fn setup_prefabs(
+    mut commands: Commands,
+    mut prefabs: ResMut<Prefabs>,
+    assets: Res<GameAssets>,
+    gltfs: Res<Assets<Gltf>>,
+) {
+
     prefabs.add(
         "The test",
         commands.register_system(|mut commands: Commands, assets: Res<GameAssets>| {
@@ -47,5 +55,55 @@ fn setup_prefabs(mut commands: Commands) {
             ));
         }),
     );
-    commands.insert_resource(prefabs);
+
+    fn f(node: Handle<GltfNode>) -> impl Fn(Commands) {
+        move |commands: Commands| {
+            g(commands, node.clone());
+        }
+    }
+
+    fn g(mut commands: Commands, node: Handle<GltfNode>) {
+        commands.run_system_cached_with(spawn_gltf_node, node);
+    }
+
+    let gltf = gltfs.get(assets.castle_test.id()).unwrap();
+    for (name, node) in gltf.named_nodes.iter() {
+        prefabs.add(name.clone(), commands.register_system(f(node.clone())));
+    }
+}
+
+fn spawn_gltf_node(
+    In(node_handle): In<Handle<GltfNode>>,
+    mut commands: Commands,
+    nodes: Res<Assets<GltfNode>>,
+    meshes: Res<Assets<GltfMesh>>,
+) {
+    let Some(node) = nodes.get(node_handle.id()) else {
+        return;
+    };
+    let mut builder = commands.spawn((
+        Name::new(node.name.clone()),
+        InheritedVisibility::default(),
+        Transform::default(),
+    ));
+    if let Some(mesh_handle) = node.mesh.as_ref() {
+        if let Some(mesh) = meshes.get(mesh_handle.id()).as_ref() {
+            builder.with_children(|parent| {
+                for primitive in mesh.primitives.iter() {
+                    let mut child = parent.spawn((
+                        Mesh3d(primitive.mesh.clone()),
+                        Name::new(primitive.name.clone()),
+                    ));
+
+                    if let Some(material) = primitive.material.as_ref() {
+                        child.insert(MeshMaterial3d(material.clone()));
+                    }
+                }
+            });
+
+            for node in node.children.iter() {
+                commands.run_system_cached_with(spawn_gltf_node, node.clone());
+            }
+        }
+    }
 }

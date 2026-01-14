@@ -34,6 +34,7 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                     self.state.viewport.shrink(16.),
                 );
 
+                let mut should_close = false;
                 match &self.state.context_menu {
                     ContextMenu::Closed => {}
                     ContextMenu::Open {
@@ -59,12 +60,17 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                                 {
                                                     transform.translation += hover_normal.normal;
                                                 }
+                                                should_close = true;
                                             }
                                         },
                                     );
                                 });
                             });
                     }
+                }
+
+                if should_close {
+                    self.state.context_menu = ContextMenu::Closed;
                 }
             }
             EguiWindow::Prefabs => {

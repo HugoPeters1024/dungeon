@@ -57,7 +57,8 @@ impl Plugin for EditorPlugin {
         app.init_resource::<Prefabs>();
         app.add_systems(Startup, setup_ui);
         app.add_systems(Startup, spawn_wireframe_plane);
-        app.add_observer(set_selected_entity_on_click);
+        app.add_observer(on_click_in_void);
+        app.add_observer(on_click_object);
 
         app.insert_resource(UiDockState::initialize());
         app.insert_resource(UiState::new());
@@ -205,18 +206,59 @@ fn show_ui_system(world: &mut World) -> Result {
     Ok(())
 }
 
-fn set_selected_entity_on_click(
+fn on_click_in_void(
+    trigger: On<Pointer<Click>>,
+    mut commands: Commands,
+    mut ui_state: ResMut<UiState>,
+    windows: Query<&Window>,
+    mut selected: Option<ResMut<Selected>>,
+) {
+    if !ui_state.pointer_in_viewport
+        || ui_state.egui_wants_pointer_input
+        || trigger.duration > CLICK_DURATION
+        || !windows.contains(trigger.event_target())
+    {
+        return;
+    }
+
+    let is_performing_action = selected.as_ref().is_some_and(|s| s.action.is_some());
+    let is_primary = trigger.button == PointerButton::Primary;
+    let is_secondary = trigger.button == PointerButton::Secondary;
+    let hover_normal = selected.as_ref().and_then(|s| s.hover_normal.clone());
+
+    if is_primary {
+        ui_state.context_menu = ContextMenu::Closed;
+        if is_performing_action {
+            if let Some(selected) = selected.as_mut() {
+                selected.action = None;
+            }
+        } else {
+            commands.remove_resource::<Selected>();
+        }
+    }
+
+    if is_secondary
+        && let Some(hover_normal) = hover_normal
+        && !is_performing_action
+    {
+        ui_state.context_menu = ContextMenu::Open {
+            window_location: trigger.pointer_location.position,
+            hover_normal,
+        }
+    }
+}
+
+fn on_click_object(
     mut trigger: On<Pointer<Click>>,
     mut commands: Commands,
     names: Query<&Name>,
-    windows: Query<&Window>,
     mut ui_state: ResMut<UiState>,
-    mut selected: Option<ResMut<Selected>>,
+    selected: Option<ResMut<Selected>>,
 ) {
-    if !ui_state.pointer_in_viewport || ui_state.egui_wants_pointer_input {
-        return;
-    }
-    if trigger.duration > CLICK_DURATION {
+    if !ui_state.pointer_in_viewport
+        || ui_state.egui_wants_pointer_input
+        || trigger.duration > CLICK_DURATION
+    {
         return;
     }
     println!(
@@ -225,7 +267,6 @@ fn set_selected_entity_on_click(
         names.get(trigger.event_target())
     );
 
-    let clicked_in_void = windows.contains(trigger.event_target());
     let is_performing_action = selected.as_ref().is_some_and(|s| s.action.is_some());
     let is_primary = trigger.button == PointerButton::Primary;
     let is_secondary = trigger.button == PointerButton::Secondary;
@@ -233,45 +274,22 @@ fn set_selected_entity_on_click(
 
     trigger.propagate(false);
 
-    if clicked_in_void {
-        if is_primary {
-            ui_state.context_menu = ContextMenu::Closed;
-            if is_performing_action {
-                if let Some(selected) = selected.as_mut() {
-                    selected.action = None;
-                }
-            } else {
-                commands.remove_resource::<Selected>();
-            }
-        }
+    if is_primary {
+        ui_state.context_menu = ContextMenu::Closed;
+        commands.insert_resource(Selected {
+            entity: trigger.event_target(),
+            hover_normal: None,
+            action: None,
+        });
+    }
 
-        if let Some(hover_normal) = hover_normal
-            && is_secondary
-            && !is_performing_action
-        {
-            ui_state.context_menu = ContextMenu::Open {
-                window_location: trigger.pointer_location.position,
-                hover_normal,
-            }
-        }
-    } else {
-        if is_primary {
-            ui_state.context_menu = ContextMenu::Closed;
-            commands.insert_resource(Selected {
-                entity: trigger.event_target(),
-                hover_normal: None,
-                action: None,
-            });
-        }
-
-        if let Some(hover_normal) = hover_normal
-            && is_secondary
-            && !is_performing_action
-        {
-            ui_state.context_menu = ContextMenu::Open {
-                window_location: trigger.pointer_location.position,
-                hover_normal,
-            }
+    if let Some(hover_normal) = hover_normal
+        && is_secondary
+        && !is_performing_action
+    {
+        ui_state.context_menu = ContextMenu::Open {
+            window_location: trigger.pointer_location.position,
+            hover_normal,
         }
     }
 }
