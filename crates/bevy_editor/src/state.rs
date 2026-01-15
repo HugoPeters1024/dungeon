@@ -64,7 +64,6 @@ impl UiDockState {
 pub enum SelectedAction {
     Grab {
         mask: Option<AxisMask>,
-        initial_mouse_pos: Option<Vec2>,
         initial_entity_pos: Vec3,
     },
 }

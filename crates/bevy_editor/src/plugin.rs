@@ -70,9 +70,8 @@ impl Plugin for EditorPlugin {
                 draw_axes,
                 set_hover_normal,
                 handle_selected_action_keys,
-                handle_grab_mode_movement,
-            )
-                .run_if(resource_exists::<Selected>),
+                handle_grab_mode_movement
+            ).run_if(resource_exists::<Selected>),
         );
 
         {
@@ -333,19 +332,21 @@ fn set_hover_normal(
 
 fn handle_selected_action_keys(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut transforms: Query<&mut Transform>,
+    mut transforms: Query<(&mut Transform, &GlobalTransform)>,
+    parents: Query<&ChildOf>,
+    parent_globals: Query<&GlobalTransform>,
     mut selected: ResMut<Selected>,
 ) {
     let entity = selected.entity;
     match &mut selected.action {
         None if keyboard_input.just_pressed(KeyCode::KeyG) => {
-            let Ok(transform) = transforms.get(selected.entity) else {
+            let Ok((_, global_transform)) = transforms.get(selected.entity) else {
                 return;
             };
+            // Store the world position for grab calculations
             selected.action = Some(SelectedAction::Grab {
                 mask: None,
-                initial_mouse_pos: None,
-                initial_entity_pos: transform.translation,
+                initial_entity_pos: global_transform.translation(),
             });
         }
         None => {}
@@ -365,8 +366,23 @@ fn handle_selected_action_keys(
             }
 
             if keyboard_input.just_pressed(KeyCode::Escape) {
-                if let Ok(mut transform) = transforms.get_mut(entity) {
-                    transform.translation = *initial_entity_pos;
+                // Convert world position back to local space
+                let parent_global: Option<&GlobalTransform> = parents
+                    .get(entity)
+                    .ok()
+                    .and_then(|child_of| parent_globals.get(child_of.parent()).ok());
+
+                let local_pos = if let Some(parent_global) = parent_global {
+                    parent_global
+                        .affine()
+                        .inverse()
+                        .transform_point3(*initial_entity_pos)
+                } else {
+                    *initial_entity_pos
+                };
+
+                if let Ok((mut transform, _)) = transforms.get_mut(entity) {
+                    transform.translation = local_pos;
                 };
                 selected.action = None;
             }
@@ -377,7 +393,9 @@ fn handle_selected_action_keys(
 fn handle_grab_mode_movement(
     ui: Res<UiState>,
     mut transforms: Query<&mut Transform>,
-    camera_query: Query<(&Camera, &Projection, &GlobalTransform), With<EditorCamera>>,
+    parents: Query<&ChildOf>,
+    parent_globals: Query<&GlobalTransform>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut selected: ResMut<Selected>,
 ) {
@@ -389,8 +407,8 @@ fn handle_grab_mode_movement(
 
     let Some(SelectedAction::Grab {
         mask,
-        initial_mouse_pos,
         initial_entity_pos,
+        ..
     }) = &mut selected.action
     else {
         return;
@@ -400,97 +418,60 @@ fn handle_grab_mode_movement(
         return;
     };
 
-    let Ok((camera, projection, camera_transform)) = camera_query.single() else {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
         return;
     };
 
-    // Get current mouse position in viewport coordinates
     let Some(cursor_pos) = window.cursor_position() else {
         return;
     };
 
-    // Convert cursor position to viewport coordinates
-    let viewport = camera.logical_viewport_rect().unwrap_or_default();
-    let viewport_cursor = cursor_pos - viewport.min;
+    // Use Bevy's built-in viewport_to_world to get a ray from camera through cursor
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+        return;
+    };
 
-    // Initialize grab mode state on first movement
-    if initial_mouse_pos.is_none() {
-        *initial_mouse_pos = Some(viewport_cursor);
-    }
+    let camera_forward = camera_transform.forward();
 
-    let camera_pos = camera_transform.translation();
-    let camera_forward = *camera_transform.forward();
-
-    // Define a plane perpendicular to camera forward, passing through initial object position
-    // Plane equation: dot(point - plane_point, plane_normal) = 0
-    let plane_normal = camera_forward;
+    // Define plane perpendicular to camera forward, passing through initial entity position (world space)
+    // This keeps the object at a constant "depth" from the camera
+    let plane_normal = *camera_forward;
     let plane_point = *initial_entity_pos;
 
-    // Convert screen coordinates to normalized device coordinates (NDC)
-    // NDC ranges from -1 to 1 in both axes
-    let viewport_size = viewport.size();
-    let ndc_x = (viewport_cursor.x / viewport_size.x) * 2.0 - 1.0;
-    let ndc_y = 1.0 - (viewport_cursor.y / viewport_size.y) * 2.0; // Invert Y axis
-
-    // Get camera's right and up vectors for constructing the ray
-    let camera_right = *camera_transform.right();
-    let camera_up = *camera_transform.up();
-
-    // Calculate aspect ratio and FOV
-    // For perspective projection, we need to account for FOV
-    let aspect = viewport_size.x / viewport_size.y;
-
-    // Get FOV from projection
-    let fov_y = match projection {
-        Projection::Perspective(perspective_projection) => perspective_projection.fov,
-        _ => std::f32::consts::PI / 4.0, // 45 degrees default
-    };
-    let tan_half_fov = (fov_y / 2.0).tan();
-
-    // Convert NDC to view space direction
-    let view_space_x = ndc_x * aspect * tan_half_fov;
-    let view_space_y = ndc_y * tan_half_fov;
-    let view_space_dir = Vec3::new(view_space_x, view_space_y, -1.0).normalize();
-
-    // Transform view space direction to world space
-    // View space: +X right, +Y up, -Z forward
-    // World space: use camera's right, up, forward vectors
-    let world_space_dir = (camera_right * view_space_dir.x
-        + camera_up * view_space_dir.y
-        + camera_forward * -view_space_dir.z)
-        .normalize();
-
-    // Cast ray from camera through mouse cursor
-    let ray_origin = camera_pos;
-    let ray_direction = world_space_dir;
-
-    // Calculate intersection of ray with plane
-    // Ray: P = ray_origin + t * ray_direction
-    // Plane: dot(P - plane_point, plane_normal) = 0
-    // Solving: dot(ray_origin + t * ray_direction - plane_point, plane_normal) = 0
-    // t = dot(plane_point - ray_origin, plane_normal) / dot(ray_direction, plane_normal)
-    let denominator = ray_direction.dot(plane_normal);
-
-    // Avoid division by zero (ray parallel to plane)
+    // Ray-plane intersection (in world space)
+    let denominator = ray.direction.dot(plane_normal);
     if denominator.abs() < 1e-6 {
         return;
     }
 
-    let numerator = (plane_point - ray_origin).dot(plane_normal);
-    let t = numerator / denominator;
+    let t = (plane_point - ray.origin).dot(plane_normal) / denominator;
+    let intersection = ray.origin + *ray.direction * t;
 
-    // Calculate intersection point
-    let intersection_point = ray_origin + ray_direction * t;
-
-    // Update transform to intersection point
-    transform.translation = *initial_entity_pos;
-    if let Some(axis) = &mask {
+    // Apply axis mask in world space
+    let new_world_pos = if let Some(axis) = &mask {
         match axis {
-            AxisMask::X => transform.translation.x = intersection_point.x,
-            AxisMask::Y => transform.translation.y = intersection_point.y,
-            AxisMask::Z => transform.translation.z = intersection_point.z,
+            AxisMask::X => initial_entity_pos.with_x(intersection.x),
+            AxisMask::Y => initial_entity_pos.with_y(intersection.y),
+            AxisMask::Z => initial_entity_pos.with_z(intersection.z),
         }
     } else {
-        transform.translation = intersection_point;
-    }
+        intersection
+    };
+
+    // Convert world position to local space, accounting for parent transform
+    let parent_global: Option<&GlobalTransform> = parents
+        .get(entity)
+        .ok()
+        .and_then(|child_of| parent_globals.get(child_of.parent()).ok());
+
+    let new_local_pos = if let Some(parent_global) = parent_global {
+        parent_global
+            .affine()
+            .inverse()
+            .transform_point3(new_world_pos)
+    } else {
+        new_world_pos
+    };
+
+    transform.translation = new_local_pos;
 }
