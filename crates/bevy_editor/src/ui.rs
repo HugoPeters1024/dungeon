@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_world};
+use bevy_panorbit_camera::PanOrbitCamera;
 
 use crate::{
     ContextMenu, EditorCamera, Selected, SpawnPosition,
@@ -62,6 +63,22 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                                 }
                                                 should_close = true;
                                             }
+
+                                            if ui.button("Lock Camera Onto").clicked() {
+                                                // Get the global transform of the selected entity
+                                                if let Some(global_transform) =
+                                                    world.get::<GlobalTransform>(selected.entity)
+                                                {
+                                                    let target_pos = global_transform.translation();
+                                                    // Find the editor camera and set its target_focus
+                                                    let mut query = world
+                                                        .query_filtered::<&mut PanOrbitCamera, With<EditorCamera>>();
+                                                    for mut pan_orbit in query.iter_mut(world) {
+                                                        pan_orbit.target_focus = target_pos;
+                                                    }
+                                                }
+                                                should_close = true;
+                                            }
                                         },
                                     );
                                 });
@@ -71,6 +88,39 @@ impl egui_dock::TabViewer for UiViewer<'_> {
 
                 if should_close {
                     self.state.context_menu = ContextMenu::Closed;
+                }
+
+                // Show selected object position at bottom right of game view
+                if let Some(selected) = self.world.get_resource::<Selected>() {
+                    if let Some(transform) = self.world.get::<Transform>(selected.entity) {
+                        let pos = transform.translation;
+                        let text = format!("X: {:.2}  Y: {:.2}  Z: {:.2}", pos.x, pos.y, pos.z);
+                        let padding = 8.0;
+                        // Estimate text width based on character count (monospace)
+                        let char_width = 10.0;
+                        let text_width = text.len() as f32 * char_width;
+                        let text_height = 16.0;
+                        let pos_x = self.state.viewport.right() - text_width - padding - 12.0;
+                        let pos_y = self.state.viewport.bottom() - text_height - padding - 12.0;
+
+                        egui::Area::new(egui::Id::new("selected_position_overlay"))
+                            .fixed_pos(egui::pos2(pos_x, pos_y))
+                            .show(ui.ctx(), |ui| {
+                                egui::Frame::new()
+                                    .fill(egui::Color32::from_black_alpha(180))
+                                    .corner_radius(3.0)
+                                    .inner_margin(egui::Margin::same(4))
+                                    .show(ui, |ui| {
+                                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                                        ui.label(
+                                            egui::RichText::new(text)
+                                                .size(11.0)
+                                                .color(egui::Color32::WHITE)
+                                                .monospace(),
+                                        );
+                                    });
+                            });
+                    }
                 }
             }
             EguiWindow::Prefabs => {

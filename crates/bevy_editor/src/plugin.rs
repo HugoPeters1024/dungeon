@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
 use bevy::{ecs::schedule::BoxedCondition, window::PrimaryWindow};
 use bevy_egui::prelude::*;
-use bevy_panorbit_camera::PanOrbitCameraPlugin;
+use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 
 use crate::state::{AxisMask, Prefabs, SpawnPosition, UiDockState, UiState};
 use crate::{ContextMenu, HoverNormal, Selected, SelectedAction};
@@ -340,8 +340,20 @@ fn handle_selected_action_keys(
     parents: Query<&ChildOf>,
     parent_globals: Query<&GlobalTransform>,
     mut selected: ResMut<Selected>,
+    mut camera_query: Query<&mut PanOrbitCamera, With<EditorCamera>>,
 ) {
     let entity = selected.entity;
+
+    // F key: Focus camera on selected object
+    if keyboard_input.just_pressed(KeyCode::KeyF) {
+        if let Ok((_, global_transform)) = transforms.get(entity) {
+            let target_pos = global_transform.translation();
+            for mut pan_orbit in camera_query.iter_mut() {
+                pan_orbit.target_focus = target_pos;
+            }
+        }
+    }
+
     match &mut selected.action {
         None if keyboard_input.just_pressed(KeyCode::KeyG) => {
             let Ok((_, global_transform)) = transforms.get(selected.entity) else {
