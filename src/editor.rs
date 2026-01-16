@@ -52,7 +52,7 @@ fn enable_editor_camera(
                 ..default()
             },
             Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-            MeshPickingCamera::default(),
+            MeshPickingCamera,
         ));
     }
 }
@@ -136,8 +136,8 @@ fn spawn_gltf_node(
         InheritedVisibility::default(),
         Transform::from_translation(spawn_pos.0),
     ));
-    if let Some(mesh_handle) = node.mesh.as_ref() {
-        if let Some(mesh) = meshes.get(mesh_handle.id()).as_ref() {
+    if let Some(mesh_handle) = node.mesh.as_ref()
+        && let Some(mesh) = meshes.get(mesh_handle.id()).as_ref() {
             builder.with_children(|parent| {
                 for primitive in mesh.primitives.iter() {
                     let mut child = parent.spawn((
@@ -156,7 +156,6 @@ fn spawn_gltf_node(
                 spawn_gltf_node_child(commands, nodes, meshes, child_node.clone());
             }
         }
-    }
 }
 
 fn spawn_gltf_node_child(
@@ -173,8 +172,8 @@ fn spawn_gltf_node_child(
         InheritedVisibility::default(),
         Transform::default(),
     ));
-    if let Some(mesh_handle) = node.mesh.as_ref() {
-        if let Some(mesh) = meshes.get(mesh_handle.id()).as_ref() {
+    if let Some(mesh_handle) = node.mesh.as_ref()
+        && let Some(mesh) = meshes.get(mesh_handle.id()).as_ref() {
             builder.with_children(|parent| {
                 for primitive in mesh.primitives.iter() {
                     let mut child = parent.spawn((
@@ -192,5 +191,4 @@ fn spawn_gltf_node_child(
                 spawn_gltf_node_child(commands, nodes, meshes, child_node.clone());
             }
         }
-    }
 }

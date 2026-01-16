@@ -70,8 +70,9 @@ impl Plugin for EditorPlugin {
                 draw_axes,
                 set_hover_normal,
                 handle_selected_action_keys,
-                handle_grab_mode_movement
-            ).run_if(resource_exists::<Selected>),
+                handle_grab_mode_movement,
+            )
+                .run_if(resource_exists::<Selected>),
         );
 
         {
@@ -220,6 +221,7 @@ fn on_click_in_void(
     {
         return;
     }
+    println!("clicked on window");
 
     let is_performing_action = selected.as_ref().is_some_and(|s| s.action.is_some());
     let is_primary = trigger.button == PointerButton::Primary;
@@ -254,15 +256,17 @@ fn on_click_object(
     names: Query<&Name>,
     mut ui_state: ResMut<UiState>,
     selected: Option<ResMut<Selected>>,
+    windows: Query<&Window>
 ) {
     if !ui_state.pointer_in_viewport
         || ui_state.egui_wants_pointer_input
         || trigger.duration > CLICK_DURATION
+        || windows.contains(trigger.event_target())
     {
         return;
     }
     println!(
-        "test function called entity={}, name={:?}",
+        "clicked on object function called entity={}, name={:?}",
         trigger.event_target(),
         names.get(trigger.event_target())
     );
