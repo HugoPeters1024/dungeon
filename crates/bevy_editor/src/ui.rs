@@ -1,10 +1,9 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_world};
-use bevy_panorbit_camera::PanOrbitCamera;
 
 use crate::{
-    ContextMenu, EditorCamera, Selected, SpawnPosition,
+    ActionQueue, ContextMenu, EditorAction, EditorCamera, Selected, SpawnPosition,
     state::{EguiWindow, Prefabs, UiState},
 };
 
@@ -36,12 +35,15 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                 );
 
                 let mut should_close = false;
+                let mut pending_actions: Vec<EditorAction> = Vec::new();
+
                 match &self.state.context_menu {
                     ContextMenu::Closed => {}
                     ContextMenu::Open {
                         window_location,
                         hover_normal,
                     } => {
+                        let hover_normal = hover_normal.clone();
                         egui::Area::new(egui::Id::new("context_menu"))
                             .fixed_pos(egui::Pos2 {
                                 x: window_location.x,
@@ -49,40 +51,39 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                             })
                             .show(ui.ctx(), |ui| {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                    self.world.try_resource_scope::<Selected, ()>(
-                                        |world, selected| {
-                                            if ui.button("Duplicate").clicked() {
-                                                let new_entity = world
-                                                    .entity_mut(selected.entity)
-                                                    .clone_and_spawn();
-                                                if let Ok(mut transform) = world
-                                                    .query::<&mut Transform>()
-                                                    .get_mut(world, new_entity)
-                                                {
-                                                    transform.translation += hover_normal.normal;
-                                                }
-                                                should_close = true;
-                                            }
+                                    if let Some(selected) = self.world.get_resource::<Selected>() {
+                                        let entity = selected.entity;
 
-                                            if ui.button("Lock Camera Onto").clicked() {
-                                                // Get the global transform of the selected entity
-                                                if let Some(global_transform) =
-                                                    world.get::<GlobalTransform>(selected.entity)
-                                                {
-                                                    let target_pos = global_transform.translation();
-                                                    // Find the editor camera and set its target_focus
-                                                    let mut query = world
-                                                        .query_filtered::<&mut PanOrbitCamera, With<EditorCamera>>();
-                                                    for mut pan_orbit in query.iter_mut(world) {
-                                                        pan_orbit.target_focus = target_pos;
-                                                    }
-                                                }
-                                                should_close = true;
+                                        if ui.button("Duplicate").clicked() {
+                                            pending_actions.push(EditorAction::Duplicate {
+                                                entity,
+                                                offset: hover_normal.normal,
+                                            });
+                                            should_close = true;
+                                        }
+
+                                        if ui.button("Lock Camera Onto").clicked() {
+                                            if let Some(global_transform) =
+                                                self.world.get::<GlobalTransform>(entity)
+                                            {
+                                                pending_actions.push(EditorAction::FocusCameraOn {
+                                                    position: global_transform.translation(),
+                                                });
                                             }
-                                        },
-                                    );
+                                            should_close = true;
+                                        }
+                                    }
                                 });
                             });
+                    }
+                }
+
+                // Queue any pending actions
+                if !pending_actions.is_empty() {
+                    if let Some(mut action_queue) = self.world.get_resource_mut::<ActionQueue>() {
+                        for action in pending_actions {
+                            action_queue.push(action);
+                        }
                     }
                 }
 
@@ -160,6 +161,13 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                         }
                         ui_for_entity_with_children(world, selected.entity, ui);
                     });
+            }
+            EguiWindow::History => {
+                self.world.resource_scope::<ActionQueue, ()>(|world, action_queue| {
+                    for action in action_queue.history_tail(5) {
+                        ui.label(action.name());
+                    }
+                });
             }
         };
     }

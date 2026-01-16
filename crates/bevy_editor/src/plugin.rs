@@ -11,8 +11,9 @@ use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
 use bevy::{ecs::schedule::BoxedCondition, window::PrimaryWindow};
 use bevy_egui::prelude::*;
-use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
+use bevy_panorbit_camera::PanOrbitCameraPlugin;
 
+use crate::actions::{ActionQueue, EditorAction, process_action_queue};
 use crate::state::{AxisMask, Prefabs, SpawnPosition, UiDockState, UiState};
 use crate::{ContextMenu, HoverNormal, Selected, SelectedAction};
 
@@ -56,6 +57,7 @@ impl Plugin for EditorPlugin {
         app.add_plugins(PanOrbitCameraPlugin);
         app.init_resource::<Prefabs>();
         app.init_resource::<SpawnPosition>();
+        app.init_resource::<ActionQueue>();
         app.add_systems(Startup, setup_ui);
         app.add_systems(Startup, spawn_wireframe_plane);
         app.add_observer(on_click_in_void);
@@ -74,6 +76,8 @@ impl Plugin for EditorPlugin {
             )
                 .run_if(resource_exists::<Selected>),
         );
+
+        app.add_systems(Update, process_action_queue);
 
         {
             let mut system = show_ui_system.into_configs();
@@ -213,6 +217,8 @@ fn on_click_in_void(
     mut ui_state: ResMut<UiState>,
     windows: Query<&Window>,
     mut selected: Option<ResMut<Selected>>,
+    global_transforms: Query<&GlobalTransform>,
+    mut action_queue: ResMut<ActionQueue>,
 ) {
     if !ui_state.pointer_in_viewport
         || ui_state.egui_wants_pointer_input
@@ -232,6 +238,21 @@ fn on_click_in_void(
         ui_state.context_menu = ContextMenu::Closed;
         if is_performing_action {
             if let Some(selected) = selected.as_mut() {
+                // Record the move action before clearing it
+                if let Some(SelectedAction::Grab { initial_entity_pos, .. }) = &selected.action {
+                    let entity = selected.entity;
+                    if let Ok(global_transform) = global_transforms.get(entity) {
+                        let new_position = global_transform.translation();
+                        // Only record if position actually changed
+                        if (*initial_entity_pos - new_position).length_squared() > 1e-6 {
+                            action_queue.push(EditorAction::Move {
+                                entity,
+                                old_position: *initial_entity_pos,
+                                new_position,
+                            });
+                        }
+                    }
+                }
                 selected.action = None;
             }
         } else {
@@ -256,7 +277,9 @@ fn on_click_object(
     names: Query<&Name>,
     mut ui_state: ResMut<UiState>,
     selected: Option<ResMut<Selected>>,
-    windows: Query<&Window>
+    windows: Query<&Window>,
+    global_transforms: Query<&GlobalTransform>,
+    mut action_queue: ResMut<ActionQueue>,
 ) {
     if !ui_state.pointer_in_viewport
         || ui_state.egui_wants_pointer_input
@@ -280,6 +303,25 @@ fn on_click_object(
 
     if is_primary {
         ui_state.context_menu = ContextMenu::Closed;
+
+        // Record move action if we were performing a grab
+        if let Some(ref selected) = selected {
+            if let Some(SelectedAction::Grab { initial_entity_pos, .. }) = &selected.action {
+                let entity = selected.entity;
+                if let Ok(global_transform) = global_transforms.get(entity) {
+                    let new_position = global_transform.translation();
+                    // Only record if position actually changed
+                    if (*initial_entity_pos - new_position).length_squared() > 1e-6 {
+                        action_queue.push(EditorAction::Move {
+                            entity,
+                            old_position: *initial_entity_pos,
+                            new_position,
+                        });
+                    }
+                }
+            }
+        }
+
         commands.insert_resource(Selected {
             entity: trigger.event_target(),
             hover_normal: None,
@@ -340,17 +382,17 @@ fn handle_selected_action_keys(
     parents: Query<&ChildOf>,
     parent_globals: Query<&GlobalTransform>,
     mut selected: ResMut<Selected>,
-    mut camera_query: Query<&mut PanOrbitCamera, With<EditorCamera>>,
+    global_transforms: Query<&GlobalTransform>,
+    mut action_queue: ResMut<ActionQueue>,
 ) {
     let entity = selected.entity;
 
     // F key: Focus camera on selected object
     if keyboard_input.just_pressed(KeyCode::KeyF) {
-        if let Ok((_, global_transform)) = transforms.get(entity) {
-            let target_pos = global_transform.translation();
-            for mut pan_orbit in camera_query.iter_mut() {
-                pan_orbit.target_focus = target_pos;
-            }
+        if let Ok(global_transform) = global_transforms.get(entity) {
+            action_queue.push(EditorAction::FocusCameraOn {
+                position: global_transform.translation(),
+            });
         }
     }
 

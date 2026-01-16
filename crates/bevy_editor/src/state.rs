@@ -16,6 +16,7 @@ pub enum EguiWindow {
     Prefabs,
     WorldInspector,
     SelectedInspector,
+    History,
 }
 
 pub enum AxisMask {
@@ -56,7 +57,7 @@ impl UiDockState {
             0.75,
             vec![EguiWindow::SelectedInspector],
         );
-        let [_inspector, _prefabs] = tree.split_below(inspector, 0.5, vec![EguiWindow::Prefabs]);
+        let [_inspector, _prefabs] = tree.split_below(inspector, 0.5, vec![EguiWindow::Prefabs, EguiWindow::History]);
         Self(state)
     }
 }
