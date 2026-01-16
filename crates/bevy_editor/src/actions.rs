@@ -62,20 +62,7 @@ pub struct MoveAction {
 
 impl Action for MoveAction {
     fn apply(&self, world: &mut World) {
-        // Convert world position to local space, accounting for parent transform
-        let local_position = if let Some(child_of) = world.get::<ChildOf>(self.entity) {
-            let parent = child_of.parent();
-            if let Some(parent_global) = world.get::<GlobalTransform>(parent) {
-                parent_global
-                    .affine()
-                    .inverse()
-                    .transform_point3(self.new_position)
-            } else {
-                self.new_position
-            }
-        } else {
-            self.new_position
-        };
+        let local_position = world_position_to_local(world, self.entity, self.new_position);
 
         if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
             transform.translation = local_position;
@@ -84,6 +71,24 @@ impl Action for MoveAction {
 
     fn name(&self) -> String {
         format!("move {}", self.entity)
+    }
+}
+
+/// Move multiple entities as a single action (world space)
+#[derive(Clone, Debug)]
+pub struct MoveSelectionAction {
+    pub moves: Vec<MoveAction>,
+}
+
+impl Action for MoveSelectionAction {
+    fn apply(&self, world: &mut World) {
+        for action in &self.moves {
+            action.apply(world);
+        }
+    }
+
+    fn name(&self) -> String {
+        format!("move selection ({})", self.moves.len())
     }
 }
 
@@ -96,21 +101,7 @@ pub struct ScaleAction {
 
 impl Action for ScaleAction {
     fn apply(&self, world: &mut World) {
-        // Convert world position to local space, accounting for parent transform
-        let local_scale = if let Some(child_of) = world.get::<ChildOf>(self.entity) {
-            let parent = child_of.parent();
-            if let Some(parent_global) = world.get::<GlobalTransform>(parent) {
-                parent_global
-                    .affine()
-                    .inverse()
-                    .to_scale_rotation_translation()
-                    .0 * self.new_scale
-            } else {
-                self.new_scale
-            }
-        } else {
-            self.new_scale
-        };
+        let local_scale = world_scale_to_local(world, self.entity, self.new_scale);
 
         if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
             transform.scale = local_scale;
@@ -118,7 +109,25 @@ impl Action for ScaleAction {
     }
 
     fn name(&self) -> String {
-        format!("move {}", self.entity)
+        format!("scale {}", self.entity)
+    }
+}
+
+/// Scale multiple entities as a single action
+#[derive(Clone, Debug)]
+pub struct ScaleSelectionAction {
+    pub scales: Vec<ScaleAction>,
+}
+
+impl Action for ScaleSelectionAction {
+    fn apply(&self, world: &mut World) {
+        for action in &self.scales {
+            action.apply(world);
+        }
+    }
+
+    fn name(&self) -> String {
+        format!("scale selection ({})", self.scales.len())
     }
 }
 
@@ -129,7 +138,9 @@ pub enum EditorAction {
     Duplicate(DuplicateAction),
     FocusCamera(FocusCameraAction),
     Move(MoveAction),
+    MoveSelection(MoveSelectionAction),
     Scale(ScaleAction),
+    ScaleSelection(ScaleSelectionAction),
 }
 
 impl EditorAction {
@@ -138,7 +149,9 @@ impl EditorAction {
             EditorAction::Duplicate(action) => action.apply(world),
             EditorAction::FocusCamera(action) => action.apply(world),
             EditorAction::Move(action) => action.apply(world),
+            EditorAction::MoveSelection(action) => action.apply(world),
             EditorAction::Scale(action) => action.apply(world),
+            EditorAction::ScaleSelection(action) => action.apply(world),
         }
     }
 
@@ -147,7 +160,9 @@ impl EditorAction {
             EditorAction::Duplicate(action) => action.name(),
             EditorAction::FocusCamera(action) => action.name(),
             EditorAction::Move(action) => action.name(),
+            EditorAction::MoveSelection(action) => action.name(),
             EditorAction::Scale(action) => action.name(),
+            EditorAction::ScaleSelection(action) => action.name(),
         }
     }
 }
@@ -170,9 +185,21 @@ impl From<MoveAction> for EditorAction {
     }
 }
 
+impl From<MoveSelectionAction> for EditorAction {
+    fn from(action: MoveSelectionAction) -> Self {
+        EditorAction::MoveSelection(action)
+    }
+}
+
 impl From<ScaleAction> for EditorAction {
     fn from(action: ScaleAction) -> Self {
         EditorAction::Scale(action)
+    }
+}
+
+impl From<ScaleSelectionAction> for EditorAction {
+    fn from(action: ScaleSelectionAction) -> Self {
+        EditorAction::ScaleSelection(action)
     }
 }
 
@@ -227,5 +254,38 @@ pub fn process_action_queue(world: &mut World) {
 
         // Record in history
         world.resource_mut::<ActionQueue>().record(action);
+    }
+}
+
+fn world_position_to_local(world: &World, entity: Entity, world_position: Vec3) -> Vec3 {
+    if let Some(child_of) = world.get::<ChildOf>(entity) {
+        let parent = child_of.parent();
+        if let Some(parent_global) = world.get::<GlobalTransform>(parent) {
+            parent_global
+                .affine()
+                .inverse()
+                .transform_point3(world_position)
+        } else {
+            world_position
+        }
+    } else {
+        world_position
+    }
+}
+
+fn world_scale_to_local(world: &World, entity: Entity, world_scale: Vec3) -> Vec3 {
+    if let Some(child_of) = world.get::<ChildOf>(entity) {
+        let parent = child_of.parent();
+        if let Some(parent_global) = world.get::<GlobalTransform>(parent) {
+            parent_global
+                .affine()
+                .inverse()
+                .to_scale_rotation_translation()
+                .0 * world_scale
+        } else {
+            world_scale
+        }
+    } else {
+        world_scale
     }
 }

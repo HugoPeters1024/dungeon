@@ -53,7 +53,7 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                             .show(ui.ctx(), |ui| {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                                     if let Some(selected) = self.world.get_resource::<Selected>() {
-                                        let entity = selected.entity;
+                                        let entity = selected.primary();
 
                                         if ui.button("Duplicate").clicked() {
                                             pending_actions.push(
@@ -117,7 +117,7 @@ impl egui_dock::TabViewer for UiViewer<'_> {
 
                 // Show selected object position at bottom right of game view
                 if let Some(selected) = self.world.get_resource::<Selected>() {
-                    if let Some(transform) = self.world.get::<Transform>(selected.entity) {
+                    if let Some(transform) = self.world.get::<Transform>(selected.primary()) {
                         let pos = transform.translation;
                         let text = format!("X: {:.2}  Y: {:.2}  Z: {:.2}", pos.x, pos.y, pos.z);
                         let padding = 8.0;
@@ -178,12 +178,12 @@ impl egui_dock::TabViewer for UiViewer<'_> {
             EguiWindow::SelectedInspector => {
                 self.world
                     .try_resource_scope::<Selected, ()>(|world, mut selected| {
-                        if let Ok(child_of) = world.query::<&ChildOf>().get(world, selected.entity)
+                        if let Ok(child_of) = world.query::<&ChildOf>().get(world, selected.primary())
                             && ui.button("Go to parent").clicked()
                         {
-                            selected.entity = child_of.0;
+                            selected.set_single(child_of.0);
                         }
-                        ui_for_entity_with_children(world, selected.entity, ui);
+                        ui_for_entity_with_children(world, selected.primary(), ui);
                     });
             }
             EguiWindow::History => {

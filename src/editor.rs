@@ -143,6 +143,8 @@ fn spawn_gltf_node(
                     let mut child = parent.spawn((
                         Mesh3d(primitive.mesh.clone()),
                         Name::new(primitive.name.clone()),
+                        RigidBody::Static,
+                        ColliderConstructor::TrimeshFromMesh,
                     ));
 
                     if let Some(material) = primitive.material.as_ref() {

@@ -15,7 +15,10 @@ use bevy_panorbit_camera::PanOrbitCameraPlugin;
 
 use bevy_panorbit_camera::PanOrbitCamera;
 
-use crate::actions::{ActionQueue, FocusCameraAction, MoveAction, ScaleAction, process_action_queue};
+use crate::actions::{
+    ActionQueue, FocusCameraAction, MoveAction, MoveSelectionAction, ScaleAction,
+    ScaleSelectionAction, process_action_queue,
+};
 use crate::state::{AxisMask, Prefabs, SpawnPosition, UiDockState, UiState};
 use crate::{ContextMenu, HoverNormal, Selected, SelectedAction};
 
@@ -219,9 +222,9 @@ fn on_click_in_void(
     mut commands: Commands,
     mut ui_state: ResMut<UiState>,
     windows: Query<&Window>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mut selected: Option<ResMut<Selected>>,
     global_transforms: Query<&GlobalTransform>,
-    transforms: Query<&Transform>,
     mut action_queue: ResMut<ActionQueue>,
 ) {
     if !ui_state.pointer_in_viewport
@@ -231,66 +234,21 @@ fn on_click_in_void(
     {
         return;
     }
-    println!("clicked on window");
-
     let is_performing_action = selected.as_ref().is_some_and(|s| s.action.is_some());
     let is_primary = trigger.button == PointerButton::Primary;
     let is_secondary = trigger.button == PointerButton::Secondary;
     let hover_normal = selected.as_ref().and_then(|s| s.hover_normal.clone());
+    let shift_pressed = shift_is_pressed(&keyboard_input);
 
     if is_primary {
         ui_state.context_menu = ContextMenu::Closed;
-        if is_performing_action {
-            if let Some(selected) = selected.as_mut() {
-                let entity = selected.entity;
-
-                // Record the move action before clearing it
-                if let Some(SelectedAction::Grab {
-                    initial_entity_pos, ..
-                }) = &selected.action
-                {
-                    if let Ok(global_transform) = global_transforms.get(entity) {
-                        let new_position = global_transform.translation();
-                        // Only record if position actually changed
-                        if (*initial_entity_pos - new_position).length_squared() > 1e-6 {
-                            action_queue.push(
-                                MoveAction {
-                                    entity,
-                                    old_position: *initial_entity_pos,
-                                    new_position,
-                                }
-                                .into(),
-                            );
-                        }
-                    }
-                }
-
-                // Record the scale action before clearing it
-                if let Some(SelectedAction::Scale {
-                    initial_entity_scale,
-                    ..
-                }) = &selected.action
-                {
-                    if let Ok(transform) = transforms.get(entity) {
-                        let new_scale = transform.scale;
-                        // Only record if scale actually changed
-                        if (*initial_entity_scale - new_scale).length_squared() > 1e-6 {
-                            action_queue.push(
-                                ScaleAction {
-                                    entity,
-                                    old_scale: *initial_entity_scale,
-                                    new_scale,
-                                }
-                                .into(),
-                            );
-                        }
-                    }
-                }
-
-                selected.action = None;
+        if let Some(selected) = selected.as_mut() {
+            if finalize_action_if_active(selected, &global_transforms, &mut action_queue) {
+                return;
             }
-        } else {
-            commands.remove_resource::<Selected>();
+            if !shift_pressed && selected.action.is_none() {
+                commands.remove_resource::<Selected>();
+            }
         }
     }
 
@@ -308,12 +266,11 @@ fn on_click_in_void(
 fn on_click_object(
     mut trigger: On<Pointer<Click>>,
     mut commands: Commands,
-    names: Query<&Name>,
     mut ui_state: ResMut<UiState>,
-    selected: Option<ResMut<Selected>>,
+    mut selected: Option<ResMut<Selected>>,
     windows: Query<&Window>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     global_transforms: Query<&GlobalTransform>,
-    transforms: Query<&Transform>,
     mut action_queue: ResMut<ActionQueue>,
 ) {
     if !ui_state.pointer_in_viewport
@@ -323,74 +280,39 @@ fn on_click_object(
     {
         return;
     }
-    println!(
-        "clicked on object function called entity={}, name={:?}",
-        trigger.event_target(),
-        names.get(trigger.event_target())
-    );
-
     let is_performing_action = selected.as_ref().is_some_and(|s| s.action.is_some());
     let is_primary = trigger.button == PointerButton::Primary;
     let is_secondary = trigger.button == PointerButton::Secondary;
     let hover_normal = selected.as_ref().and_then(|s| s.hover_normal.clone());
+    let shift_pressed = shift_is_pressed(&keyboard_input);
 
     trigger.propagate(false);
 
     if is_primary {
         ui_state.context_menu = ContextMenu::Closed;
-
-        // Record move action if we were performing a grab
-        if let Some(ref selected) = selected {
-            let entity = selected.entity;
-
-            if let Some(SelectedAction::Grab {
-                initial_entity_pos, ..
-            }) = &selected.action
-            {
-                if let Ok(global_transform) = global_transforms.get(entity) {
-                    let new_position = global_transform.translation();
-                    // Only record if position actually changed
-                    if (*initial_entity_pos - new_position).length_squared() > 1e-6 {
-                        action_queue.push(
-                            MoveAction {
-                                entity,
-                                old_position: *initial_entity_pos,
-                                new_position,
-                            }
-                            .into(),
-                        );
-                    }
-                }
-            }
-
-            // Record scale action if we were performing a scale
-            if let Some(SelectedAction::Scale {
-                initial_entity_scale,
-                ..
-            }) = &selected.action
-            {
-                if let Ok(transform) = transforms.get(entity) {
-                    let new_scale = transform.scale;
-                    // Only record if scale actually changed
-                    if (*initial_entity_scale - new_scale).length_squared() > 1e-6 {
-                        action_queue.push(
-                            ScaleAction {
-                                entity,
-                                old_scale: *initial_entity_scale,
-                                new_scale,
-                            }
-                            .into(),
-                        );
-                    }
-                }
+        if let Some(selected) = selected.as_mut() {
+            if finalize_action_if_active(selected, &global_transforms, &mut action_queue) {
+                return;
             }
         }
 
-        commands.insert_resource(Selected {
-            entity: trigger.event_target(),
-            hover_normal: None,
-            action: None,
-        });
+        let clicked_entity = trigger.event_target();
+        match selected.as_mut() {
+            Some(selected) => {
+                selected.action = None;
+                if shift_pressed {
+                    let has_selection = selected.toggle(clicked_entity);
+                    if !has_selection {
+                        commands.remove_resource::<Selected>();
+                    }
+                } else {
+                    selected.set_single(clicked_entity);
+                }
+            }
+            None => {
+                commands.insert_resource(Selected::new(clicked_entity));
+            }
+        }
     }
 
     if let Some(hover_normal) = hover_normal
@@ -405,8 +327,10 @@ fn on_click_object(
 }
 
 fn draw_axes(mut gizmos: Gizmos, query: Query<&GlobalTransform>, selected: Res<Selected>) {
-    if let Ok(transform) = query.get(selected.entity) {
-        gizmos.axes(*transform, 1.5);
+    for entity in selected.entities.iter().copied() {
+        if let Ok(transform) = query.get(entity) {
+            gizmos.axes(*transform, 1.5);
+        }
     }
 }
 
@@ -417,7 +341,7 @@ fn set_hover_normal(
     mut selected: ResMut<Selected>,
     mut gizmos: Gizmos,
 ) {
-    let selected_entity = selected.entity;
+    let selected_entity = selected.primary();
     selected.hover_normal = None;
     for (point, normal) in pointers
         .iter()
@@ -442,7 +366,7 @@ fn set_hover_normal(
 
 fn handle_selected_action_keys(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut transforms: Query<(&mut Transform, &GlobalTransform)>,
+    mut transforms: Query<&mut Transform>,
     parents: Query<&ChildOf>,
     parent_globals: Query<&GlobalTransform>,
     mut selected: ResMut<Selected>,
@@ -450,11 +374,11 @@ fn handle_selected_action_keys(
     mut action_queue: ResMut<ActionQueue>,
     camera_query: Query<&PanOrbitCamera, With<EditorCamera>>,
 ) {
-    let entity = selected.entity;
+    let primary = selected.primary();
 
     // F key: Focus camera on selected object
     if keyboard_input.just_pressed(KeyCode::KeyF) {
-        if let Ok(global_transform) = global_transforms.get(entity) {
+        if let Ok(global_transform) = global_transforms.get(primary) {
             let old_position = camera_query
                 .iter()
                 .next()
@@ -473,29 +397,39 @@ fn handle_selected_action_keys(
 
     match &mut selected.action {
         None if keyboard_input.just_pressed(KeyCode::KeyG) => {
-            let Ok((_, global_transform)) = transforms.get(selected.entity) else {
+            let initial_world_positions =
+                collect_world_positions(&selected.entities, &global_transforms);
+            let Some((_, initial_primary_pos)) = initial_world_positions
+                .iter()
+                .find(|(entity, _)| *entity == primary)
+            else {
                 return;
             };
-            // Store the world position for grab calculations
+            // Store the world positions for grab calculations
             selected.action = Some(SelectedAction::Grab {
                 mask: None,
-                initial_entity_pos: global_transform.translation(),
+                initial_primary_pos: *initial_primary_pos,
+                initial_world_positions,
             });
         }
         None if keyboard_input.just_pressed(KeyCode::KeyS) => {
-            let Ok((_, global_transform)) = transforms.get(selected.entity) else {
+            let initial_world_scales = collect_world_scales(&selected.entities, &global_transforms);
+            if !initial_world_scales
+                .iter()
+                .any(|(entity, _)| *entity == primary)
+            {
                 return;
-            };
-            // Store the world position for grab calculations
+            }
+            // Store the world scale for scale calculations
             selected.action = Some(SelectedAction::Scale {
                 mask: None,
-                initial_entity_scale: global_transform.to_scale_rotation_translation().0,
+                initial_world_scales,
             });
         }
         None => {}
         Some(SelectedAction::Grab {
             mask,
-            initial_entity_pos,
+            initial_world_positions,
             ..
         }) => {
             if keyboard_input.just_pressed(KeyCode::KeyX) {
@@ -509,30 +443,23 @@ fn handle_selected_action_keys(
             }
 
             if keyboard_input.just_pressed(KeyCode::Escape) {
-                // Convert world position back to local space
-                let parent_global: Option<&GlobalTransform> = parents
-                    .get(entity)
-                    .ok()
-                    .and_then(|child_of| parent_globals.get(child_of.parent()).ok());
-
-                let local_pos = if let Some(parent_global) = parent_global {
-                    parent_global
-                        .affine()
-                        .inverse()
-                        .transform_point3(*initial_entity_pos)
-                } else {
-                    *initial_entity_pos
-                };
-
-                if let Ok((mut transform, _)) = transforms.get_mut(entity) {
-                    transform.translation = local_pos;
-                };
+                for (entity, initial_world_pos) in initial_world_positions.iter().copied() {
+                    let local_pos = world_position_to_local(
+                        entity,
+                        initial_world_pos,
+                        &parents,
+                        &parent_globals,
+                    );
+                    if let Ok(mut transform) = transforms.get_mut(entity) {
+                        transform.translation = local_pos;
+                    }
+                }
                 selected.action = None;
             }
         }
         Some(SelectedAction::Scale {
             mask,
-            initial_entity_scale,
+            initial_world_scales,
             ..
         }) => {
             if keyboard_input.just_pressed(KeyCode::KeyX) {
@@ -546,10 +473,17 @@ fn handle_selected_action_keys(
             }
 
             if keyboard_input.just_pressed(KeyCode::Escape) {
-                // Restore original scale
-                if let Ok((mut transform, _)) = transforms.get_mut(entity) {
-                    transform.scale = *initial_entity_scale;
-                };
+                for (entity, initial_world_scale) in initial_world_scales.iter().copied() {
+                    let local_scale = world_scale_to_local(
+                        entity,
+                        initial_world_scale,
+                        &parents,
+                        &parent_globals,
+                    );
+                    if let Ok(mut transform) = transforms.get_mut(entity) {
+                        transform.scale = local_scale;
+                    }
+                }
                 selected.action = None;
             }
         }
@@ -569,18 +503,13 @@ fn handle_grab_mode_movement(
         return;
     }
 
-    let entity = selected.entity;
-
     let Some(SelectedAction::Grab {
         mask,
-        initial_entity_pos,
+        initial_primary_pos,
+        initial_world_positions,
         ..
     }) = &mut selected.action
     else {
-        return;
-    };
-
-    let Ok(mut transform) = transforms.get_mut(entity) else {
         return;
     };
 
@@ -602,7 +531,7 @@ fn handle_grab_mode_movement(
     // Define plane perpendicular to camera forward, passing through initial entity position (world space)
     // This keeps the object at a constant "depth" from the camera
     let plane_normal = *camera_forward;
-    let plane_point = *initial_entity_pos;
+    let plane_point = *initial_primary_pos;
 
     // Ray-plane intersection (in world space)
     let denominator = ray.direction.dot(plane_normal);
@@ -614,38 +543,34 @@ fn handle_grab_mode_movement(
     let intersection = ray.origin + *ray.direction * t;
 
     // Apply axis mask in world space
-    let new_world_pos = if let Some(axis) = &mask {
+    let new_primary_world_pos = if let Some(axis) = &mask {
         match axis {
-            AxisMask::X => initial_entity_pos.with_x(intersection.x),
-            AxisMask::Y => initial_entity_pos.with_y(intersection.y),
-            AxisMask::Z => initial_entity_pos.with_z(intersection.z),
+            AxisMask::X => initial_primary_pos.with_x(intersection.x),
+            AxisMask::Y => initial_primary_pos.with_y(intersection.y),
+            AxisMask::Z => initial_primary_pos.with_z(intersection.z),
         }
     } else {
         intersection
     };
 
-    // Convert world position to local space, accounting for parent transform
-    let parent_global: Option<&GlobalTransform> = parents
-        .get(entity)
-        .ok()
-        .and_then(|child_of| parent_globals.get(child_of.parent()).ok());
+    let delta_world = new_primary_world_pos - *initial_primary_pos;
 
-    let new_local_pos = if let Some(parent_global) = parent_global {
-        parent_global
-            .affine()
-            .inverse()
-            .transform_point3(new_world_pos)
-    } else {
-        new_world_pos
-    };
-
-    transform.translation = new_local_pos;
+    for (entity, initial_world_pos) in initial_world_positions.iter().copied() {
+        let new_world_pos = initial_world_pos + delta_world;
+        let new_local_pos =
+            world_position_to_local(entity, new_world_pos, &parents, &parent_globals);
+        if let Ok(mut transform) = transforms.get_mut(entity) {
+            transform.translation = new_local_pos;
+        }
+    }
 }
 
 fn handle_scale_mode_movement(
     ui: Res<UiState>,
     mut transforms: Query<&mut Transform>,
     global_transforms: Query<&GlobalTransform>,
+    parents: Query<&ChildOf>,
+    parent_globals: Query<&GlobalTransform>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut selected: ResMut<Selected>,
@@ -654,18 +579,14 @@ fn handle_scale_mode_movement(
         return;
     }
 
-    let entity = selected.entity;
+    let primary = selected.primary();
 
     let Some(SelectedAction::Scale {
         mask,
-        initial_entity_scale,
+        initial_world_scales,
         ..
     }) = &mut selected.action
     else {
-        return;
-    };
-
-    let Ok(mut transform) = transforms.get_mut(entity) else {
         return;
     };
 
@@ -679,7 +600,7 @@ fn handle_scale_mode_movement(
 
     // Get the entity's world position for the reference plane
     let entity_world_pos = global_transforms
-        .get(entity)
+        .get(primary)
         .map(|t| t.translation())
         .unwrap_or(Vec3::ZERO);
 
@@ -713,15 +634,158 @@ fn handle_scale_mode_movement(
     let scale_factor = (distance / base_distance).max(0.01); // Prevent zero/negative scale
 
     // Apply axis mask
-    let new_scale = if let Some(axis) = &mask {
-        match axis {
-            AxisMask::X => initial_entity_scale.with_x(initial_entity_scale.x * scale_factor),
-            AxisMask::Y => initial_entity_scale.with_y(initial_entity_scale.y * scale_factor),
-            AxisMask::Z => initial_entity_scale.with_z(initial_entity_scale.z * scale_factor),
+    for (entity, initial_world_scale) in initial_world_scales.iter().copied() {
+        let new_world_scale = if let Some(axis) = &mask {
+            match axis {
+                AxisMask::X => initial_world_scale.with_x(initial_world_scale.x * scale_factor),
+                AxisMask::Y => initial_world_scale.with_y(initial_world_scale.y * scale_factor),
+                AxisMask::Z => initial_world_scale.with_z(initial_world_scale.z * scale_factor),
+            }
+        } else {
+            initial_world_scale * scale_factor
+        };
+        let local_scale = world_scale_to_local(entity, new_world_scale, &parents, &parent_globals);
+        if let Ok(mut transform) = transforms.get_mut(entity) {
+            transform.scale = local_scale;
         }
-    } else {
-        *initial_entity_scale * scale_factor
-    };
+    }
+}
 
-    transform.scale = new_scale;
+fn record_selected_actions(
+    selected: &Selected,
+    global_transforms: &Query<&GlobalTransform>,
+    action_queue: &mut ActionQueue,
+) {
+    match &selected.action {
+        Some(SelectedAction::Grab {
+            initial_world_positions,
+            ..
+        }) => {
+            let mut moves = Vec::new();
+            for (entity, old_position) in initial_world_positions.iter().copied() {
+                if let Ok(global_transform) = global_transforms.get(entity) {
+                    let new_position = global_transform.translation();
+                    if (old_position - new_position).length_squared() > 1e-6 {
+                        moves.push(MoveAction {
+                            entity,
+                            old_position,
+                            new_position,
+                        });
+                    }
+                }
+            }
+            if !moves.is_empty() {
+                action_queue.push(MoveSelectionAction { moves }.into());
+            }
+        }
+        Some(SelectedAction::Scale {
+            initial_world_scales,
+            ..
+        }) => {
+            let mut scales = Vec::new();
+            for (entity, old_scale) in initial_world_scales.iter().copied() {
+                if let Ok(global_transform) = global_transforms.get(entity) {
+                    let new_scale = global_transform.to_scale_rotation_translation().0;
+                    if (old_scale - new_scale).length_squared() > 1e-6 {
+                        scales.push(ScaleAction {
+                            entity,
+                            old_scale,
+                            new_scale,
+                        });
+                    }
+                }
+            }
+            if !scales.is_empty() {
+                action_queue.push(ScaleSelectionAction { scales }.into());
+            }
+        }
+        None => {}
+    }
+}
+
+fn shift_is_pressed(keyboard_input: &ButtonInput<KeyCode>) -> bool {
+    keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight)
+}
+
+fn finalize_action_if_active(
+    selected: &mut Selected,
+    global_transforms: &Query<&GlobalTransform>,
+    action_queue: &mut ActionQueue,
+) -> bool {
+    if selected.action.is_some() {
+        record_selected_actions(selected, global_transforms, action_queue);
+        selected.action = None;
+        return true;
+    }
+    false
+}
+
+fn collect_world_positions(
+    entities: &[Entity],
+    global_transforms: &Query<&GlobalTransform>,
+) -> Vec<(Entity, Vec3)> {
+    let mut positions = Vec::new();
+    for entity in entities.iter().copied() {
+        if let Ok(global_transform) = global_transforms.get(entity) {
+            positions.push((entity, global_transform.translation()));
+        }
+    }
+    positions
+}
+
+fn collect_world_scales(
+    entities: &[Entity],
+    global_transforms: &Query<&GlobalTransform>,
+) -> Vec<(Entity, Vec3)> {
+    let mut scales = Vec::new();
+    for entity in entities.iter().copied() {
+        if let Ok(global_transform) = global_transforms.get(entity) {
+            scales.push((entity, global_transform.to_scale_rotation_translation().0));
+        }
+    }
+    scales
+}
+
+fn world_position_to_local(
+    entity: Entity,
+    world_position: Vec3,
+    parents: &Query<&ChildOf>,
+    parent_globals: &Query<&GlobalTransform>,
+) -> Vec3 {
+    let parent_global: Option<&GlobalTransform> = parents
+        .get(entity)
+        .ok()
+        .and_then(|child_of| parent_globals.get(child_of.parent()).ok());
+
+    if let Some(parent_global) = parent_global {
+        parent_global
+            .affine()
+            .inverse()
+            .transform_point3(world_position)
+    } else {
+        world_position
+    }
+}
+
+fn world_scale_to_local(
+    entity: Entity,
+    world_scale: Vec3,
+    parents: &Query<&ChildOf>,
+    parent_globals: &Query<&GlobalTransform>,
+) -> Vec3 {
+    let parent_global: Option<&GlobalTransform> = parents
+        .get(entity)
+        .ok()
+        .and_then(|child_of| parent_globals.get(child_of.parent()).ok());
+
+    if let Some(parent_global) = parent_global {
+        parent_global
+            .affine()
+            .inverse()
+            .to_scale_rotation_translation()
+            .0
+            * world_scale
+    } else {
+        world_scale
+    }
 }

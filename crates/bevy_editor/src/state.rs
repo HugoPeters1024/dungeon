@@ -65,11 +65,12 @@ impl UiDockState {
 pub enum SelectedAction {
     Grab {
         mask: Option<AxisMask>,
-        initial_entity_pos: Vec3,
+        initial_primary_pos: Vec3,
+        initial_world_positions: Vec<(Entity, Vec3)>,
     },
     Scale {
         mask: Option<AxisMask>,
-        initial_entity_scale: Vec3,
+        initial_world_scales: Vec<(Entity, Vec3)>,
     },
 }
 
@@ -81,9 +82,47 @@ pub struct HoverNormal {
 
 #[derive(Resource)]
 pub struct Selected {
-    pub entity: Entity,
+    pub entities: Vec<Entity>,
     pub hover_normal: Option<HoverNormal>,
     pub action: Option<SelectedAction>,
+}
+
+impl Selected {
+    pub fn new(primary: Entity) -> Self {
+        Self {
+            entities: vec![primary],
+            hover_normal: None,
+            action: None,
+        }
+    }
+
+    pub fn primary(&self) -> Entity {
+        *self
+            .entities
+            .last()
+            .expect("Selected must contain at least one entity")
+    }
+
+    pub fn is_selected(&self, entity: Entity) -> bool {
+        self.entities.contains(&entity)
+    }
+
+    pub fn set_single(&mut self, entity: Entity) {
+        self.entities.clear();
+        self.entities.push(entity);
+        self.hover_normal = None;
+        self.action = None;
+    }
+
+    pub fn toggle(&mut self, entity: Entity) -> bool {
+        if let Some(index) = self.entities.iter().position(|&e| e == entity) {
+            self.entities.swap_remove(index);
+        } else {
+            self.entities.push(entity);
+        }
+        self.hover_normal = None;
+        !self.entities.is_empty()
+    }
 }
 
 #[derive(Resource)]
