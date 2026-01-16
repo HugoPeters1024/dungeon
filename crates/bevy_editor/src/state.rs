@@ -67,6 +67,10 @@ pub enum SelectedAction {
         mask: Option<AxisMask>,
         initial_entity_pos: Vec3,
     },
+    Scale {
+        mask: Option<AxisMask>,
+        initial_entity_scale: Vec3,
+    },
 }
 
 #[derive(Clone)]

@@ -3,7 +3,8 @@ use bevy_egui::egui;
 use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_world};
 
 use crate::{
-    ActionQueue, ContextMenu, EditorAction, EditorCamera, Selected, SpawnPosition,
+    ActionQueue, ContextMenu, DuplicateAction, EditorAction, EditorCamera, FocusCameraAction,
+    Selected, SpawnPosition,
     state::{EguiWindow, Prefabs, UiState},
 };
 
@@ -55,20 +56,43 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                         let entity = selected.entity;
 
                                         if ui.button("Duplicate").clicked() {
-                                            pending_actions.push(EditorAction::Duplicate {
-                                                entity,
-                                                offset: hover_normal.normal,
-                                            });
+                                            pending_actions.push(
+                                                DuplicateAction {
+                                                    entity,
+                                                    offset: hover_normal.normal,
+                                                }
+                                                .into(),
+                                            );
                                             should_close = true;
                                         }
 
                                         if ui.button("Lock Camera Onto").clicked() {
-                                            if let Some(global_transform) =
-                                                self.world.get::<GlobalTransform>(entity)
-                                            {
-                                                pending_actions.push(EditorAction::FocusCameraOn {
-                                                    position: global_transform.translation(),
-                                                });
+                                            // Get entity position first
+                                            let new_position = self
+                                                .world
+                                                .get::<GlobalTransform>(entity)
+                                                .map(|t| t.translation());
+
+                                            if let Some(new_position) = new_position {
+                                                // Get current camera focus for undo support
+                                                let old_position = self
+                                                    .world
+                                                    .query_filtered::<
+                                                        &bevy_panorbit_camera::PanOrbitCamera,
+                                                        With<EditorCamera>,
+                                                    >()
+                                                    .iter(self.world)
+                                                    .next()
+                                                    .map(|cam| cam.target_focus)
+                                                    .unwrap_or(Vec3::ZERO);
+
+                                                pending_actions.push(
+                                                    FocusCameraAction {
+                                                        old_position,
+                                                        new_position,
+                                                    }
+                                                    .into(),
+                                                );
                                             }
                                             should_close = true;
                                         }
@@ -163,11 +187,12 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                     });
             }
             EguiWindow::History => {
-                self.world.resource_scope::<ActionQueue, ()>(|world, action_queue| {
-                    for action in action_queue.history_tail(5) {
-                        ui.label(action.name());
-                    }
-                });
+                self.world
+                    .resource_scope::<ActionQueue, ()>(|_world, action_queue| {
+                        for action in action_queue.history_tail(5) {
+                            ui.label(action.name());
+                        }
+                    });
             }
         };
     }

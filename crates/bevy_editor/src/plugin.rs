@@ -13,7 +13,9 @@ use bevy::{ecs::schedule::BoxedCondition, window::PrimaryWindow};
 use bevy_egui::prelude::*;
 use bevy_panorbit_camera::PanOrbitCameraPlugin;
 
-use crate::actions::{ActionQueue, EditorAction, process_action_queue};
+use bevy_panorbit_camera::PanOrbitCamera;
+
+use crate::actions::{ActionQueue, FocusCameraAction, MoveAction, ScaleAction, process_action_queue};
 use crate::state::{AxisMask, Prefabs, SpawnPosition, UiDockState, UiState};
 use crate::{ContextMenu, HoverNormal, Selected, SelectedAction};
 
@@ -73,6 +75,7 @@ impl Plugin for EditorPlugin {
                 set_hover_normal,
                 handle_selected_action_keys,
                 handle_grab_mode_movement,
+                handle_scale_mode_movement,
             )
                 .run_if(resource_exists::<Selected>),
         );
@@ -218,6 +221,7 @@ fn on_click_in_void(
     windows: Query<&Window>,
     mut selected: Option<ResMut<Selected>>,
     global_transforms: Query<&GlobalTransform>,
+    transforms: Query<&Transform>,
     mut action_queue: ResMut<ActionQueue>,
 ) {
     if !ui_state.pointer_in_viewport
@@ -238,21 +242,51 @@ fn on_click_in_void(
         ui_state.context_menu = ContextMenu::Closed;
         if is_performing_action {
             if let Some(selected) = selected.as_mut() {
+                let entity = selected.entity;
+
                 // Record the move action before clearing it
-                if let Some(SelectedAction::Grab { initial_entity_pos, .. }) = &selected.action {
-                    let entity = selected.entity;
+                if let Some(SelectedAction::Grab {
+                    initial_entity_pos, ..
+                }) = &selected.action
+                {
                     if let Ok(global_transform) = global_transforms.get(entity) {
                         let new_position = global_transform.translation();
                         // Only record if position actually changed
                         if (*initial_entity_pos - new_position).length_squared() > 1e-6 {
-                            action_queue.push(EditorAction::Move {
-                                entity,
-                                old_position: *initial_entity_pos,
-                                new_position,
-                            });
+                            action_queue.push(
+                                MoveAction {
+                                    entity,
+                                    old_position: *initial_entity_pos,
+                                    new_position,
+                                }
+                                .into(),
+                            );
                         }
                     }
                 }
+
+                // Record the scale action before clearing it
+                if let Some(SelectedAction::Scale {
+                    initial_entity_scale,
+                    ..
+                }) = &selected.action
+                {
+                    if let Ok(transform) = transforms.get(entity) {
+                        let new_scale = transform.scale;
+                        // Only record if scale actually changed
+                        if (*initial_entity_scale - new_scale).length_squared() > 1e-6 {
+                            action_queue.push(
+                                ScaleAction {
+                                    entity,
+                                    old_scale: *initial_entity_scale,
+                                    new_scale,
+                                }
+                                .into(),
+                            );
+                        }
+                    }
+                }
+
                 selected.action = None;
             }
         } else {
@@ -279,6 +313,7 @@ fn on_click_object(
     selected: Option<ResMut<Selected>>,
     windows: Query<&Window>,
     global_transforms: Query<&GlobalTransform>,
+    transforms: Query<&Transform>,
     mut action_queue: ResMut<ActionQueue>,
 ) {
     if !ui_state.pointer_in_viewport
@@ -306,17 +341,46 @@ fn on_click_object(
 
         // Record move action if we were performing a grab
         if let Some(ref selected) = selected {
-            if let Some(SelectedAction::Grab { initial_entity_pos, .. }) = &selected.action {
-                let entity = selected.entity;
+            let entity = selected.entity;
+
+            if let Some(SelectedAction::Grab {
+                initial_entity_pos, ..
+            }) = &selected.action
+            {
                 if let Ok(global_transform) = global_transforms.get(entity) {
                     let new_position = global_transform.translation();
                     // Only record if position actually changed
                     if (*initial_entity_pos - new_position).length_squared() > 1e-6 {
-                        action_queue.push(EditorAction::Move {
-                            entity,
-                            old_position: *initial_entity_pos,
-                            new_position,
-                        });
+                        action_queue.push(
+                            MoveAction {
+                                entity,
+                                old_position: *initial_entity_pos,
+                                new_position,
+                            }
+                            .into(),
+                        );
+                    }
+                }
+            }
+
+            // Record scale action if we were performing a scale
+            if let Some(SelectedAction::Scale {
+                initial_entity_scale,
+                ..
+            }) = &selected.action
+            {
+                if let Ok(transform) = transforms.get(entity) {
+                    let new_scale = transform.scale;
+                    // Only record if scale actually changed
+                    if (*initial_entity_scale - new_scale).length_squared() > 1e-6 {
+                        action_queue.push(
+                            ScaleAction {
+                                entity,
+                                old_scale: *initial_entity_scale,
+                                new_scale,
+                            }
+                            .into(),
+                        );
                     }
                 }
             }
@@ -384,15 +448,26 @@ fn handle_selected_action_keys(
     mut selected: ResMut<Selected>,
     global_transforms: Query<&GlobalTransform>,
     mut action_queue: ResMut<ActionQueue>,
+    camera_query: Query<&PanOrbitCamera, With<EditorCamera>>,
 ) {
     let entity = selected.entity;
 
     // F key: Focus camera on selected object
     if keyboard_input.just_pressed(KeyCode::KeyF) {
         if let Ok(global_transform) = global_transforms.get(entity) {
-            action_queue.push(EditorAction::FocusCameraOn {
-                position: global_transform.translation(),
-            });
+            let old_position = camera_query
+                .iter()
+                .next()
+                .map(|cam| cam.target_focus)
+                .unwrap_or(Vec3::ZERO);
+
+            action_queue.push(
+                FocusCameraAction {
+                    old_position,
+                    new_position: global_transform.translation(),
+                }
+                .into(),
+            );
         }
     }
 
@@ -405,6 +480,16 @@ fn handle_selected_action_keys(
             selected.action = Some(SelectedAction::Grab {
                 mask: None,
                 initial_entity_pos: global_transform.translation(),
+            });
+        }
+        None if keyboard_input.just_pressed(KeyCode::KeyS) => {
+            let Ok((_, global_transform)) = transforms.get(selected.entity) else {
+                return;
+            };
+            // Store the world position for grab calculations
+            selected.action = Some(SelectedAction::Scale {
+                mask: None,
+                initial_entity_scale: global_transform.to_scale_rotation_translation().0,
             });
         }
         None => {}
@@ -441,6 +526,29 @@ fn handle_selected_action_keys(
 
                 if let Ok((mut transform, _)) = transforms.get_mut(entity) {
                     transform.translation = local_pos;
+                };
+                selected.action = None;
+            }
+        }
+        Some(SelectedAction::Scale {
+            mask,
+            initial_entity_scale,
+            ..
+        }) => {
+            if keyboard_input.just_pressed(KeyCode::KeyX) {
+                *mask = Some(AxisMask::X);
+            }
+            if keyboard_input.just_pressed(KeyCode::KeyY) {
+                *mask = Some(AxisMask::Y);
+            }
+            if keyboard_input.just_pressed(KeyCode::KeyZ) {
+                *mask = Some(AxisMask::Z);
+            }
+
+            if keyboard_input.just_pressed(KeyCode::Escape) {
+                // Restore original scale
+                if let Ok((mut transform, _)) = transforms.get_mut(entity) {
+                    transform.scale = *initial_entity_scale;
                 };
                 selected.action = None;
             }
@@ -532,4 +640,88 @@ fn handle_grab_mode_movement(
     };
 
     transform.translation = new_local_pos;
+}
+
+fn handle_scale_mode_movement(
+    ui: Res<UiState>,
+    mut transforms: Query<&mut Transform>,
+    global_transforms: Query<&GlobalTransform>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut selected: ResMut<Selected>,
+) {
+    if !ui.pointer_in_viewport {
+        return;
+    }
+
+    let entity = selected.entity;
+
+    let Some(SelectedAction::Scale {
+        mask,
+        initial_entity_scale,
+        ..
+    }) = &mut selected.action
+    else {
+        return;
+    };
+
+    let Ok(mut transform) = transforms.get_mut(entity) else {
+        return;
+    };
+
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
+
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+
+    // Get the entity's world position for the reference plane
+    let entity_world_pos = global_transforms
+        .get(entity)
+        .map(|t| t.translation())
+        .unwrap_or(Vec3::ZERO);
+
+    // Use Bevy's built-in viewport_to_world to get a ray from camera through cursor
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+        return;
+    };
+
+    let camera_forward = camera_transform.forward();
+
+    // Define plane perpendicular to camera forward, passing through entity position
+    let plane_normal = *camera_forward;
+    let plane_point = entity_world_pos;
+
+    // Ray-plane intersection
+    let denominator = ray.direction.dot(plane_normal);
+    if denominator.abs() < 1e-6 {
+        return;
+    }
+
+    let t = (plane_point - ray.origin).dot(plane_normal) / denominator;
+    let intersection = ray.origin + *ray.direction * t;
+
+    // Calculate scale factor based on distance from entity center
+    // The further the cursor is from the entity, the larger the scale
+    let offset = intersection - entity_world_pos;
+    let distance = offset.length();
+
+    // Use a base distance to normalize the scale (adjust this for sensitivity)
+    let base_distance = 2.0;
+    let scale_factor = (distance / base_distance).max(0.01); // Prevent zero/negative scale
+
+    // Apply axis mask
+    let new_scale = if let Some(axis) = &mask {
+        match axis {
+            AxisMask::X => initial_entity_scale.with_x(initial_entity_scale.x * scale_factor),
+            AxisMask::Y => initial_entity_scale.with_y(initial_entity_scale.y * scale_factor),
+            AxisMask::Z => initial_entity_scale.with_z(initial_entity_scale.z * scale_factor),
+        }
+    } else {
+        *initial_entity_scale * scale_factor
+    };
+
+    transform.scale = new_scale;
 }

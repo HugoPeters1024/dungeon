@@ -3,7 +3,9 @@ mod plugin;
 mod state;
 mod ui;
 
-pub use actions::{ActionQueue, EditorAction};
+pub use actions::{
+    Action, ActionQueue, DuplicateAction, EditorAction, FocusCameraAction, MoveAction, ScaleAction,
+};
 pub use bevy_panorbit_camera;
 pub use plugin::{EditorCamera, EditorPlugin};
 pub use state::{

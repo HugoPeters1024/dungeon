@@ -3,89 +3,176 @@ use bevy_panorbit_camera::PanOrbitCamera;
 
 use crate::EditorCamera;
 
-/// Represents an action that can be applied to the world.
-/// Actions are queued and executed later, enabling undo/redo support.
-#[derive(Clone, Debug)]
-pub enum EditorAction {
-    /// Duplicate an entity, offsetting it by the given normal vector
-    Duplicate { entity: Entity, offset: Vec3 },
-    /// Focus the editor camera on a specific world position
-    FocusCameraOn {
-        old_position: Vec3,
-        new_position: Vec3,
-    },
-    /// Move an entity from one position to another (in world space)
-    Move {
-        entity: Entity,
-        old_position: Vec3,
-        new_position: Vec3,
-    },
+/// Trait for actions that can be applied to the world
+pub trait Action: Clone + std::fmt::Debug + Send + Sync + 'static {
+    fn apply(&self, world: &mut World);
+    fn name(&self) -> String;
 }
 
-impl EditorAction {
-    /// Apply this action to the world
-    pub fn apply(&self, world: &mut World) {
-        match self {
-            EditorAction::Duplicate { entity, offset } => {
-                Self::apply_duplicate(world, *entity, *offset);
-            }
-            EditorAction::FocusCameraOn { new_position, .. } => {
-                Self::apply_focus_camera(world, *new_position);
-            }
-            EditorAction::Move {
-                entity,
-                new_position,
-                ..
-            } => {
-                Self::apply_move(world, *entity, *new_position);
-            }
-        }
-    }
+/// Duplicate an entity, offsetting it by the given normal vector
+#[derive(Clone, Debug)]
+pub struct DuplicateAction {
+    pub entity: Entity,
+    pub offset: Vec3,
+}
 
-    fn apply_duplicate(world: &mut World, entity: Entity, offset: Vec3) {
+impl Action for DuplicateAction {
+    fn apply(&self, world: &mut World) {
         // Clone the entity
-        let new_entity = world.entity_mut(entity).clone_and_spawn();
+        let new_entity = world.entity_mut(self.entity).clone_and_spawn();
 
         // Offset the new entity's transform
         if let Some(mut transform) = world.get_mut::<Transform>(new_entity) {
-            transform.translation += offset;
+            transform.translation += self.offset;
         }
     }
 
-    fn apply_focus_camera(world: &mut World, position: Vec3) {
+    fn name(&self) -> String {
+        format!("duplicate {}", self.entity)
+    }
+}
+
+/// Focus the editor camera on a specific world position
+#[derive(Clone, Debug)]
+pub struct FocusCameraAction {
+    pub old_position: Vec3,
+    pub new_position: Vec3,
+}
+
+impl Action for FocusCameraAction {
+    fn apply(&self, world: &mut World) {
         let mut query = world.query_filtered::<&mut PanOrbitCamera, With<EditorCamera>>();
         for mut pan_orbit in query.iter_mut(world) {
-            pan_orbit.target_focus = position;
+            pan_orbit.target_focus = self.new_position;
         }
     }
 
-    fn apply_move(world: &mut World, entity: Entity, new_position: Vec3) {
+    fn name(&self) -> String {
+        "focus camera".to_string()
+    }
+}
+
+/// Move an entity from one position to another (in world space)
+#[derive(Clone, Debug)]
+pub struct MoveAction {
+    pub entity: Entity,
+    pub old_position: Vec3,
+    pub new_position: Vec3,
+}
+
+impl Action for MoveAction {
+    fn apply(&self, world: &mut World) {
         // Convert world position to local space, accounting for parent transform
-        let local_position = if let Some(child_of) = world.get::<ChildOf>(entity) {
+        let local_position = if let Some(child_of) = world.get::<ChildOf>(self.entity) {
             let parent = child_of.parent();
             if let Some(parent_global) = world.get::<GlobalTransform>(parent) {
                 parent_global
                     .affine()
                     .inverse()
-                    .transform_point3(new_position)
+                    .transform_point3(self.new_position)
             } else {
-                new_position
+                self.new_position
             }
         } else {
-            new_position
+            self.new_position
         };
 
-        if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+        if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
             transform.translation = local_position;
+        }
+    }
+
+    fn name(&self) -> String {
+        format!("move {}", self.entity)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ScaleAction {
+    pub entity: Entity,
+    pub old_scale: Vec3,
+    pub new_scale: Vec3,
+}
+
+impl Action for ScaleAction {
+    fn apply(&self, world: &mut World) {
+        // Convert world position to local space, accounting for parent transform
+        let local_scale = if let Some(child_of) = world.get::<ChildOf>(self.entity) {
+            let parent = child_of.parent();
+            if let Some(parent_global) = world.get::<GlobalTransform>(parent) {
+                parent_global
+                    .affine()
+                    .inverse()
+                    .to_scale_rotation_translation()
+                    .0 * self.new_scale
+            } else {
+                self.new_scale
+            }
+        } else {
+            self.new_scale
+        };
+
+        if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
+            transform.scale = local_scale;
+        }
+    }
+
+    fn name(&self) -> String {
+        format!("move {}", self.entity)
+    }
+}
+
+/// Represents an action that can be applied to the world.
+/// Actions are queued and executed later, enabling undo/redo support.
+#[derive(Clone, Debug)]
+pub enum EditorAction {
+    Duplicate(DuplicateAction),
+    FocusCamera(FocusCameraAction),
+    Move(MoveAction),
+    Scale(ScaleAction),
+}
+
+impl EditorAction {
+    pub fn apply(&self, world: &mut World) {
+        match self {
+            EditorAction::Duplicate(action) => action.apply(world),
+            EditorAction::FocusCamera(action) => action.apply(world),
+            EditorAction::Move(action) => action.apply(world),
+            EditorAction::Scale(action) => action.apply(world),
         }
     }
 
     pub fn name(&self) -> String {
         match self {
-            EditorAction::Duplicate { entity, .. } => format!("duplicate {}", entity),
-            EditorAction::FocusCameraOn { .. } => format!("focus camera"),
-            EditorAction::Move { entity, .. } => format!("move {}", entity),
+            EditorAction::Duplicate(action) => action.name(),
+            EditorAction::FocusCamera(action) => action.name(),
+            EditorAction::Move(action) => action.name(),
+            EditorAction::Scale(action) => action.name(),
         }
+    }
+}
+
+impl From<DuplicateAction> for EditorAction {
+    fn from(action: DuplicateAction) -> Self {
+        EditorAction::Duplicate(action)
+    }
+}
+
+impl From<FocusCameraAction> for EditorAction {
+    fn from(action: FocusCameraAction) -> Self {
+        EditorAction::FocusCamera(action)
+    }
+}
+
+impl From<MoveAction> for EditorAction {
+    fn from(action: MoveAction) -> Self {
+        EditorAction::Move(action)
+    }
+}
+
+impl From<ScaleAction> for EditorAction {
+    fn from(action: ScaleAction) -> Self {
+        EditorAction::Scale(action)
     }
 }
 
