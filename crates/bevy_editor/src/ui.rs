@@ -103,11 +103,11 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                 }
 
                 // Queue any pending actions
-                if !pending_actions.is_empty() {
-                    if let Some(mut action_queue) = self.world.get_resource_mut::<ActionQueue>() {
-                        for action in pending_actions {
-                            action_queue.push(action);
-                        }
+                if !pending_actions.is_empty()
+                    && let Some(mut action_queue) = self.world.get_resource_mut::<ActionQueue>()
+                {
+                    for action in pending_actions {
+                        action_queue.push(action);
                     }
                 }
 
@@ -116,36 +116,36 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                 }
 
                 // Show selected object position at bottom right of game view
-                if let Some(selected) = self.world.get_resource::<Selected>() {
-                    if let Some(transform) = self.world.get::<Transform>(selected.primary()) {
-                        let pos = transform.translation;
-                        let text = format!("X: {:.2}  Y: {:.2}  Z: {:.2}", pos.x, pos.y, pos.z);
-                        let padding = 8.0;
-                        // Estimate text width based on character count (monospace)
-                        let char_width = 10.0;
-                        let text_width = text.len() as f32 * char_width;
-                        let text_height = 16.0;
-                        let pos_x = self.state.viewport.right() - text_width - padding - 12.0;
-                        let pos_y = self.state.viewport.bottom() - text_height - padding - 12.0;
+                if let Some(selected) = self.world.get_resource::<Selected>()
+                    && let Some(transform) = self.world.get::<Transform>(selected.primary())
+                {
+                    let pos = transform.translation;
+                    let text = format!("X: {:.2}  Y: {:.2}  Z: {:.2}", pos.x, pos.y, pos.z);
+                    let padding = 8.0;
+                    // Estimate text width based on character count (monospace)
+                    let char_width = 10.0;
+                    let text_width = text.len() as f32 * char_width;
+                    let text_height = 16.0;
+                    let pos_x = self.state.viewport.right() - text_width - padding - 12.0;
+                    let pos_y = self.state.viewport.bottom() - text_height - padding - 12.0;
 
-                        egui::Area::new(egui::Id::new("selected_position_overlay"))
-                            .fixed_pos(egui::pos2(pos_x, pos_y))
-                            .show(ui.ctx(), |ui| {
-                                egui::Frame::new()
-                                    .fill(egui::Color32::from_black_alpha(180))
-                                    .corner_radius(3.0)
-                                    .inner_margin(egui::Margin::same(4))
-                                    .show(ui, |ui| {
-                                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                                        ui.label(
-                                            egui::RichText::new(text)
-                                                .size(11.0)
-                                                .color(egui::Color32::WHITE)
-                                                .monospace(),
-                                        );
-                                    });
-                            });
-                    }
+                    egui::Area::new(egui::Id::new("selected_position_overlay"))
+                        .fixed_pos(egui::pos2(pos_x, pos_y))
+                        .show(ui.ctx(), |ui| {
+                            egui::Frame::new()
+                                .fill(egui::Color32::from_black_alpha(180))
+                                .corner_radius(3.0)
+                                .inner_margin(egui::Margin::same(4))
+                                .show(ui, |ui| {
+                                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                                    ui.label(
+                                        egui::RichText::new(text)
+                                            .size(11.0)
+                                            .color(egui::Color32::WHITE)
+                                            .monospace(),
+                                    );
+                                });
+                        });
                 }
             }
             EguiWindow::Prefabs => {
@@ -178,7 +178,8 @@ impl egui_dock::TabViewer for UiViewer<'_> {
             EguiWindow::SelectedInspector => {
                 self.world
                     .try_resource_scope::<Selected, ()>(|world, mut selected| {
-                        if let Ok(child_of) = world.query::<&ChildOf>().get(world, selected.primary())
+                        if let Ok(child_of) =
+                            world.query::<&ChildOf>().get(world, selected.primary())
                             && ui.button("Go to parent").clicked()
                         {
                             selected.set_single(child_of.0);

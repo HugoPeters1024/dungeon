@@ -107,7 +107,6 @@ pub fn handle_mouse_look(
 }
 
 /// Update camera position with smooth interpolation and collision detection
-#[allow(clippy::type_complexity)]
 pub fn update_camera_position(
     mut camera_query: Query<(&mut Transform, &mut ThirdPersonCamera)>,
     player_query: Query<

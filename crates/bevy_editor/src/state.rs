@@ -57,7 +57,11 @@ impl UiDockState {
             0.75,
             vec![EguiWindow::SelectedInspector],
         );
-        let [_inspector, _prefabs] = tree.split_below(inspector, 0.5, vec![EguiWindow::Prefabs, EguiWindow::History]);
+        let [_inspector, _prefabs] = tree.split_below(
+            inspector,
+            0.5,
+            vec![EguiWindow::Prefabs, EguiWindow::History],
+        );
         Self(state)
     }
 }

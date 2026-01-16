@@ -8,7 +8,7 @@ use bevy::{
     gltf::{GltfMesh, GltfNode},
     prelude::*,
 };
-use bevy_editor::{bevy_panorbit_camera::PanOrbitCamera, EditorCamera, Prefabs, SpawnPosition};
+use bevy_editor::{EditorCamera, Prefabs, SpawnPosition, bevy_panorbit_camera::PanOrbitCamera};
 use bevy_tnua::TnuaNotPlatform;
 
 pub struct EditorPlugin;
@@ -21,7 +21,10 @@ impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(bevy::picking::prelude::MeshPickingPlugin);
         app.add_plugins(bevy_editor::EditorPlugin::new().run_if(in_state(MyStates::Editor)));
-        app.add_systems(OnEnter(MyStates::Editor), (setup_prefabs, enable_editor_camera));
+        app.add_systems(
+            OnEnter(MyStates::Editor),
+            (setup_prefabs, enable_editor_camera),
+        );
         app.add_systems(OnExit(MyStates::Editor), disable_editor_camera);
     }
 }
@@ -30,7 +33,9 @@ impl Plugin for EditorPlugin {
 fn enable_editor_camera(
     mut commands: Commands,
     mut player_cam: Single<&mut Camera, With<ControllerCamera>>,
-    editor_cam: Option<Single<(Entity, &mut Camera), (With<DedicatedEditorCamera>, Without<ControllerCamera>)>>,
+    editor_cam: Option<
+        Single<(Entity, &mut Camera), (With<DedicatedEditorCamera>, Without<ControllerCamera>)>,
+    >,
 ) {
     // Disable the player camera
     player_cam.is_active = false;
@@ -60,7 +65,9 @@ fn enable_editor_camera(
 /// Disables the editor camera and re-enables the player camera when exiting editor mode
 fn disable_editor_camera(
     mut player_cam: Single<&mut Camera, With<ControllerCamera>>,
-    editor_cam: Option<Single<&mut Camera, (With<DedicatedEditorCamera>, Without<ControllerCamera>)>>,
+    editor_cam: Option<
+        Single<&mut Camera, (With<DedicatedEditorCamera>, Without<ControllerCamera>)>,
+    >,
 ) {
     // Re-enable the player camera and reset its viewport
     player_cam.is_active = true;
@@ -137,27 +144,28 @@ fn spawn_gltf_node(
         Transform::from_translation(spawn_pos.0),
     ));
     if let Some(mesh_handle) = node.mesh.as_ref()
-        && let Some(mesh) = meshes.get(mesh_handle.id()).as_ref() {
-            builder.with_children(|parent| {
-                for primitive in mesh.primitives.iter() {
-                    let mut child = parent.spawn((
-                        Mesh3d(primitive.mesh.clone()),
-                        Name::new(primitive.name.clone()),
-                        RigidBody::Static,
-                        ColliderConstructor::TrimeshFromMesh,
-                    ));
+        && let Some(mesh) = meshes.get(mesh_handle.id()).as_ref()
+    {
+        builder.with_children(|parent| {
+            for primitive in mesh.primitives.iter() {
+                let mut child = parent.spawn((
+                    Mesh3d(primitive.mesh.clone()),
+                    Name::new(primitive.name.clone()),
+                    RigidBody::Static,
+                    ColliderConstructor::TrimeshFromMesh,
+                ));
 
-                    if let Some(material) = primitive.material.as_ref() {
-                        child.insert(MeshMaterial3d(material.clone()));
-                    }
+                if let Some(material) = primitive.material.as_ref() {
+                    child.insert(MeshMaterial3d(material.clone()));
                 }
-            });
-
-            for child_node in node.children.iter() {
-                // Child nodes spawn at origin relative to parent, not at spawn_pos
-                spawn_gltf_node_child(commands, nodes, meshes, child_node.clone());
             }
+        });
+
+        for child_node in node.children.iter() {
+            // Child nodes spawn at origin relative to parent, not at spawn_pos
+            spawn_gltf_node_child(commands, nodes, meshes, child_node.clone());
         }
+    }
 }
 
 fn spawn_gltf_node_child(
@@ -175,22 +183,23 @@ fn spawn_gltf_node_child(
         Transform::default(),
     ));
     if let Some(mesh_handle) = node.mesh.as_ref()
-        && let Some(mesh) = meshes.get(mesh_handle.id()).as_ref() {
-            builder.with_children(|parent| {
-                for primitive in mesh.primitives.iter() {
-                    let mut child = parent.spawn((
-                        Mesh3d(primitive.mesh.clone()),
-                        Name::new(primitive.name.clone()),
-                    ));
+        && let Some(mesh) = meshes.get(mesh_handle.id()).as_ref()
+    {
+        builder.with_children(|parent| {
+            for primitive in mesh.primitives.iter() {
+                let mut child = parent.spawn((
+                    Mesh3d(primitive.mesh.clone()),
+                    Name::new(primitive.name.clone()),
+                ));
 
-                    if let Some(material) = primitive.material.as_ref() {
-                        child.insert(MeshMaterial3d(material.clone()));
-                    }
+                if let Some(material) = primitive.material.as_ref() {
+                    child.insert(MeshMaterial3d(material.clone()));
                 }
-            });
-
-            for child_node in node.children.iter() {
-                spawn_gltf_node_child(commands, nodes, meshes, child_node.clone());
             }
+        });
+
+        for child_node in node.children.iter() {
+            spawn_gltf_node_child(commands, nodes, meshes, child_node.clone());
         }
+    }
 }

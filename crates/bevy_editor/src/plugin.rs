@@ -27,6 +27,14 @@ const CLICK_DURATION: Duration = Duration::from_millis(500);
 #[derive(Component)]
 pub struct EditorCamera;
 
+#[derive(Resource, Default)]
+struct EditorEnabled(bool);
+
+#[derive(Resource)]
+struct EditorCondition {
+    system: BoxedCondition,
+}
+
 #[derive(Default)]
 pub struct EditorPlugin {
     condition: Mutex<Option<BoxedCondition>>,
@@ -63,6 +71,13 @@ impl Plugin for EditorPlugin {
         app.init_resource::<Prefabs>();
         app.init_resource::<SpawnPosition>();
         app.init_resource::<ActionQueue>();
+        app.init_resource::<EditorEnabled>();
+        if let Some(mut condition) = self.condition.lock().unwrap().take() {
+            let world = app.world_mut();
+            condition.initialize(world);
+            world.insert_resource(EditorCondition { system: condition });
+            app.add_systems(PreUpdate, evaluate_editor_condition);
+        }
         app.add_systems(Startup, setup_ui);
         app.add_systems(Startup, spawn_wireframe_plane);
         app.add_observer(on_click_in_void);
@@ -80,10 +95,11 @@ impl Plugin for EditorPlugin {
                 handle_grab_mode_movement,
                 handle_scale_mode_movement,
             )
-                .run_if(resource_exists::<Selected>),
+                .run_if(resource_exists::<Selected>)
+                .run_if(editor_enabled),
         );
 
-        app.add_systems(Update, process_action_queue);
+        app.add_systems(Update, process_action_queue.run_if(editor_enabled));
 
         {
             let mut system = show_ui_system.into_configs();
@@ -92,7 +108,7 @@ impl Plugin for EditorPlugin {
                 system.run_if_dyn(condition);
             }
 
-            app.add_systems(EguiPrimaryContextPass, system);
+            app.add_systems(EguiPrimaryContextPass, system.run_if(editor_enabled));
         }
     }
 }
@@ -226,7 +242,11 @@ fn on_click_in_void(
     mut selected: Option<ResMut<Selected>>,
     global_transforms: Query<&GlobalTransform>,
     mut action_queue: ResMut<ActionQueue>,
+    editor_enabled: Res<EditorEnabled>,
 ) {
+    if !editor_enabled.0 {
+        return;
+    }
     if !ui_state.pointer_in_viewport
         || ui_state.egui_wants_pointer_input
         || trigger.duration > CLICK_DURATION
@@ -272,7 +292,11 @@ fn on_click_object(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     global_transforms: Query<&GlobalTransform>,
     mut action_queue: ResMut<ActionQueue>,
+    editor_enabled: Res<EditorEnabled>,
 ) {
+    if !editor_enabled.0 {
+        return;
+    }
     if !ui_state.pointer_in_viewport
         || ui_state.egui_wants_pointer_input
         || trigger.duration > CLICK_DURATION
@@ -290,10 +314,10 @@ fn on_click_object(
 
     if is_primary {
         ui_state.context_menu = ContextMenu::Closed;
-        if let Some(selected) = selected.as_mut() {
-            if finalize_action_if_active(selected, &global_transforms, &mut action_queue) {
-                return;
-            }
+        if let Some(selected) = selected.as_mut()
+            && finalize_action_if_active(selected, &global_transforms, &mut action_queue)
+        {
+            return;
         }
 
         let clicked_entity = trigger.event_target();
@@ -377,22 +401,22 @@ fn handle_selected_action_keys(
     let primary = selected.primary();
 
     // F key: Focus camera on selected object
-    if keyboard_input.just_pressed(KeyCode::KeyF) {
-        if let Ok(global_transform) = global_transforms.get(primary) {
-            let old_position = camera_query
-                .iter()
-                .next()
-                .map(|cam| cam.target_focus)
-                .unwrap_or(Vec3::ZERO);
+    if keyboard_input.just_pressed(KeyCode::KeyF)
+        && let Ok(global_transform) = global_transforms.get(primary)
+    {
+        let old_position = camera_query
+            .iter()
+            .next()
+            .map(|cam| cam.target_focus)
+            .unwrap_or(Vec3::ZERO);
 
-            action_queue.push(
-                FocusCameraAction {
-                    old_position,
-                    new_position: global_transform.translation(),
-                }
-                .into(),
-            );
-        }
+        action_queue.push(
+            FocusCameraAction {
+                old_position,
+                new_position: global_transform.translation(),
+            }
+            .into(),
+        );
     }
 
     match &mut selected.action {
@@ -701,6 +725,19 @@ fn record_selected_actions(
         }
         None => {}
     }
+}
+
+fn editor_enabled(enabled: Res<EditorEnabled>) -> bool {
+    enabled.0
+}
+
+fn evaluate_editor_condition(world: &mut World) {
+    let mut condition = world
+        .remove_resource::<EditorCondition>()
+        .expect("EditorCondition must exist when scheduled");
+    let enabled = condition.system.run((), world).unwrap_or(false);
+    world.insert_resource(condition);
+    world.resource_mut::<EditorEnabled>().0 = enabled;
 }
 
 fn shift_is_pressed(keyboard_input: &ButtonInput<KeyCode>) -> bool {

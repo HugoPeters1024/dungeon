@@ -281,7 +281,8 @@ fn world_scale_to_local(world: &World, entity: Entity, world_scale: Vec3) -> Vec
                 .affine()
                 .inverse()
                 .to_scale_rotation_translation()
-                .0 * world_scale
+                .0
+                * world_scale
         } else {
             world_scale
         }
