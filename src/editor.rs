@@ -85,7 +85,7 @@ fn setup_prefabs(
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
 ) {
-    prefabs.add(
+    prefabs.register_prefab(
         "Bong",
         commands.register_system(
             |mut commands: Commands, assets: Res<GameAssets>, spawn_pos: Res<SpawnPosition>| {
@@ -110,7 +110,7 @@ fn setup_prefabs(
 
     let gltf = gltfs.get(assets.castle_test.id()).unwrap();
     for (name, node) in gltf.named_nodes.iter() {
-        prefabs.add(
+        prefabs.register_prefab(
             name.clone(),
             commands.register_system(spawn_gltf_node_system(node.clone())),
         );

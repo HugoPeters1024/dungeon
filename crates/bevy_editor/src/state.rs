@@ -1,9 +1,7 @@
-use bevy::ecs::system::SystemId;
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy_egui::egui;
 
-use crate::ui::UiViewer;
+use crate::{prefabs::Prefabs, ui::UiViewer};
 
 /// Resource that holds the position where new prefabs should be spawned.
 /// Prefab systems can read this to spawn at the correct location.
@@ -25,16 +23,6 @@ pub enum AxisMask {
     Z,
 }
 
-#[derive(Resource, Default, Deref)]
-pub struct Prefabs {
-    pub prefabs: HashMap<String, SystemId>,
-}
-
-impl Prefabs {
-    pub fn add(&mut self, name: impl Into<String>, system: SystemId) {
-        self.prefabs.insert(name.into(), system);
-    }
-}
 
 pub enum ContextMenu {
     Closed,
@@ -136,7 +124,6 @@ pub struct UiState {
     pub pointer_in_viewport: bool,
     pub context_menu: ContextMenu,
     pub egui_wants_pointer_input: bool,
-    /// Distance from camera at which new prefabs are spawned
     pub spawn_distance: f32,
 }
 
@@ -151,6 +138,10 @@ impl Default for UiState {
         }
     }
 }
+
+/// Pending prefab spawns (separate resource to avoid resource_scope issues)
+#[derive(Resource, Default)]
+pub struct PendingPrefabSpawns(pub Vec<crate::prefabs::PrefabId>);
 
 impl UiState {
     pub fn new() -> Self {

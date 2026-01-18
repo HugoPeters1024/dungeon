@@ -19,8 +19,8 @@ use crate::actions::{
     ActionQueue, FocusCameraAction, MoveAction, MoveSelectionAction, ScaleAction,
     ScaleSelectionAction, process_action_queue,
 };
-use crate::state::{AxisMask, Prefabs, SpawnPosition, UiDockState, UiState};
-use crate::{ContextMenu, HoverNormal, Selected, SelectedAction};
+use crate::state::{AxisMask, SpawnPosition, UiDockState, UiState};
+use crate::{ContextMenu, HoverNormal, PrefabPlugin, Selected, SelectedAction};
 
 const CLICK_DURATION: Duration = Duration::from_millis(500);
 
@@ -55,6 +55,8 @@ impl EditorPlugin {
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(PrefabPlugin);
+
         if !app.is_plugin_added::<MeshPickingPlugin>() {
             app.add_plugins(MeshPickingPlugin);
         }
@@ -68,14 +70,13 @@ impl Plugin for EditorPlugin {
         }
 
         app.add_plugins(PanOrbitCameraPlugin);
-        app.init_resource::<Prefabs>();
         app.init_resource::<SpawnPosition>();
         app.init_resource::<ActionQueue>();
-        
+
         // Initialize EditorEnabled based on whether a custom condition was provided
         let has_custom_condition = self.condition.lock().unwrap().is_some();
         app.insert_resource(EditorEnabled(!has_custom_condition));
-        
+
         if let Some(mut condition) = self.condition.lock().unwrap().take() {
             let world = app.world_mut();
             condition.initialize(world);
@@ -89,6 +90,7 @@ impl Plugin for EditorPlugin {
 
         app.insert_resource(UiDockState::initialize());
         app.insert_resource(UiState::new());
+        app.init_resource::<crate::state::PendingPrefabSpawns>();
 
         app.add_systems(
             Update,
@@ -234,6 +236,17 @@ fn show_ui_system(world: &mut World) -> Result {
     });
 
     world.run_system_cached(set_camera_viewport)?;
+
+    // Process pending prefab spawns after all resource_scopes have ended
+    let pending: Vec<_> = world
+        .resource_mut::<crate::state::PendingPrefabSpawns>()
+        .0
+        .drain(..)
+        .collect();
+    for prefab_id in pending {
+        world.spawn(prefab_id);
+    }
+
     Ok(())
 }
 

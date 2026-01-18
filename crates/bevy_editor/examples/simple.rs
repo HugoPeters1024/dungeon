@@ -35,7 +35,7 @@ fn setup(mut commands: Commands, mut prefabs: ResMut<Prefabs>) {
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.5, -0.5, 0.0)),
     ));
 
-    prefabs.add(
+    prefabs.register_prefab(
         "Red Cube",
         commands.register_system(
             |mut commands: Commands,
@@ -53,7 +53,7 @@ fn setup(mut commands: Commands, mut prefabs: ResMut<Prefabs>) {
             },
         ),
     );
-    prefabs.add(
+    prefabs.register_prefab(
         "Blue Sphere",
         commands.register_system(
             |mut commands: Commands,

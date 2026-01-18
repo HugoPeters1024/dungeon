@@ -5,7 +5,8 @@ use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_wo
 use crate::{
     ActionQueue, ContextMenu, DuplicateAction, EditorAction, EditorCamera, FocusCameraAction,
     Selected, SpawnPosition,
-    state::{EguiWindow, Prefabs, UiState},
+    prefabs::Prefabs,
+    state::{EguiWindow, PendingPrefabSpawns, UiState},
 };
 
 pub struct UiViewer<'a> {
@@ -150,8 +151,8 @@ impl egui_dock::TabViewer for UiViewer<'_> {
             }
             EguiWindow::Prefabs => {
                 ui.label("Prefabs");
-                for (name, on_click) in self.prefabs.iter() {
-                    if ui.button(name).clicked() {
+                for (id, _) in self.prefabs.iter() {
+                    if ui.button(id.name()).clicked() {
                         // Calculate spawn position from editor camera
                         let spawn_pos = self
                             .world
@@ -164,11 +165,9 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                             })
                             .unwrap_or(Vec3::ZERO);
 
-                        // Set the spawn position resource so prefab systems can use it
                         self.world.insert_resource(SpawnPosition(spawn_pos));
-
-                        // Run the spawn system
-                        self.world.run_system(*on_click).unwrap();
+                        // Queue the spawn to happen after all resource_scopes end
+                        self.world.resource_mut::<PendingPrefabSpawns>().0.push(id.clone());
                     }
                 }
             }
