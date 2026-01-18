@@ -74,6 +74,7 @@ pub enum SelectedAction {
     },
     Scale {
         mask: Option<AxisMask>,
+        initial_cursor_pos: Option<Vec2>,
         initial_world_scales: Vec<(Entity, Vec3)>,
     },
 }

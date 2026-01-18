@@ -71,7 +71,11 @@ impl Plugin for EditorPlugin {
         app.init_resource::<Prefabs>();
         app.init_resource::<SpawnPosition>();
         app.init_resource::<ActionQueue>();
-        app.init_resource::<EditorEnabled>();
+        
+        // Initialize EditorEnabled based on whether a custom condition was provided
+        let has_custom_condition = self.condition.lock().unwrap().is_some();
+        app.insert_resource(EditorEnabled(!has_custom_condition));
+        
         if let Some(mut condition) = self.condition.lock().unwrap().take() {
             let world = app.world_mut();
             condition.initialize(world);
@@ -447,6 +451,7 @@ fn handle_selected_action_keys(
             // Store the world scale for scale calculations
             selected.action = Some(SelectedAction::Scale {
                 mask: None,
+                initial_cursor_pos: None,
                 initial_world_scales,
             });
         }
@@ -483,6 +488,7 @@ fn handle_selected_action_keys(
         }
         Some(SelectedAction::Scale {
             mask,
+            initial_cursor_pos: _,
             initial_world_scales,
             ..
         }) => {
@@ -607,6 +613,7 @@ fn handle_scale_mode_movement(
 
     let Some(SelectedAction::Scale {
         mask,
+        initial_cursor_pos,
         initial_world_scales,
         ..
     }) = &mut selected.action
@@ -622,40 +629,57 @@ fn handle_scale_mode_movement(
         return;
     };
 
+    // Initialize the initial cursor position on first frame
+    let initial_cursor = match initial_cursor_pos {
+        Some(pos) => *pos,
+        None => {
+            *initial_cursor_pos = Some(cursor_pos);
+            return;
+        }
+    };
+
     // Get the entity's world position for the reference plane
     let entity_world_pos = global_transforms
         .get(primary)
         .map(|t| t.translation())
         .unwrap_or(Vec3::ZERO);
 
-    // Use Bevy's built-in viewport_to_world to get a ray from camera through cursor
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
-        return;
-    };
-
+    // Calculate distances from entity center for both initial and current cursor positions
     let camera_forward = camera_transform.forward();
-
-    // Define plane perpendicular to camera forward, passing through entity position
     let plane_normal = *camera_forward;
     let plane_point = entity_world_pos;
 
-    // Ray-plane intersection
+    // Get initial intersection point
+    let Ok(initial_ray) = camera.viewport_to_world(camera_transform, initial_cursor) else {
+        return;
+    };
+    let initial_denominator = initial_ray.direction.dot(plane_normal);
+    if initial_denominator.abs() < 1e-6 {
+        return;
+    }
+    let initial_t = (plane_point - initial_ray.origin).dot(plane_normal) / initial_denominator;
+    let initial_intersection = initial_ray.origin + *initial_ray.direction * initial_t;
+    let initial_distance = (initial_intersection - entity_world_pos).length();
+
+    // Get current intersection point
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+        return;
+    };
     let denominator = ray.direction.dot(plane_normal);
     if denominator.abs() < 1e-6 {
         return;
     }
-
     let t = (plane_point - ray.origin).dot(plane_normal) / denominator;
     let intersection = ray.origin + *ray.direction * t;
+    let current_distance = (intersection - entity_world_pos).length();
 
-    // Calculate scale factor based on distance from entity center
-    // The further the cursor is from the entity, the larger the scale
-    let offset = intersection - entity_world_pos;
-    let distance = offset.length();
-
-    // Use a base distance to normalize the scale (adjust this for sensitivity)
-    let base_distance = 2.0;
-    let scale_factor = (distance / base_distance).max(0.01); // Prevent zero/negative scale
+    // Calculate scale factor based on the ratio of distances
+    // When cursor hasn't moved, distances are equal, so scale_factor = 1.0
+    let scale_factor = if initial_distance > 1e-6 {
+        (current_distance / initial_distance).max(0.01)
+    } else {
+        1.0
+    };
 
     // Apply axis mask
     for (entity, initial_world_scale) in initial_world_scales.iter().copied() {
@@ -704,6 +728,7 @@ fn record_selected_actions(
         }
         Some(SelectedAction::Scale {
             initial_world_scales,
+            initial_cursor_pos: _,
             ..
         }) => {
             let mut scales = Vec::new();
