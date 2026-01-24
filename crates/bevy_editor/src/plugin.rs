@@ -19,7 +19,7 @@ use crate::actions::{
     ActionQueue, FocusCameraAction, MoveAction, MoveSelectionAction, ScaleAction,
     ScaleSelectionAction, process_action_queue,
 };
-use crate::state::{AxisMask, SpawnPosition, UiDockState, UiState};
+use crate::state::{AxisMask, UiDockState, UiState};
 use crate::{ContextMenu, HoverNormal, PrefabPlugin, Selected, SelectedAction};
 
 const CLICK_DURATION: Duration = Duration::from_millis(500);
@@ -70,7 +70,6 @@ impl Plugin for EditorPlugin {
         }
 
         app.add_plugins(PanOrbitCameraPlugin);
-        app.init_resource::<SpawnPosition>();
         app.init_resource::<ActionQueue>();
 
         // Initialize EditorEnabled based on whether a custom condition was provided
@@ -243,8 +242,24 @@ fn show_ui_system(world: &mut World) -> Result {
         .0
         .drain(..)
         .collect();
+
+    // Calculate spawn position from editor camera
+    let spawn_pos = world
+        .query_filtered::<&Transform, With<EditorCamera>>()
+        .iter(world)
+        .next()
+        .map(|cam_transform| {
+            let forward = cam_transform.forward();
+            cam_transform.translation + *forward * 3.0
+        })
+        .unwrap_or(Vec3::ZERO);
+
+    dbg!(spawn_pos);
+
     for prefab_id in pending {
-        world.spawn(prefab_id);
+        world
+            .spawn(prefab_id)
+            .insert(Transform::from_translation(spawn_pos));
     }
 
     Ok(())

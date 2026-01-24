@@ -37,9 +37,41 @@ impl std::ops::Deref for Prefabs {
     }
 }
 
+struct SpawnPrefabCommand<B: Bundle> {
+    system_id: SystemId<(), B>,
+}
+
+impl<B: Bundle> Command for SpawnPrefabCommand<B> {
+    fn apply(self, world: &mut World) {
+        let bundle = world.run_system(self.system_id).unwrap();
+        world.spawn(bundle);
+    }
+}
+
 impl Prefabs {
-    pub fn register_prefab(&mut self, name: impl Into<String>, system: SystemId) {
-        self.prefabs.insert(PrefabId(name.into()), system);
+    pub fn register_prefab<M, B: Bundle + 'static>(
+        &mut self,
+        commands: &mut Commands,
+        name: impl Into<String>,
+        factory: impl IntoSystem<(), B, M> + 'static,
+    ) {
+        let factory_id: SystemId<(), B> = commands.register_system(factory);
+        let spawn_system = commands.register_system(move |mut commands: Commands| {
+            commands.queue(SpawnPrefabCommand {
+                system_id: factory_id,
+            });
+        });
+        self.prefabs.insert(PrefabId(name.into()), spawn_system);
+    }
+
+    pub fn register_prefab_spawner<M>(
+        &mut self,
+        commands: &mut Commands,
+        name: impl Into<String>,
+        spawner: impl IntoSystem<(), (), M> + 'static,
+    ) {
+        let system_id = commands.register_system(spawner);
+        self.prefabs.insert(PrefabId(name.into()), system_id);
     }
 }
 

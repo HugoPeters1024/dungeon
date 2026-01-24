@@ -4,7 +4,7 @@ use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_wo
 
 use crate::{
     ActionQueue, ContextMenu, DuplicateAction, EditorAction, EditorCamera, FocusCameraAction,
-    Selected, SpawnPosition,
+    Selected,
     prefabs::Prefabs,
     state::{EguiWindow, PendingPrefabSpawns, UiState},
 };
@@ -153,21 +153,11 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                 ui.label("Prefabs");
                 for (id, _) in self.prefabs.iter() {
                     if ui.button(id.name()).clicked() {
-                        // Calculate spawn position from editor camera
-                        let spawn_pos = self
-                            .world
-                            .query_filtered::<&Transform, With<EditorCamera>>()
-                            .iter(self.world)
-                            .next()
-                            .map(|cam_transform| {
-                                let forward = cam_transform.forward();
-                                cam_transform.translation + *forward * self.state.spawn_distance
-                            })
-                            .unwrap_or(Vec3::ZERO);
-
-                        self.world.insert_resource(SpawnPosition(spawn_pos));
                         // Queue the spawn to happen after all resource_scopes end
-                        self.world.resource_mut::<PendingPrefabSpawns>().0.push(id.clone());
+                        self.world
+                            .resource_mut::<PendingPrefabSpawns>()
+                            .0
+                            .push(id.clone());
                     }
                 }
             }

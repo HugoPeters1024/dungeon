@@ -36,39 +36,31 @@ fn setup(mut commands: Commands, mut prefabs: ResMut<Prefabs>) {
     ));
 
     prefabs.register_prefab(
+        &mut commands,
         "Red Cube",
-        commands.register_system(
-            |mut commands: Commands,
-             mut meshes: ResMut<Assets<Mesh>>,
-             mut materials: ResMut<Assets<StandardMaterial>>| {
-                commands.spawn((
-                    Name::new("Red Cube"),
-                    Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-                    MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color: Color::srgb(1.0, 0.0, 0.0),
-                        ..default()
-                    })),
-                    Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-                ));
-            },
-        ),
+        |mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>| {
+            (
+                Name::new("Red Cube"),
+                Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: Color::srgb(1.0, 0.0, 0.0),
+                    ..default()
+                })),
+            )
+        },
     );
     prefabs.register_prefab(
+        &mut commands,
         "Blue Sphere",
-        commands.register_system(
-            |mut commands: Commands,
-             mut meshes: ResMut<Assets<Mesh>>,
-             mut materials: ResMut<Assets<StandardMaterial>>| {
-                commands.spawn((
-                    Name::new("Blue Sphere"),
-                    Mesh3d(meshes.add(Sphere::new(0.5))),
-                    MeshMaterial3d(materials.add(StandardMaterial {
-                        base_color: Color::srgb(0.0, 0.0, 1.0),
-                        ..default()
-                    })),
-                    Transform::from_translation(Vec3::new(2.0, 0.0, 0.0)),
-                ));
-            },
-        ),
+        |mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>| {
+            (
+                Name::new("Blue Sphere"),
+                Mesh3d(meshes.add(Sphere::new(0.5))),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: Color::srgb(0.0, 0.0, 1.0),
+                    ..default()
+                })),
+            )
+        },
     );
 }
