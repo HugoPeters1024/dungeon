@@ -16,6 +16,9 @@ impl Plugin for PrefabPlugin {
 pub struct PrefabId(String);
 
 impl PrefabId {
+    pub fn new(x: impl Into<String>) -> Self {
+        PrefabId(x.into())
+    }
     pub fn name(&self) -> &str {
         &self.0
     }
@@ -27,24 +30,9 @@ impl From<String> for PrefabId {
     }
 }
 
-trait PrefabFactory: Send + Sync {
-    fn spawn(&self, world: &mut World, entity: Entity);
-}
-
-struct PrefabFactoryImpl<B: Bundle> {
-    factory_id: SystemId<(), B>,
-}
-
-impl<B: Bundle> PrefabFactory for PrefabFactoryImpl<B> {
-    fn spawn(&self, world: &mut World, entity: Entity) {
-        let bundle = world.run_system(self.factory_id).unwrap();
-        world.entity_mut(entity).insert(bundle);
-    }
-}
-
 #[derive(Resource, Default)]
 pub struct Prefabs {
-    prefabs: HashMap<PrefabId, Box<dyn PrefabFactory>>,
+    prefabs: HashMap<PrefabId, SystemId<In<Entity>, ()>>,
     /// Legacy spawner systems that spawn their own entities
     spawners: HashMap<PrefabId, SystemId>,
 }
@@ -54,17 +42,24 @@ impl Prefabs {
         self.prefabs.keys().chain(self.spawners.keys())
     }
 
-    pub fn register_prefab<M, B: Bundle + 'static>(
+    pub fn register_prefab<
+        M,
+        B: Bundle + 'static,
+        I: IntoSystem<(), B, M> + 'static,
+    >(
         &mut self,
         commands: &mut Commands,
         name: impl Into<String>,
-        factory: impl IntoSystem<(), B, M> + 'static,
+        factory: I,
     ) {
-        let factory_id: SystemId<(), B> = commands.register_system(factory);
-        self.prefabs.insert(
-            PrefabId(name.into()),
-            Box::new(PrefabFactoryImpl { factory_id }),
-        );
+        let get_bundle = commands.register_system(factory);
+        let wrapper = move |In(target): In<Entity>, world: &mut World| {
+            let bundle = world.run_system(get_bundle).unwrap();
+            world.entity_mut(target).insert(bundle);
+        };
+
+        let factory_id = commands.register_system(wrapper);
+        self.prefabs.insert(PrefabId(name.into()), factory_id);
     }
 
     pub fn register_prefab_spawner<M>(
@@ -78,34 +73,19 @@ impl Prefabs {
     }
 }
 
-struct InsertPrefabCommand {
-    entity: Entity,
-    prefab_id: PrefabId,
-}
-
-impl Command for InsertPrefabCommand {
-    fn apply(self, world: &mut World) {
-        world.resource_scope(|world, prefabs: Mut<Prefabs>| {
-            if let Some(factory) = prefabs.prefabs.get(&self.prefab_id) {
-                factory.spawn(world, self.entity);
-            } else if let Some(&spawner_id) = prefabs.spawners.get(&self.prefab_id) {
-                world.run_system(spawner_id).unwrap();
-            } else {
-                warn!("Spawned unregistered prefab with id: {}", self.prefab_id.0);
-            }
-        });
-    }
-}
-
-fn on_prefab_id_spawn(on: On<Add, PrefabId>, mut commands: Commands, prefab_ids: Query<&PrefabId>) {
+fn on_prefab_id_spawn(
+    on: On<Add, PrefabId>,
+    mut commands: Commands,
+    prefab_ids: Query<&PrefabId>,
+    prefabs: Res<Prefabs>,
+) {
     let entity = on.event_target();
 
     let Ok(prefab_id) = prefab_ids.get(entity) else {
         return;
     };
 
-    commands.queue(InsertPrefabCommand {
-        entity,
-        prefab_id: prefab_id.clone(),
-    });
+    if let Some(factory) = prefabs.prefabs.get(prefab_id) {
+        commands.run_system_with(factory.clone(), entity);
+    };
 }

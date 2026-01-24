@@ -57,6 +57,7 @@ impl EditorPlugin {
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(PrefabPlugin);
+        app.add_plugins(crate::scene::ScenePlugin);
 
         if !app.is_plugin_added::<MeshPickingPlugin>() {
             app.add_plugins(MeshPickingPlugin);

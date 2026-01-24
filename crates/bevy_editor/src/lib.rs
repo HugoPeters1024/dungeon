@@ -3,6 +3,7 @@ mod plugin;
 mod prefabs;
 mod state;
 mod ui;
+mod scene;
 
 pub use actions::{
     Action, ActionQueue, DuplicateAction, EditorAction, FocusCameraAction, MoveAction,
