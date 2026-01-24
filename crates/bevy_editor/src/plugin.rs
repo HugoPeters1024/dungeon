@@ -2,6 +2,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use bevy::camera::Viewport;
+use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::RenderLayers;
 use bevy::color::palettes::tailwind::{PINK_100, RED_500};
 use bevy::mesh::Indices;
@@ -95,6 +96,7 @@ impl Plugin for EditorPlugin {
             Update,
             (
                 draw_axes,
+                draw_aabb,
                 set_hover_normal,
                 handle_selected_action_keys,
                 handle_grab_mode_movement,
@@ -254,8 +256,6 @@ fn show_ui_system(world: &mut World) -> Result {
         })
         .unwrap_or(Vec3::ZERO);
 
-    dbg!(spawn_pos);
-
     for prefab_id in pending {
         world
             .spawn(prefab_id)
@@ -386,6 +386,19 @@ fn draw_axes(mut gizmos: Gizmos, query: Query<&GlobalTransform>, selected: Res<S
     for entity in selected.entities.iter().copied() {
         if let Ok(transform) = query.get(entity) {
             gizmos.axes(*transform, 1.5);
+        }
+    }
+}
+
+fn draw_aabb(mut gizmos: Gizmos, query: Query<(&GlobalTransform, &Aabb)>, selected: Res<Selected>) {
+    for entity in selected.entities.iter().copied() {
+        if let Ok((transform, aabb)) = query.get(entity) {
+            let aabb_transform = *transform
+                * GlobalTransform::from(
+                    Transform::from_translation(aabb.center.into())
+                        .with_scale((aabb.half_extents * 2.0).into()),
+                );
+            gizmos.cuboid(aabb_transform, PINK_100);
         }
     }
 }

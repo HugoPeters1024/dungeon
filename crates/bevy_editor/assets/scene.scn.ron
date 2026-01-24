@@ -1,0 +1,25 @@
+(
+  resources: {},
+  entities: {
+    4294967271: (
+      components: {
+        "bevy_editor::prefabs::PrefabId": ("Red Cube"),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-0.9894177, 2.1782935, 2.4735441),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967272: (
+      components: {
+        "bevy_editor::prefabs::PrefabId": ("Blue Sphere"),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-0.9894177, 1.236772, 2.4735441),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+  },
+)

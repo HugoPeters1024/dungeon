@@ -1,6 +1,7 @@
 use std::f32::consts::PI;
 
 use avian3d::prelude::*;
+use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin, FrameTimeGraphConfig};
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::post_process::motion_blur::MotionBlur;
 use bevy::{math::Affine2, prelude::*};
@@ -29,6 +30,29 @@ impl Plugin for GamePlugin {
         app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
         app.add_plugins(EguiPlugin::default());
+
+        #[cfg(debug_assertions)]
+        app.add_plugins(FpsOverlayPlugin {
+            config: FpsOverlayConfig {
+                text_config: TextFont {
+                    font: default(),
+                    font_size: 24.0,
+                    ..default()
+                },
+                // We can also change color of the overlay
+                text_color: Color::linear_rgb(0.8, 0.4, 0.4),
+                // We can also set the refresh interval for the FPS counter
+                refresh_interval: core::time::Duration::from_millis(100),
+                enabled: true,
+                frame_time_graph_config: FrameTimeGraphConfig {
+                    enabled: true,
+                    // The minimum acceptable fps
+                    min_fps: 30.0,
+                    // The target fps
+                    target_fps: 144.0,
+                },
+            },
+        });
 
         app.add_plugins(HanabiPlugin);
 

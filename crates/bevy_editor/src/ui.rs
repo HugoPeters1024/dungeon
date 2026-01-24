@@ -151,7 +151,7 @@ impl egui_dock::TabViewer for UiViewer<'_> {
             }
             EguiWindow::Prefabs => {
                 ui.label("Prefabs");
-                for (id, _) in self.prefabs.iter() {
+                for id in self.prefabs.get_prefab_ids() {
                     if ui.button(id.name()).clicked() {
                         // Queue the spawn to happen after all resource_scopes end
                         self.world
