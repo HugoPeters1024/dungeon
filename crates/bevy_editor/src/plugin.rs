@@ -21,7 +21,7 @@ use crate::actions::{
     ScaleSelectionAction, process_action_queue,
 };
 use crate::state::{AxisMask, UiDockState, UiState};
-use crate::{ContextMenu, HoverNormal, PrefabPlugin, Selected, SelectedAction};
+use crate::{ContextMenu, HoverNormal, PrefabId, PrefabPlugin, Selected, SelectedAction};
 
 const CLICK_DURATION: Duration = Duration::from_millis(500);
 
@@ -321,6 +321,8 @@ fn on_click_object(
     mut commands: Commands,
     mut ui_state: ResMut<UiState>,
     mut selected: Option<ResMut<Selected>>,
+    parents: Query<&ChildOf>,
+    prefab_ids: Query<&PrefabId>,
     windows: Query<&Window>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     global_transforms: Query<&GlobalTransform>,
@@ -353,7 +355,11 @@ fn on_click_object(
             return;
         }
 
-        let clicked_entity = trigger.event_target();
+        let clicked_entity = parents
+            .iter_ancestors(trigger.event_target())
+            .filter(|e| prefab_ids.contains(*e))
+            .last()
+            .unwrap_or(trigger.event_target());
         match selected.as_mut() {
             Some(selected) => {
                 selected.action = None;
@@ -391,14 +397,52 @@ fn draw_axes(mut gizmos: Gizmos, query: Query<&GlobalTransform>, selected: Res<S
     }
 }
 
-fn draw_aabb(mut gizmos: Gizmos, query: Query<(&GlobalTransform, &Aabb)>, selected: Res<Selected>) {
+fn draw_aabb(
+    mut gizmos: Gizmos,
+    query: Query<(&GlobalTransform, &Aabb)>,
+    children_query: Query<&Children>,
+    selected: Res<Selected>,
+) {
     for entity in selected.entities.iter().copied() {
-        if let Ok((transform, aabb)) = query.get(entity) {
-            let aabb_transform = *transform
-                * GlobalTransform::from(
-                    Transform::from_translation(aabb.center.into())
-                        .with_scale((aabb.half_extents * 2.0).into()),
-                );
+        // Collect all AABBs from the entity and its descendants, transformed to world space
+        let mut min = Vec3::splat(f32::INFINITY);
+        let mut max = Vec3::splat(f32::NEG_INFINITY);
+        let mut has_aabb = false;
+
+        // Helper to merge an entity's AABB into the world-space bounds
+        let mut merge_aabb = |entity: Entity| {
+            if let Ok((global_transform, aabb)) = query.get(entity) {
+                has_aabb = true;
+                // Transform the 8 corners of the local AABB to world space
+                let center: Vec3 = aabb.center.into();
+                let half: Vec3 = aabb.half_extents.into();
+                for x in [-1.0, 1.0] {
+                    for y in [-1.0, 1.0] {
+                        for z in [-1.0, 1.0] {
+                            let local_corner = center + half * Vec3::new(x, y, z);
+                            let world_corner = global_transform.transform_point(local_corner);
+                            min = min.min(world_corner);
+                            max = max.max(world_corner);
+                        }
+                    }
+                }
+            }
+        };
+
+        // Merge the selected entity's AABB
+        merge_aabb(entity);
+
+        // Merge all descendants' AABBs
+        for descendant in children_query.iter_descendants(entity) {
+            merge_aabb(descendant);
+        }
+
+        // Draw the merged world-space AABB
+        if has_aabb {
+            let center = (min + max) * 0.5;
+            let size = max - min;
+            let aabb_transform =
+                GlobalTransform::from(Transform::from_translation(center).with_scale(size));
             gizmos.cuboid(aabb_transform, PINK_100);
         }
     }
