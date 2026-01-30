@@ -449,18 +449,30 @@ fn draw_aabb(
 }
 
 /// Draws normals at the mouse hover position, but only if the hovered entity
-/// is the currently selected entity.
+/// is the currently selected entity or one of its descendants.
 fn set_hover_normal(
     pointers: Query<&PointerInteraction>,
     mut selected: ResMut<Selected>,
     mut gizmos: Gizmos,
+    children_query: Query<&Children>,
 ) {
     let selected_entity = selected.primary();
     selected.hover_normal = None;
+
+    // Check if an entity is the selected entity or a descendant of it
+    let is_selected_or_descendant = |entity: Entity| -> bool {
+        if entity == selected_entity {
+            return true;
+        }
+        children_query
+            .iter_descendants(selected_entity)
+            .any(|descendant| descendant == entity)
+    };
+
     for (point, normal) in pointers
         .iter()
         .filter_map(|interaction| interaction.get_nearest_hit())
-        .filter(|(entity, _hit)| *entity == selected_entity)
+        .filter(|(entity, _hit)| is_selected_or_descendant(*entity))
         .filter_map(|(_entity, hit)| hit.position.zip(hit.normal))
     {
         if selected.action.is_none() {

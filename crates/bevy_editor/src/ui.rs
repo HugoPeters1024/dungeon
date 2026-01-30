@@ -4,7 +4,7 @@ use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_wo
 
 use crate::{
     ActionQueue, ContextMenu, DuplicateAction, EditorAction, EditorCamera, FocusCameraAction,
-    Selected,
+    MergeAction, Selected,
     prefabs::Prefabs,
     state::{EguiWindow, PendingPrefabSpawns, UiState},
 };
@@ -55,12 +55,26 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                                     if let Some(selected) = self.world.get_resource::<Selected>() {
                                         let entity = selected.primary();
+                                        let selection_count = selected.entities.len();
 
-                                        if ui.button("Duplicate").clicked() {
+                                        // Duplicate only available when exactly 1 entity is selected
+                                        if selection_count == 1 && ui.button("Duplicate").clicked()
+                                        {
                                             pending_actions.push(
                                                 DuplicateAction {
                                                     entity,
                                                     offset: hover_normal.normal,
+                                                }
+                                                .into(),
+                                            );
+                                            should_close = true;
+                                        }
+
+                                        // Merge available when multiple entities are selected
+                                        if selection_count > 1 && ui.button("Merge").clicked() {
+                                            pending_actions.push(
+                                                MergeAction {
+                                                    entities: selected.entities.clone(),
                                                 }
                                                 .into(),
                                             );

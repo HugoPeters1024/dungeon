@@ -42,11 +42,7 @@ impl Prefabs {
         self.prefabs.keys().chain(self.spawners.keys())
     }
 
-    pub fn register_prefab<
-        M,
-        B: Bundle + 'static,
-        I: IntoSystem<(), B, M> + 'static,
-    >(
+    pub fn register_prefab<M, B: Bundle + 'static, I: IntoSystem<(), B, M> + 'static>(
         &mut self,
         commands: &mut Commands,
         name: impl Into<String>,
@@ -86,6 +82,6 @@ fn on_prefab_id_spawn(
     };
 
     if let Some(factory) = prefabs.prefabs.get(prefab_id) {
-        commands.run_system_with(factory.clone(), entity);
+        commands.run_system_with(*factory, entity);
     };
 }

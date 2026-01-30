@@ -1,12 +1,12 @@
 mod actions;
 mod plugin;
 mod prefabs;
+mod scene;
 mod state;
 mod ui;
-mod scene;
 
 pub use actions::{
-    Action, ActionQueue, DuplicateAction, EditorAction, FocusCameraAction, MoveAction,
+    Action, ActionQueue, DuplicateAction, EditorAction, FocusCameraAction, MergeAction, MoveAction,
     MoveSelectionAction, ScaleAction, ScaleSelectionAction,
 };
 pub use bevy_panorbit_camera;

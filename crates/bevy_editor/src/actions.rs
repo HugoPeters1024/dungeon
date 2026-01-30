@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_panorbit_camera::PanOrbitCamera;
 
-use crate::EditorCamera;
+use crate::{EditorCamera, PrefabId, Selected};
 
 /// Trait for actions that can be applied to the world
 pub trait Action: Clone + std::fmt::Debug + Send + Sync + 'static {
@@ -18,8 +18,12 @@ pub struct DuplicateAction {
 
 impl Action for DuplicateAction {
     fn apply(&self, world: &mut World) {
-        // Clone the entity
-        let new_entity = world.entity_mut(self.entity).clone_and_spawn();
+        // Clone the entity recursively (including children)
+        let new_entity = world
+            .entity_mut(self.entity)
+            .clone_and_spawn_with_opt_out(|builder| {
+                builder.linked_cloning(true);
+            });
 
         // Offset the new entity's transform
         if let Some(mut transform) = world.get_mut::<Transform>(new_entity) {
@@ -131,6 +135,105 @@ impl Action for ScaleSelectionAction {
     }
 }
 
+/// Merge multiple entities into a new parent entity
+/// Removes PrefabId from each entity and creates a new parent with combined PrefabId
+#[derive(Clone, Debug)]
+pub struct MergeAction {
+    pub entities: Vec<Entity>,
+}
+
+impl Action for MergeAction {
+    fn apply(&self, world: &mut World) {
+        // Collect PrefabId names and world transforms from all entities
+        let mut prefab_names: Vec<String> = Vec::new();
+        let mut world_transforms: Vec<(Entity, Transform)> = Vec::new();
+
+        for &entity in &self.entities {
+            if let Some(prefab_id) = world.get::<PrefabId>(entity) {
+                prefab_names.push(prefab_id.name().to_string());
+            }
+            // Store the world-space transform for each entity
+            if let Some(global_transform) = world.get::<GlobalTransform>(entity) {
+                let (scale, rotation, translation) =
+                    global_transform.to_scale_rotation_translation();
+                world_transforms.push((
+                    entity,
+                    Transform {
+                        translation,
+                        rotation,
+                        scale,
+                    },
+                ));
+            }
+        }
+
+        // Remove PrefabId from all entities
+        for &entity in &self.entities {
+            world.entity_mut(entity).remove::<PrefabId>();
+        }
+
+        // Create combined name
+        let combined_name = prefab_names.join("-");
+
+        // Compute average transform for the parent
+        let count = world_transforms.len() as f32;
+        let parent_transform = if count > 0.0 {
+            let avg_translation = world_transforms
+                .iter()
+                .map(|(_, t)| t.translation)
+                .sum::<Vec3>()
+                / count;
+            let avg_scale = world_transforms.iter().map(|(_, t)| t.scale).sum::<Vec3>() / count;
+            // For rotation, use the first entity's rotation (averaging quaternions is complex)
+            let avg_rotation = world_transforms
+                .first()
+                .map(|(_, t)| t.rotation)
+                .unwrap_or(Quat::IDENTITY);
+            Transform {
+                translation: avg_translation,
+                rotation: avg_rotation,
+                scale: avg_scale,
+            }
+        } else {
+            Transform::default()
+        };
+
+        // Spawn new parent entity with combined PrefabId
+        // InheritedVisibility is needed for picking to work on the entity and its children
+        let parent = world
+            .spawn((
+                PrefabId::new(combined_name),
+                parent_transform,
+                InheritedVisibility::default(),
+            ))
+            .add_children(&self.entities)
+            .id();
+
+        // Adjust each child's local transform so it stays at the same world position
+        let parent_inverse = parent_transform.compute_affine().inverse();
+        for (entity, world_transform) in world_transforms {
+            let local_pos = parent_inverse.transform_point3(world_transform.translation);
+            let local_rotation = parent_transform.rotation.inverse() * world_transform.rotation;
+            let local_scale = world_transform.scale / parent_transform.scale;
+
+            if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+                transform.translation = local_pos;
+                transform.rotation = local_rotation;
+                transform.scale = local_scale;
+            }
+        }
+
+        // Select the newly created parent
+        if let Some(mut selected) = world.get_resource_mut::<Selected>() {
+            selected.set_single(parent);
+        }
+    }
+
+    fn name(&self) -> String {
+        format!("merge {} entities", self.entities.len())
+    }
+}
+
 /// Represents an action that can be applied to the world.
 /// Actions are queued and executed later, enabling undo/redo support.
 #[derive(Clone, Debug)]
@@ -141,6 +244,7 @@ pub enum EditorAction {
     MoveSelection(MoveSelectionAction),
     Scale(ScaleAction),
     ScaleSelection(ScaleSelectionAction),
+    Merge(MergeAction),
 }
 
 impl EditorAction {
@@ -152,6 +256,7 @@ impl EditorAction {
             EditorAction::MoveSelection(action) => action.apply(world),
             EditorAction::Scale(action) => action.apply(world),
             EditorAction::ScaleSelection(action) => action.apply(world),
+            EditorAction::Merge(action) => action.apply(world),
         }
     }
 
@@ -163,6 +268,7 @@ impl EditorAction {
             EditorAction::MoveSelection(action) => action.name(),
             EditorAction::Scale(action) => action.name(),
             EditorAction::ScaleSelection(action) => action.name(),
+            EditorAction::Merge(action) => action.name(),
         }
     }
 }
@@ -200,6 +306,12 @@ impl From<ScaleAction> for EditorAction {
 impl From<ScaleSelectionAction> for EditorAction {
     fn from(action: ScaleSelectionAction) -> Self {
         EditorAction::ScaleSelection(action)
+    }
+}
+
+impl From<MergeAction> for EditorAction {
+    fn from(action: MergeAction) -> Self {
+        EditorAction::Merge(action)
     }
 }
 

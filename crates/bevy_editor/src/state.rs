@@ -61,7 +61,7 @@ pub enum SelectedAction {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HoverNormal {
     pub point: Vec3,
     pub normal: Vec3,
