@@ -18,7 +18,7 @@ use bevy_panorbit_camera::PanOrbitCamera;
 
 use crate::actions::{
     ActionQueue, FocusCameraAction, MoveAction, MoveSelectionAction, ScaleAction,
-    ScaleSelectionAction, process_action_queue,
+    ScaleSelectionAction, process_action_queue, handle_undo_redo_input,
 };
 use crate::state::{AxisMask, UiDockState, UiState};
 use crate::{ContextMenu, HoverNormal, PrefabId, PrefabPlugin, Selected, SelectedAction};
@@ -107,7 +107,7 @@ impl Plugin for EditorPlugin {
                 .run_if(editor_enabled),
         );
 
-        app.add_systems(Update, process_action_queue.run_if(editor_enabled));
+        app.add_systems(Update, (handle_undo_redo_input, process_action_queue).chain().run_if(editor_enabled));
 
         {
             let mut system = show_ui_system.into_configs();

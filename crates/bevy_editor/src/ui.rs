@@ -193,8 +193,49 @@ impl egui_dock::TabViewer for UiViewer<'_> {
             EguiWindow::History => {
                 self.world
                     .resource_scope::<ActionQueue, ()>(|_world, action_queue| {
-                        for action in action_queue.history_tail(5) {
-                            ui.label(action.name());
+                        let history_index = action_queue.history_index();
+                        let history_len = action_queue.history_len();
+
+                        // Show undo/redo status
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}/{}", history_index, history_len));
+                            ui.separator();
+                            if action_queue.can_undo() {
+                                ui.label("Ctrl+Z: undo");
+                            }
+                            if action_queue.can_redo() {
+                                ui.label("Ctrl+Y: redo");
+                            }
+                        });
+                        ui.separator();
+
+                        // Show recent history with current position indicator
+                        let start = history_index.saturating_sub(5);
+                        let end = (history_index + 3).min(history_len);
+
+                        for (i, (action, is_undone)) in action_queue.iter_history().enumerate() {
+                            if i < start || i >= end {
+                                continue;
+                            }
+                            let is_current = i == history_index.saturating_sub(1) && history_index > 0;
+
+                            let text = if is_current {
+                                format!("> {}", action.name())
+                            } else if is_undone {
+                                format!("  {} (undone)", action.name())
+                            } else {
+                                format!("  {}", action.name())
+                            };
+
+                            let color = if is_undone {
+                                egui::Color32::GRAY
+                            } else if is_current {
+                                egui::Color32::WHITE
+                            } else {
+                                egui::Color32::LIGHT_GRAY
+                            };
+
+                            ui.label(egui::RichText::new(text).color(color));
                         }
                     });
             }
