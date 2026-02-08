@@ -2,20 +2,23 @@ mod traits;
 mod duplicate;
 mod focus_camera;
 mod merge;
-mod move_action;
 mod queue;
-mod scale;
-mod utils;
+mod transform;
 
 pub use traits::{Action, UndoFn};
 pub use duplicate::DuplicateAction;
 pub use focus_camera::FocusCameraAction;
 pub use merge::MergeAction;
-pub use move_action::{MoveAction, MoveSelectionAction};
 pub use queue::{ActionQueue, handle_undo_redo_input, process_action_queue};
-pub use scale::{ScaleAction, ScaleSelectionAction};
+pub use transform::{TransformAction, TransformSelectionAction, TransformKind};
 
 use bevy::prelude::*;
+
+// Type aliases for backwards compatibility
+pub type MoveAction = TransformAction;
+pub type MoveSelectionAction = TransformSelectionAction;
+pub type ScaleAction = TransformAction;
+pub type ScaleSelectionAction = TransformSelectionAction;
 
 /// Represents an action that can be applied to the world.
 /// Actions are queued and executed later, enabling undo/redo support.
@@ -23,10 +26,8 @@ use bevy::prelude::*;
 pub enum EditorAction {
     Duplicate(DuplicateAction),
     FocusCamera(FocusCameraAction),
-    Move(MoveAction),
-    MoveSelection(MoveSelectionAction),
-    Scale(ScaleAction),
-    ScaleSelection(ScaleSelectionAction),
+    Transform(TransformAction),
+    TransformSelection(TransformSelectionAction),
     Merge(MergeAction),
 }
 
@@ -35,10 +36,8 @@ impl EditorAction {
         match self {
             EditorAction::Duplicate(action) => action.apply(world),
             EditorAction::FocusCamera(action) => action.apply(world),
-            EditorAction::Move(action) => action.apply(world),
-            EditorAction::MoveSelection(action) => action.apply(world),
-            EditorAction::Scale(action) => action.apply(world),
-            EditorAction::ScaleSelection(action) => action.apply(world),
+            EditorAction::Transform(action) => action.apply(world),
+            EditorAction::TransformSelection(action) => action.apply(world),
             EditorAction::Merge(action) => action.apply(world),
         }
     }
@@ -47,10 +46,8 @@ impl EditorAction {
         match self {
             EditorAction::Duplicate(action) => action.name(),
             EditorAction::FocusCamera(action) => action.name(),
-            EditorAction::Move(action) => action.name(),
-            EditorAction::MoveSelection(action) => action.name(),
-            EditorAction::Scale(action) => action.name(),
-            EditorAction::ScaleSelection(action) => action.name(),
+            EditorAction::Transform(action) => action.name(),
+            EditorAction::TransformSelection(action) => action.name(),
             EditorAction::Merge(action) => action.name(),
         }
     }
@@ -68,27 +65,15 @@ impl From<FocusCameraAction> for EditorAction {
     }
 }
 
-impl From<MoveAction> for EditorAction {
-    fn from(action: MoveAction) -> Self {
-        EditorAction::Move(action)
+impl From<TransformAction> for EditorAction {
+    fn from(action: TransformAction) -> Self {
+        EditorAction::Transform(action)
     }
 }
 
-impl From<MoveSelectionAction> for EditorAction {
-    fn from(action: MoveSelectionAction) -> Self {
-        EditorAction::MoveSelection(action)
-    }
-}
-
-impl From<ScaleAction> for EditorAction {
-    fn from(action: ScaleAction) -> Self {
-        EditorAction::Scale(action)
-    }
-}
-
-impl From<ScaleSelectionAction> for EditorAction {
-    fn from(action: ScaleSelectionAction) -> Self {
-        EditorAction::ScaleSelection(action)
+impl From<TransformSelectionAction> for EditorAction {
+    fn from(action: TransformSelectionAction) -> Self {
+        EditorAction::TransformSelection(action)
     }
 }
 

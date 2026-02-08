@@ -6,8 +6,10 @@ mod state;
 mod ui;
 
 pub use actions::{
-    Action, ActionQueue, DuplicateAction, EditorAction, FocusCameraAction, MergeAction, MoveAction,
-    MoveSelectionAction, ScaleAction, ScaleSelectionAction,
+    Action, ActionQueue, DuplicateAction, EditorAction, FocusCameraAction, MergeAction,
+    TransformAction, TransformSelectionAction, TransformKind,
+    // Type aliases for backwards compatibility
+    MoveAction, MoveSelectionAction, ScaleAction, ScaleSelectionAction,
 };
 pub use bevy_panorbit_camera::{self, PanOrbitCamera, TrackpadBehavior};
 pub use plugin::{EditorCamera, EditorPlugin};

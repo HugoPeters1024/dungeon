@@ -17,8 +17,8 @@ use bevy_panorbit_camera::PanOrbitCameraPlugin;
 use bevy_panorbit_camera::PanOrbitCamera;
 
 use crate::actions::{
-    ActionQueue, FocusCameraAction, MoveAction, MoveSelectionAction, ScaleAction,
-    ScaleSelectionAction, process_action_queue, handle_undo_redo_input,
+    ActionQueue, FocusCameraAction, TransformAction, TransformSelectionAction,
+    process_action_queue, handle_undo_redo_input,
 };
 use crate::state::{AxisMask, UiDockState, UiState};
 use crate::{ContextMenu, HoverNormal, PrefabId, PrefabPlugin, Selected, SelectedAction};
@@ -807,21 +807,17 @@ fn record_selected_actions(
             initial_world_positions,
             ..
         }) => {
-            let mut moves = Vec::new();
+            let mut transforms = Vec::new();
             for (entity, old_position) in initial_world_positions.iter().copied() {
                 if let Ok(global_transform) = global_transforms.get(entity) {
                     let new_position = global_transform.translation();
                     if (old_position - new_position).length_squared() > 1e-6 {
-                        moves.push(MoveAction {
-                            entity,
-                            old_position,
-                            new_position,
-                        });
+                        transforms.push(TransformAction::move_entity(entity, old_position, new_position));
                     }
                 }
             }
-            if !moves.is_empty() {
-                action_queue.push(MoveSelectionAction { moves }.into());
+            if !transforms.is_empty() {
+                action_queue.push(TransformSelectionAction::new(transforms).into());
             }
         }
         Some(SelectedAction::Scale {
@@ -829,21 +825,17 @@ fn record_selected_actions(
             initial_cursor_pos: _,
             ..
         }) => {
-            let mut scales = Vec::new();
+            let mut transforms = Vec::new();
             for (entity, old_scale) in initial_world_scales.iter().copied() {
                 if let Ok(global_transform) = global_transforms.get(entity) {
                     let new_scale = global_transform.to_scale_rotation_translation().0;
                     if (old_scale - new_scale).length_squared() > 1e-6 {
-                        scales.push(ScaleAction {
-                            entity,
-                            old_scale,
-                            new_scale,
-                        });
+                        transforms.push(TransformAction::scale(entity, old_scale, new_scale));
                     }
                 }
             }
-            if !scales.is_empty() {
-                action_queue.push(ScaleSelectionAction { scales }.into());
+            if !transforms.is_empty() {
+                action_queue.push(TransformSelectionAction::new(transforms).into());
             }
         }
         None => {}

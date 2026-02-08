@@ -134,11 +134,180 @@ impl Action for MergeAction {
 mod tests {
     use super::*;
 
+    fn setup_selected(world: &mut World) {
+        // Insert a dummy Selected resource for tests
+        world.insert_resource(Selected::new(Entity::PLACEHOLDER));
+    }
+
     #[test]
     fn test_merge_action_name() {
         let action = MergeAction {
             entities: vec![Entity::PLACEHOLDER, Entity::PLACEHOLDER],
         };
         assert_eq!(action.name(), "merge 2 entities");
+    }
+
+    #[test]
+    fn test_merge_action_name_single() {
+        let action = MergeAction {
+            entities: vec![Entity::PLACEHOLDER],
+        };
+        assert_eq!(action.name(), "merge 1 entities");
+    }
+
+    #[test]
+    fn test_merge_creates_parent() {
+        let mut world = World::new();
+        setup_selected(&mut world);
+
+        let e1 = world.spawn((
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            GlobalTransform::from_xyz(0.0, 0.0, 0.0),
+            PrefabId::new("entity1"),
+        )).id();
+        let e2 = world.spawn((
+            Transform::from_xyz(2.0, 0.0, 0.0),
+            GlobalTransform::from_xyz(2.0, 0.0, 0.0),
+            PrefabId::new("entity2"),
+        )).id();
+
+        let action = MergeAction {
+            entities: vec![e1, e2],
+        };
+
+        let _undo = action.apply(&mut world);
+
+        // Should have created a new parent entity with PrefabId
+        let prefab_count = world.query::<&PrefabId>().iter(&world).count();
+        assert_eq!(prefab_count, 1); // Only the parent has PrefabId now
+    }
+
+    #[test]
+    fn test_merge_removes_prefab_ids_from_children() {
+        let mut world = World::new();
+        setup_selected(&mut world);
+
+        let e1 = world.spawn((
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            GlobalTransform::from_xyz(0.0, 0.0, 0.0),
+            PrefabId::new("entity1"),
+        )).id();
+        let e2 = world.spawn((
+            Transform::from_xyz(2.0, 0.0, 0.0),
+            GlobalTransform::from_xyz(2.0, 0.0, 0.0),
+            PrefabId::new("entity2"),
+        )).id();
+
+        let action = MergeAction {
+            entities: vec![e1, e2],
+        };
+
+        let _undo = action.apply(&mut world);
+
+        // Original entities should no longer have PrefabId
+        assert!(world.get::<PrefabId>(e1).is_none());
+        assert!(world.get::<PrefabId>(e2).is_none());
+    }
+
+    #[test]
+    fn test_merge_undo_restores_prefab_ids() {
+        let mut world = World::new();
+        setup_selected(&mut world);
+
+        let e1 = world.spawn((
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            GlobalTransform::from_xyz(0.0, 0.0, 0.0),
+            PrefabId::new("entity1"),
+        )).id();
+        let e2 = world.spawn((
+            Transform::from_xyz(2.0, 0.0, 0.0),
+            GlobalTransform::from_xyz(2.0, 0.0, 0.0),
+            PrefabId::new("entity2"),
+        )).id();
+
+        let action = MergeAction {
+            entities: vec![e1, e2],
+        };
+
+        let undo = action.apply(&mut world);
+        undo(&mut world);
+
+        // Original entities should have their PrefabIds back
+        assert_eq!(world.get::<PrefabId>(e1).unwrap().name(), "entity1");
+        assert_eq!(world.get::<PrefabId>(e2).unwrap().name(), "entity2");
+    }
+
+    #[test]
+    fn test_merge_undo_removes_parent() {
+        let mut world = World::new();
+        setup_selected(&mut world);
+
+        let e1 = world.spawn((
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            GlobalTransform::from_xyz(0.0, 0.0, 0.0),
+            PrefabId::new("entity1"),
+        )).id();
+        let e2 = world.spawn((
+            Transform::from_xyz(2.0, 0.0, 0.0),
+            GlobalTransform::from_xyz(2.0, 0.0, 0.0),
+            PrefabId::new("entity2"),
+        )).id();
+
+        let initial_entity_count = world.entities().len();
+
+        let action = MergeAction {
+            entities: vec![e1, e2],
+        };
+
+        let undo = action.apply(&mut world);
+        
+        // One more entity (the parent)
+        assert_eq!(world.entities().len(), initial_entity_count + 1);
+
+        undo(&mut world);
+
+        // Back to original count
+        assert_eq!(world.entities().len(), initial_entity_count);
+    }
+
+    #[test]
+    fn test_merge_empty_entities() {
+        let mut world = World::new();
+        setup_selected(&mut world);
+
+        let action = MergeAction {
+            entities: vec![],
+        };
+
+        let undo = action.apply(&mut world);
+        undo(&mut world); // Should not panic
+    }
+
+    #[test]
+    fn test_merge_combined_prefab_name() {
+        let mut world = World::new();
+        setup_selected(&mut world);
+
+        let e1 = world.spawn((
+            Transform::from_xyz(0.0, 0.0, 0.0),
+            GlobalTransform::from_xyz(0.0, 0.0, 0.0),
+            PrefabId::new("rock"),
+        )).id();
+        let e2 = world.spawn((
+            Transform::from_xyz(2.0, 0.0, 0.0),
+            GlobalTransform::from_xyz(2.0, 0.0, 0.0),
+            PrefabId::new("tree"),
+        )).id();
+
+        let action = MergeAction {
+            entities: vec![e1, e2],
+        };
+
+        let _undo = action.apply(&mut world);
+
+        // Find the parent's PrefabId
+        let prefab_ids: Vec<_> = world.query::<&PrefabId>().iter(&world).collect();
+        assert_eq!(prefab_ids.len(), 1);
+        assert_eq!(prefab_ids[0].name(), "rock-tree");
     }
 }
