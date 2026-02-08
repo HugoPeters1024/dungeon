@@ -9,7 +9,7 @@ pub use actions::{
     Action, ActionQueue, DuplicateAction, EditorAction, FocusCameraAction, MergeAction, MoveAction,
     MoveSelectionAction, ScaleAction, ScaleSelectionAction,
 };
-pub use bevy_panorbit_camera;
+pub use bevy_panorbit_camera::{self, PanOrbitCamera, TrackpadBehavior};
 pub use plugin::{EditorCamera, EditorPlugin};
 pub use prefabs::*;
 pub use state::{
