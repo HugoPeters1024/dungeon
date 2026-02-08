@@ -3,6 +3,7 @@ mod duplicate;
 mod focus_camera;
 mod merge;
 mod queue;
+mod spawn_prefab;
 mod transform;
 
 pub use traits::Action;
@@ -10,6 +11,7 @@ pub use duplicate::DuplicateAction;
 pub use focus_camera::FocusCameraAction;
 pub use merge::MergeAction;
 pub use queue::{ActionQueue, handle_undo_redo_input, process_action_queue};
+pub use spawn_prefab::SpawnPrefabAction;
 pub use transform::{TransformAction, TransformSelectionAction, TransformKind};
 
 use bevy::prelude::*;
@@ -29,6 +31,7 @@ pub enum EditorAction {
     Transform(TransformAction),
     TransformSelection(TransformSelectionAction),
     Merge(MergeAction),
+    SpawnPrefab(SpawnPrefabAction),
 }
 
 impl EditorAction {
@@ -39,6 +42,7 @@ impl EditorAction {
             EditorAction::Transform(action) => action.apply(world),
             EditorAction::TransformSelection(action) => action.apply(world),
             EditorAction::Merge(action) => action.apply(world),
+            EditorAction::SpawnPrefab(action) => action.apply(world),
         }
     }
 
@@ -49,6 +53,7 @@ impl EditorAction {
             EditorAction::Transform(action) => action.revert(world),
             EditorAction::TransformSelection(action) => action.revert(world),
             EditorAction::Merge(action) => action.revert(world),
+            EditorAction::SpawnPrefab(action) => action.revert(world),
         }
     }
 
@@ -59,6 +64,7 @@ impl EditorAction {
             EditorAction::Transform(action) => action.name(),
             EditorAction::TransformSelection(action) => action.name(),
             EditorAction::Merge(action) => action.name(),
+            EditorAction::SpawnPrefab(action) => action.name(),
         }
     }
 }
@@ -90,5 +96,11 @@ impl From<TransformSelectionAction> for EditorAction {
 impl From<MergeAction> for EditorAction {
     fn from(action: MergeAction) -> Self {
         EditorAction::Merge(action)
+    }
+}
+
+impl From<SpawnPrefabAction> for EditorAction {
+    fn from(action: SpawnPrefabAction) -> Self {
+        EditorAction::SpawnPrefab(action)
     }
 }

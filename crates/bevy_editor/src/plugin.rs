@@ -91,7 +91,6 @@ impl Plugin for EditorPlugin {
 
         app.insert_resource(UiDockState::initialize());
         app.insert_resource(UiState::new());
-        app.init_resource::<crate::state::PendingPrefabSpawns>();
 
         app.add_systems(
             Update,
@@ -238,30 +237,6 @@ fn show_ui_system(world: &mut World) -> Result {
     });
 
     world.run_system_cached(set_camera_viewport)?;
-
-    // Process pending prefab spawns after all resource_scopes have ended
-    let pending: Vec<_> = world
-        .resource_mut::<crate::state::PendingPrefabSpawns>()
-        .0
-        .drain(..)
-        .collect();
-
-    // Calculate spawn position from editor camera
-    let spawn_pos = world
-        .query_filtered::<&Transform, With<EditorCamera>>()
-        .iter(world)
-        .next()
-        .map(|cam_transform| {
-            let forward = cam_transform.forward();
-            cam_transform.translation + *forward * 3.0
-        })
-        .unwrap_or(Vec3::ZERO);
-
-    for prefab_id in pending {
-        world
-            .spawn(prefab_id)
-            .insert(Transform::from_translation(spawn_pos));
-    }
 
     Ok(())
 }

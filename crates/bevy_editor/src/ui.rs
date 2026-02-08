@@ -4,9 +4,9 @@ use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_wo
 
 use crate::{
     ActionQueue, ContextMenu, DuplicateAction, EditorAction, EditorCamera, FocusCameraAction,
-    MergeAction, Selected,
+    MergeAction, Selected, SpawnPrefabAction,
     prefabs::Prefabs,
-    state::{EguiWindow, PendingPrefabSpawns, UiState},
+    state::{EguiWindow, UiState},
 };
 
 pub struct UiViewer<'a> {
@@ -61,7 +61,8 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                         if selection_count == 1 && ui.button("Duplicate").clicked()
                                         {
                                             pending_actions.push(
-                                                DuplicateAction::new(entity, hover_normal.normal).into(),
+                                                DuplicateAction::new(entity, hover_normal.normal)
+                                                    .into(),
                                             );
                                             should_close = true;
                                         }
@@ -69,8 +70,7 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                         // Merge available when multiple entities are selected
                                         if selection_count > 1 && ui.button("Merge").clicked() {
                                             pending_actions.push(
-                                            MergeAction::new(selected.entities.clone())
-                                                .into(),
+                                                MergeAction::new(selected.entities.clone()).into(),
                                             );
                                             should_close = true;
                                         }
@@ -159,13 +159,23 @@ impl egui_dock::TabViewer for UiViewer<'_> {
             }
             EguiWindow::Prefabs => {
                 ui.label("Prefabs");
+
+                // Calculate spawn position from editor camera
+                let spawn_pos = self
+                    .world
+                    .query_filtered::<&Transform, With<EditorCamera>>()
+                    .iter(self.world)
+                    .next()
+                    .map(|cam_transform| {
+                        let forward = cam_transform.forward();
+                        cam_transform.translation + *forward * 3.0
+                    })
+                    .unwrap_or(Vec3::ZERO);
+
+                let mut action_queue = self.world.resource_mut::<ActionQueue>();
                 for id in self.prefabs.get_prefab_ids() {
                     if ui.button(id.name()).clicked() {
-                        // Queue the spawn to happen after all resource_scopes end
-                        self.world
-                            .resource_mut::<PendingPrefabSpawns>()
-                            .0
-                            .push(id.clone());
+                        action_queue.push(SpawnPrefabAction::new(id.clone(), spawn_pos).into());
                     }
                 }
             }
@@ -211,7 +221,8 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                             if i < start || i >= end {
                                 continue;
                             }
-                            let is_current = i == history_index.saturating_sub(1) && history_index > 0;
+                            let is_current =
+                                i == history_index.saturating_sub(1) && history_index > 0;
 
                             let text = if is_current {
                                 format!("> {}", action.name())

@@ -133,10 +133,6 @@ impl Default for UiState {
     }
 }
 
-/// Pending prefab spawns (separate resource to avoid resource_scope issues)
-#[derive(Resource, Default)]
-pub struct PendingPrefabSpawns(pub Vec<crate::prefabs::PrefabId>);
-
 impl UiState {
     pub fn new() -> Self {
         Self::default()
