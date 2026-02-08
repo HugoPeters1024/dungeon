@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 
-/// A boxed function that can undo an action
-pub type UndoFn = Box<dyn FnOnce(&mut World) + Send + Sync>;
-
-/// Trait for actions that can be applied to the world
+/// Trait for actions that can be applied and reverted.
+/// Actions may store state (like created entity IDs) that persists across undo/redo cycles.
 pub trait Action: Clone + std::fmt::Debug + Send + Sync + 'static {
-    /// Apply the action and return an undo function
-    fn apply(&self, world: &mut World) -> UndoFn;
+    /// Apply the action to the world. May mutate self to store state needed for revert.
+    fn apply(&mut self, world: &mut World);
+    /// Revert the action. May mutate self to store state needed for re-apply.
+    fn revert(&mut self, world: &mut World);
+    /// Get a human-readable name for this action
     fn name(&self) -> String;
 }

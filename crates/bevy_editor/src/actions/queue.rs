@@ -1,19 +1,14 @@
 use bevy::prelude::*;
 use bevy::input::ButtonInput;
 
-use super::{EditorAction, UndoFn};
-
-/// An entry in the history stack containing the action and its undo function
-struct HistoryEntry {
-    action: EditorAction,
-    undo_fn: Option<UndoFn>,
-}
+use super::EditorAction;
 
 /// Resource that holds a queue of actions to be executed
 #[derive(Resource, Default)]
 pub struct ActionQueue {
     pending: Vec<EditorAction>,
-    history: Vec<HistoryEntry>,
+    /// History of applied actions - actions store their own state for undo/redo
+    history: Vec<EditorAction>,
     history_index: usize,
     undo_requested: bool,
     redo_requested: bool,
@@ -28,12 +23,9 @@ impl ActionQueue {
         std::mem::take(&mut self.pending)
     }
 
-    pub fn record(&mut self, action: EditorAction, undo_fn: UndoFn) {
+    pub fn record(&mut self, action: EditorAction) {
         self.history.truncate(self.history_index);
-        self.history.push(HistoryEntry {
-            action,
-            undo_fn: Some(undo_fn),
-        });
+        self.history.push(action);
         self.history_index = self.history.len();
     }
 
@@ -64,7 +56,7 @@ impl ActionQueue {
     pub fn iter_history(&self) -> impl Iterator<Item = (&EditorAction, bool)> {
         self.history.iter().enumerate().map(|(i, entry)| {
             let is_undone = i >= self.history_index;
-            (&entry.action, is_undone)
+            (entry, is_undone)
         })
     }
 }
@@ -100,14 +92,13 @@ pub fn process_action_queue(world: &mut World) {
         world.resource_mut::<ActionQueue>().undo_requested = false;
         let can_undo = world.resource::<ActionQueue>().can_undo();
         if can_undo {
-            let undo_fn = world.resource_scope::<ActionQueue, Option<UndoFn>>(|_, mut queue| {
+            world.resource_scope::<ActionQueue, ()>(|world, mut queue| {
                 let new_index = queue.history_index - 1;
                 queue.history_index = new_index;
-                queue.history.get_mut(new_index).and_then(|entry| entry.undo_fn.take())
+                if let Some(action) = queue.history.get_mut(new_index) {
+                    action.revert(world);
+                }
             });
-            if let Some(undo_fn) = undo_fn {
-                undo_fn(world);
-            }
         }
     }
 
@@ -115,29 +106,22 @@ pub fn process_action_queue(world: &mut World) {
         world.resource_mut::<ActionQueue>().redo_requested = false;
         let can_redo = world.resource::<ActionQueue>().can_redo();
         if can_redo {
-            let (action, history_index) = world.resource_scope::<ActionQueue, (Option<EditorAction>, usize)>(|_, queue| {
+            world.resource_scope::<ActionQueue, ()>(|world, mut queue| {
                 let idx = queue.history_index;
-                let action = queue.history.get(idx).map(|entry| entry.action.clone());
-                (action, idx)
-            });
-
-            if let Some(action) = action {
-                let undo_fn = action.apply(world);
-                let mut queue = world.resource_mut::<ActionQueue>();
-                if let Some(entry) = queue.history.get_mut(history_index) {
-                    entry.undo_fn = Some(undo_fn);
+                if let Some(action) = queue.history.get_mut(idx) {
+                    action.apply(world);
                 }
-                queue.history_index = history_index + 1;
-            }
+                queue.history_index = idx + 1;
+            });
         }
     }
 
     let actions =
         world.resource_scope::<ActionQueue, Vec<EditorAction>>(|_, mut queue| queue.take_pending());
 
-    for action in actions {
-        let undo_fn = action.apply(world);
-        world.resource_mut::<ActionQueue>().record(action, undo_fn);
+    for mut action in actions {
+        action.apply(world);
+        world.resource_mut::<ActionQueue>().record(action);
     }
 }
 
@@ -188,8 +172,7 @@ mod tests {
         assert!(!queue.can_undo());
 
         let action = TransformAction::move_entity(Entity::PLACEHOLDER, Vec3::ZERO, Vec3::ONE);
-        let undo_fn: UndoFn = Box::new(|_| {});
-        queue.record(action.into(), undo_fn);
+        queue.record(action.into());
 
         assert!(queue.can_undo());
         assert!(!queue.can_redo());
@@ -207,8 +190,7 @@ mod tests {
                 Vec3::splat(i as f32),
                 Vec3::splat((i + 1) as f32),
             );
-            let undo_fn: UndoFn = Box::new(|_| {});
-            queue.record(action.into(), undo_fn);
+            queue.record(action.into());
         }
 
         assert_eq!(queue.history_len(), 5);
@@ -227,8 +209,7 @@ mod tests {
                 Vec3::splat(i as f32),
                 Vec3::splat((i + 1) as f32),
             );
-            let undo_fn: UndoFn = Box::new(|_| {});
-            queue.record(action.into(), undo_fn);
+            queue.record(action.into());
         }
 
         let history: Vec<_> = queue.iter_history().collect();

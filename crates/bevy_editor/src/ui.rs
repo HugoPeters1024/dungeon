@@ -61,11 +61,7 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                         if selection_count == 1 && ui.button("Duplicate").clicked()
                                         {
                                             pending_actions.push(
-                                                DuplicateAction {
-                                                    entity,
-                                                    offset: hover_normal.normal,
-                                                }
-                                                .into(),
+                                                DuplicateAction::new(entity, hover_normal.normal).into(),
                                             );
                                             should_close = true;
                                         }
@@ -73,9 +69,7 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                         // Merge available when multiple entities are selected
                                         if selection_count > 1 && ui.button("Merge").clicked() {
                                             pending_actions.push(
-                                                MergeAction {
-                                                    entities: selected.entities.clone(),
-                                                }
+                                            MergeAction::new(selected.entities.clone())
                                                 .into(),
                                             );
                                             should_close = true;

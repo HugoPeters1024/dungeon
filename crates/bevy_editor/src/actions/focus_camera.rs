@@ -3,7 +3,7 @@ use bevy_panorbit_camera::PanOrbitCamera;
 
 use crate::EditorCamera;
 
-use super::{Action, UndoFn};
+use super::Action;
 
 /// Focus the editor camera on a specific world position
 #[derive(Clone, Debug)]
@@ -13,19 +13,18 @@ pub struct FocusCameraAction {
 }
 
 impl Action for FocusCameraAction {
-    fn apply(&self, world: &mut World) -> UndoFn {
+    fn apply(&mut self, world: &mut World) {
         let mut query = world.query_filtered::<&mut PanOrbitCamera, With<EditorCamera>>();
         for mut pan_orbit in query.iter_mut(world) {
             pan_orbit.target_focus = self.new_position;
         }
+    }
 
-        let old_position = self.old_position;
-        Box::new(move |world: &mut World| {
-            let mut query = world.query_filtered::<&mut PanOrbitCamera, With<EditorCamera>>();
-            for mut pan_orbit in query.iter_mut(world) {
-                pan_orbit.target_focus = old_position;
-            }
-        })
+    fn revert(&mut self, world: &mut World) {
+        let mut query = world.query_filtered::<&mut PanOrbitCamera, With<EditorCamera>>();
+        for mut pan_orbit in query.iter_mut(world) {
+            pan_orbit.target_focus = self.old_position;
+        }
     }
 
     fn name(&self) -> String {
@@ -59,12 +58,12 @@ mod tests {
             },
         ));
 
-        let action = FocusCameraAction {
+        let mut action = FocusCameraAction {
             old_position: Vec3::ZERO,
             new_position: Vec3::new(10.0, 20.0, 30.0),
         };
 
-        let _undo = action.apply(&mut world);
+        action.apply(&mut world);
 
         let mut query = world.query_filtered::<&PanOrbitCamera, With<EditorCamera>>();
         let camera = query.single(&world).unwrap();
@@ -83,12 +82,12 @@ mod tests {
             },
         ));
 
-        let action = FocusCameraAction {
+        let mut action = FocusCameraAction {
             old_position: Vec3::new(5.0, 5.0, 5.0),
             new_position: Vec3::new(10.0, 20.0, 30.0),
         };
 
-        let undo = action.apply(&mut world);
+        action.apply(&mut world);
 
         // Verify it changed
         {
@@ -97,7 +96,7 @@ mod tests {
             assert_eq!(camera.target_focus, Vec3::new(10.0, 20.0, 30.0));
         }
 
-        undo(&mut world);
+        action.revert(&mut world);
 
         // Verify it restored
         let mut query = world.query_filtered::<&PanOrbitCamera, With<EditorCamera>>();
@@ -110,13 +109,13 @@ mod tests {
         let mut world = World::new();
 
         // No editor camera in the world
-        let action = FocusCameraAction {
+        let mut action = FocusCameraAction {
             old_position: Vec3::ZERO,
             new_position: Vec3::ONE,
         };
 
-        let undo = action.apply(&mut world);
-        undo(&mut world); // Should not panic
+        action.apply(&mut world);
+        action.revert(&mut world); // Should not panic
     }
 
     #[test]
@@ -139,12 +138,12 @@ mod tests {
             },
         ));
 
-        let action = FocusCameraAction {
+        let mut action = FocusCameraAction {
             old_position: Vec3::ZERO,
             new_position: Vec3::new(100.0, 0.0, 0.0),
         };
 
-        let _undo = action.apply(&mut world);
+        action.apply(&mut world);
 
         // All editor cameras should be updated
         let mut query = world.query_filtered::<&PanOrbitCamera, With<EditorCamera>>();

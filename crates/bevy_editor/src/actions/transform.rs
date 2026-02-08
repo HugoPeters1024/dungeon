@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use super::{Action, UndoFn};
+use super::Action;
 
 // === World-to-local transform utilities ===
 
@@ -127,31 +127,31 @@ impl TransformAction {
     }
 }
 
-impl Action for TransformAction {
-    fn apply(&self, world: &mut World) -> UndoFn {
+impl TransformAction {
+    fn apply_transform(&self, world: &mut World, target: &Transform) {
         match self.kind {
             TransformKind::Move => {
-                let local_position = world_position_to_local(world, self.entity, self.new_transform.translation);
+                let local_position = world_position_to_local(world, self.entity, target.translation);
                 if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
                     transform.translation = local_position;
                 }
             }
             TransformKind::Scale => {
-                let local_scale = world_scale_to_local(world, self.entity, self.new_transform.scale);
+                let local_scale = world_scale_to_local(world, self.entity, target.scale);
                 if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
                     transform.scale = local_scale;
                 }
             }
             TransformKind::Rotate => {
-                let local_rotation = world_rotation_to_local(world, self.entity, self.new_transform.rotation);
+                let local_rotation = world_rotation_to_local(world, self.entity, target.rotation);
                 if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
                     transform.rotation = local_rotation;
                 }
             }
             TransformKind::Full => {
-                let local_translation = world_position_to_local(world, self.entity, self.new_transform.translation);
-                let local_rotation = world_rotation_to_local(world, self.entity, self.new_transform.rotation);
-                let local_scale = world_scale_to_local(world, self.entity, self.new_transform.scale);
+                let local_translation = world_position_to_local(world, self.entity, target.translation);
+                let local_rotation = world_rotation_to_local(world, self.entity, target.rotation);
+                let local_scale = world_scale_to_local(world, self.entity, target.scale);
                 if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
                     transform.translation = local_translation;
                     transform.rotation = local_rotation;
@@ -159,43 +159,16 @@ impl Action for TransformAction {
                 }
             }
         }
+    }
+}
 
-        let entity = self.entity;
-        let old_transform = self.old_transform;
-        let kind = self.kind;
+impl Action for TransformAction {
+    fn apply(&mut self, world: &mut World) {
+        self.apply_transform(world, &self.new_transform.clone());
+    }
 
-        Box::new(move |world: &mut World| {
-            match kind {
-                TransformKind::Move => {
-                    let local_position = world_position_to_local(world, entity, old_transform.translation);
-                    if let Some(mut transform) = world.get_mut::<Transform>(entity) {
-                        transform.translation = local_position;
-                    }
-                }
-                TransformKind::Scale => {
-                    let local_scale = world_scale_to_local(world, entity, old_transform.scale);
-                    if let Some(mut transform) = world.get_mut::<Transform>(entity) {
-                        transform.scale = local_scale;
-                    }
-                }
-                TransformKind::Rotate => {
-                    let local_rotation = world_rotation_to_local(world, entity, old_transform.rotation);
-                    if let Some(mut transform) = world.get_mut::<Transform>(entity) {
-                        transform.rotation = local_rotation;
-                    }
-                }
-                TransformKind::Full => {
-                    let local_translation = world_position_to_local(world, entity, old_transform.translation);
-                    let local_rotation = world_rotation_to_local(world, entity, old_transform.rotation);
-                    let local_scale = world_scale_to_local(world, entity, old_transform.scale);
-                    if let Some(mut transform) = world.get_mut::<Transform>(entity) {
-                        transform.translation = local_translation;
-                        transform.rotation = local_rotation;
-                        transform.scale = local_scale;
-                    }
-                }
-            }
-        })
+    fn revert(&mut self, world: &mut World) {
+        self.apply_transform(world, &self.old_transform.clone());
     }
 
     fn name(&self) -> String {
@@ -220,14 +193,16 @@ impl TransformSelectionAction {
 }
 
 impl Action for TransformSelectionAction {
-    fn apply(&self, world: &mut World) -> UndoFn {
-        let undo_fns: Vec<UndoFn> = self.transforms.iter().map(|action| action.apply(world)).collect();
+    fn apply(&mut self, world: &mut World) {
+        for action in &mut self.transforms {
+            action.apply(world);
+        }
+    }
 
-        Box::new(move |world: &mut World| {
-            for undo_fn in undo_fns {
-                undo_fn(world);
-            }
-        })
+    fn revert(&mut self, world: &mut World) {
+        for action in &mut self.transforms {
+            action.revert(world);
+        }
     }
 
     fn name(&self) -> String {
@@ -247,8 +222,8 @@ mod tests {
         let mut world = World::new();
         let entity = world.spawn(Transform::from_xyz(0.0, 0.0, 0.0)).id();
 
-        let action = TransformAction::move_entity(entity, Vec3::ZERO, Vec3::new(5.0, 5.0, 5.0));
-        let _undo = action.apply(&mut world);
+        let mut action = TransformAction::move_entity(entity, Vec3::ZERO, Vec3::new(5.0, 5.0, 5.0));
+        action.apply(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.translation, Vec3::new(5.0, 5.0, 5.0));
@@ -259,9 +234,9 @@ mod tests {
         let mut world = World::new();
         let entity = world.spawn(Transform::from_xyz(0.0, 0.0, 0.0)).id();
 
-        let action = TransformAction::move_entity(entity, Vec3::ZERO, Vec3::new(5.0, 5.0, 5.0));
-        let undo = action.apply(&mut world);
-        undo(&mut world);
+        let mut action = TransformAction::move_entity(entity, Vec3::ZERO, Vec3::new(5.0, 5.0, 5.0));
+        action.apply(&mut world);
+        action.revert(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.translation, Vec3::ZERO);
@@ -282,8 +257,8 @@ mod tests {
             ))
             .id();
 
-        let action = TransformAction::move_entity(entity, Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0));
-        let _undo = action.apply(&mut world);
+        let mut action = TransformAction::move_entity(entity, Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0));
+        action.apply(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.translation, Vec3::new(5.0, 0.0, 0.0));
@@ -297,8 +272,8 @@ mod tests {
         let mut world = World::new();
         let entity = world.spawn(Transform::from_scale(Vec3::ONE)).id();
 
-        let action = TransformAction::scale(entity, Vec3::ONE, Vec3::splat(2.0));
-        let _undo = action.apply(&mut world);
+        let mut action = TransformAction::scale(entity, Vec3::ONE, Vec3::splat(2.0));
+        action.apply(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.scale, Vec3::splat(2.0));
@@ -309,9 +284,9 @@ mod tests {
         let mut world = World::new();
         let entity = world.spawn(Transform::from_scale(Vec3::ONE)).id();
 
-        let action = TransformAction::scale(entity, Vec3::ONE, Vec3::splat(2.0));
-        let undo = action.apply(&mut world);
-        undo(&mut world);
+        let mut action = TransformAction::scale(entity, Vec3::ONE, Vec3::splat(2.0));
+        action.apply(&mut world);
+        action.revert(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.scale, Vec3::ONE);
@@ -330,8 +305,8 @@ mod tests {
             .spawn(Transform::from_xyz(10.0, 20.0, 30.0).with_scale(Vec3::ONE))
             .id();
 
-        let action = TransformAction::scale(entity, Vec3::ONE, Vec3::splat(3.0));
-        let _undo = action.apply(&mut world);
+        let mut action = TransformAction::scale(entity, Vec3::ONE, Vec3::splat(3.0));
+        action.apply(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.scale, Vec3::splat(3.0));
@@ -343,8 +318,8 @@ mod tests {
         let mut world = World::new();
         let entity = world.spawn(Transform::from_scale(Vec3::ONE)).id();
 
-        let action = TransformAction::scale(entity, Vec3::ONE, Vec3::new(1.0, 2.0, 3.0));
-        let _undo = action.apply(&mut world);
+        let mut action = TransformAction::scale(entity, Vec3::ONE, Vec3::new(1.0, 2.0, 3.0));
+        action.apply(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.scale, Vec3::new(1.0, 2.0, 3.0));
@@ -358,8 +333,8 @@ mod tests {
         let entity = world.spawn(Transform::from_rotation(Quat::IDENTITY)).id();
 
         let new_rotation = Quat::from_rotation_y(PI / 2.0);
-        let action = TransformAction::rotate(entity, Quat::IDENTITY, new_rotation);
-        let _undo = action.apply(&mut world);
+        let mut action = TransformAction::rotate(entity, Quat::IDENTITY, new_rotation);
+        action.apply(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert!((transform.rotation.dot(new_rotation) - 1.0).abs() < 0.001);
@@ -371,9 +346,9 @@ mod tests {
         let entity = world.spawn(Transform::from_rotation(Quat::IDENTITY)).id();
 
         let new_rotation = Quat::from_rotation_y(PI / 2.0);
-        let action = TransformAction::rotate(entity, Quat::IDENTITY, new_rotation);
-        let undo = action.apply(&mut world);
-        undo(&mut world);
+        let mut action = TransformAction::rotate(entity, Quat::IDENTITY, new_rotation);
+        action.apply(&mut world);
+        action.revert(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert!((transform.rotation.dot(Quat::IDENTITY) - 1.0).abs() < 0.001);
@@ -398,8 +373,8 @@ mod tests {
             scale: Vec3::splat(2.0),
         };
 
-        let action = TransformAction::full(entity, Transform::IDENTITY, new_transform);
-        let _undo = action.apply(&mut world);
+        let mut action = TransformAction::full(entity, Transform::IDENTITY, new_transform);
+        action.apply(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.translation, new_transform.translation);
@@ -423,9 +398,9 @@ mod tests {
             scale: Vec3::splat(2.0),
         };
 
-        let action = TransformAction::full(entity, old_transform, new_transform);
-        let undo = action.apply(&mut world);
-        undo(&mut world);
+        let mut action = TransformAction::full(entity, old_transform, new_transform);
+        action.apply(&mut world);
+        action.revert(&mut world);
 
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.translation, old_transform.translation);
@@ -447,12 +422,12 @@ mod tests {
         let e1 = world.spawn(Transform::from_xyz(0.0, 0.0, 0.0)).id();
         let e2 = world.spawn(Transform::from_xyz(1.0, 1.0, 1.0)).id();
 
-        let action = TransformSelectionAction::new(vec![
+        let mut action = TransformSelectionAction::new(vec![
             TransformAction::move_entity(e1, Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)),
             TransformAction::move_entity(e2, Vec3::ONE, Vec3::new(11.0, 1.0, 1.0)),
         ]);
 
-        let _undo = action.apply(&mut world);
+        action.apply(&mut world);
 
         assert_eq!(world.get::<Transform>(e1).unwrap().translation.x, 10.0);
         assert_eq!(world.get::<Transform>(e2).unwrap().translation.x, 11.0);
@@ -464,13 +439,13 @@ mod tests {
         let e1 = world.spawn(Transform::from_xyz(0.0, 0.0, 0.0)).id();
         let e2 = world.spawn(Transform::from_xyz(1.0, 1.0, 1.0)).id();
 
-        let action = TransformSelectionAction::new(vec![
+        let mut action = TransformSelectionAction::new(vec![
             TransformAction::move_entity(e1, Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)),
             TransformAction::move_entity(e2, Vec3::ONE, Vec3::new(11.0, 1.0, 1.0)),
         ]);
 
-        let undo = action.apply(&mut world);
-        undo(&mut world);
+        action.apply(&mut world);
+        action.revert(&mut world);
 
         assert_eq!(world.get::<Transform>(e1).unwrap().translation, Vec3::ZERO);
         assert_eq!(world.get::<Transform>(e2).unwrap().translation, Vec3::ONE);
@@ -491,12 +466,12 @@ mod tests {
         let e1 = world.spawn(Transform::from_scale(Vec3::ONE)).id();
         let e2 = world.spawn(Transform::from_scale(Vec3::ONE)).id();
 
-        let action = TransformSelectionAction::new(vec![
+        let mut action = TransformSelectionAction::new(vec![
             TransformAction::scale(e1, Vec3::ONE, Vec3::splat(2.0)),
             TransformAction::scale(e2, Vec3::ONE, Vec3::splat(3.0)),
         ]);
 
-        let _undo = action.apply(&mut world);
+        action.apply(&mut world);
 
         assert_eq!(world.get::<Transform>(e1).unwrap().scale, Vec3::splat(2.0));
         assert_eq!(world.get::<Transform>(e2).unwrap().scale, Vec3::splat(3.0));
@@ -505,10 +480,10 @@ mod tests {
     #[test]
     fn test_empty_selection() {
         let mut world = World::new();
-        let action = TransformSelectionAction::new(vec![]);
+        let mut action = TransformSelectionAction::new(vec![]);
 
-        let undo = action.apply(&mut world);
-        undo(&mut world); // Should not panic
+        action.apply(&mut world);
+        action.revert(&mut world); // Should not panic
     }
 
     // === Kind tests ===

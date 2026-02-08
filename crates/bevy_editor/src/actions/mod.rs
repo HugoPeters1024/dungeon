@@ -5,7 +5,7 @@ mod merge;
 mod queue;
 mod transform;
 
-pub use traits::{Action, UndoFn};
+pub use traits::Action;
 pub use duplicate::DuplicateAction;
 pub use focus_camera::FocusCameraAction;
 pub use merge::MergeAction;
@@ -32,13 +32,23 @@ pub enum EditorAction {
 }
 
 impl EditorAction {
-    pub fn apply(&self, world: &mut World) -> UndoFn {
+    pub fn apply(&mut self, world: &mut World) {
         match self {
             EditorAction::Duplicate(action) => action.apply(world),
             EditorAction::FocusCamera(action) => action.apply(world),
             EditorAction::Transform(action) => action.apply(world),
             EditorAction::TransformSelection(action) => action.apply(world),
             EditorAction::Merge(action) => action.apply(world),
+        }
+    }
+
+    pub fn revert(&mut self, world: &mut World) {
+        match self {
+            EditorAction::Duplicate(action) => action.revert(world),
+            EditorAction::FocusCamera(action) => action.revert(world),
+            EditorAction::Transform(action) => action.revert(world),
+            EditorAction::TransformSelection(action) => action.revert(world),
+            EditorAction::Merge(action) => action.revert(world),
         }
     }
 
