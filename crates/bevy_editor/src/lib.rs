@@ -7,7 +7,7 @@ mod ui;
 
 pub use actions::{
     Action, ActionQueue, DuplicateAction, EditorAction, FocusCameraAction, MergeAction,
-    SpawnPrefabAction, TransformAction, TransformSelectionAction, TransformKind,
+    RemoveAction, SpawnPrefabAction, TransformAction, TransformSelectionAction, TransformKind,
     // Type aliases for backwards compatibility
     MoveAction, MoveSelectionAction, ScaleAction, ScaleSelectionAction,
 };

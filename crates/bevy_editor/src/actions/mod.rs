@@ -3,6 +3,7 @@ mod duplicate;
 mod focus_camera;
 mod merge;
 mod queue;
+mod remove;
 mod spawn_prefab;
 mod transform;
 
@@ -11,6 +12,7 @@ pub use duplicate::DuplicateAction;
 pub use focus_camera::FocusCameraAction;
 pub use merge::MergeAction;
 pub use queue::{ActionQueue, handle_undo_redo_input, process_action_queue};
+pub use remove::RemoveAction;
 pub use spawn_prefab::SpawnPrefabAction;
 pub use transform::{TransformAction, TransformSelectionAction, TransformKind};
 
@@ -31,6 +33,7 @@ pub enum EditorAction {
     Transform(TransformAction),
     TransformSelection(TransformSelectionAction),
     Merge(MergeAction),
+    Remove(RemoveAction),
     SpawnPrefab(SpawnPrefabAction),
 }
 
@@ -42,6 +45,7 @@ impl EditorAction {
             EditorAction::Transform(action) => action.apply(world),
             EditorAction::TransformSelection(action) => action.apply(world),
             EditorAction::Merge(action) => action.apply(world),
+            EditorAction::Remove(action) => action.apply(world),
             EditorAction::SpawnPrefab(action) => action.apply(world),
         }
     }
@@ -53,6 +57,7 @@ impl EditorAction {
             EditorAction::Transform(action) => action.revert(world),
             EditorAction::TransformSelection(action) => action.revert(world),
             EditorAction::Merge(action) => action.revert(world),
+            EditorAction::Remove(action) => action.revert(world),
             EditorAction::SpawnPrefab(action) => action.revert(world),
         }
     }
@@ -64,6 +69,7 @@ impl EditorAction {
             EditorAction::Transform(action) => action.name(),
             EditorAction::TransformSelection(action) => action.name(),
             EditorAction::Merge(action) => action.name(),
+            EditorAction::Remove(action) => action.name(),
             EditorAction::SpawnPrefab(action) => action.name(),
         }
     }
@@ -96,6 +102,12 @@ impl From<TransformSelectionAction> for EditorAction {
 impl From<MergeAction> for EditorAction {
     fn from(action: MergeAction) -> Self {
         EditorAction::Merge(action)
+    }
+}
+
+impl From<RemoveAction> for EditorAction {
+    fn from(action: RemoveAction) -> Self {
+        EditorAction::Remove(action)
     }
 }
 

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_editor::{EditorCamera, EditorPlugin, PanOrbitCamera, PrefabId, Prefabs, TrackpadBehavior};
+use bevy_editor::{EditorCamera, EditorPlugin, PanOrbitCamera, PrefabId, Prefabs};
 
 fn main() {
     let mut app = App::new();
@@ -19,8 +19,8 @@ fn setup(mut commands: Commands, mut prefabs: ResMut<Prefabs>) {
             button_pan: MouseButton::Middle,
             modifier_pan: Some(KeyCode::ShiftLeft),
             // Enable trackpad support: two-finger scroll orbits, Shift+scroll pans, Ctrl+scroll zooms
-            trackpad_behavior: TrackpadBehavior::blender_default(),
-            trackpad_pinch_to_zoom_enabled: true,
+            // trackpad_behavior: TrackpadBehavior::blender_default(),
+            // trackpad_pinch_to_zoom_enabled: true,
             ..default()
         },
         Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),

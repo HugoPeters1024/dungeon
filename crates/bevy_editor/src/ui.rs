@@ -4,7 +4,7 @@ use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_wo
 
 use crate::{
     ActionQueue, ContextMenu, DuplicateAction, EditorAction, EditorCamera, FocusCameraAction,
-    MergeAction, Selected, SpawnPrefabAction,
+    MergeAction, RemoveAction, Selected, SpawnPrefabAction,
     prefabs::Prefabs,
     state::{EguiWindow, UiState},
 };
@@ -53,10 +53,20 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                             })
                             .show(ui.ctx(), |ui| {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                    if let Some(selected) = self.world.get_resource::<Selected>() {
-                                        let entity = selected.primary();
-                                        let selection_count = selected.entities.len();
+                                    // Extract all needed data from Selected before any mutable borrows
+                                    let selection_data = self
+                                        .world
+                                        .get_resource::<Selected>()
+                                        .map(|selected| {
+                                            (
+                                                selected.primary(),
+                                                selected.entities.len(),
+                                                selected.entities.clone(),
+                                            )
+                                        });
 
+                                    if let Some((entity, selection_count, entities)) = selection_data
+                                    {
                                         // Duplicate only available when exactly 1 entity is selected
                                         if selection_count == 1 && ui.button("Duplicate").clicked()
                                         {
@@ -69,9 +79,8 @@ impl egui_dock::TabViewer for UiViewer<'_> {
 
                                         // Merge available when multiple entities are selected
                                         if selection_count > 1 && ui.button("Merge").clicked() {
-                                            pending_actions.push(
-                                                MergeAction::new(selected.entities.clone()).into(),
-                                            );
+                                            pending_actions
+                                                .push(MergeAction::new(entities.clone()).into());
                                             should_close = true;
                                         }
 
@@ -102,6 +111,14 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                                     }
                                                     .into(),
                                                 );
+                                            }
+                                            should_close = true;
+                                        }
+
+                                        if ui.button("Remove").clicked() {
+                                            for entity in entities {
+                                                pending_actions
+                                                    .push(RemoveAction::new(entity).into());
                                             }
                                             should_close = true;
                                         }

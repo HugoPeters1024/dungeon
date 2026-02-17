@@ -21,6 +21,8 @@ fn do_the_save(world: &mut World) {
         .allow_component::<PrefabId>()
         .allow_component::<Transform>()
         .allow_component::<Children>()
+        .allow_component::<InheritedVisibility>()
+        .allow_component::<Visibility>()
         .extract_entities(entities.iter().cloned())
         .build();
 

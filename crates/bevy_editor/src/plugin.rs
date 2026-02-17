@@ -17,7 +17,7 @@ use bevy_panorbit_camera::PanOrbitCameraPlugin;
 use bevy_panorbit_camera::PanOrbitCamera;
 
 use crate::actions::{
-    ActionQueue, FocusCameraAction, TransformAction, TransformSelectionAction,
+    ActionQueue, FocusCameraAction, RemoveAction, TransformAction, TransformSelectionAction,
     process_action_queue, handle_undo_redo_input,
 };
 use crate::state::{AxisMask, UiDockState, UiState};
@@ -527,6 +527,12 @@ fn handle_selected_action_keys(
                 initial_cursor_pos: None,
                 initial_world_scales,
             });
+        }
+        None if keyboard_input.just_pressed(KeyCode::KeyX) => {
+            // Remove all selected entities
+            for &entity in &selected.entities {
+                action_queue.push(RemoveAction::new(entity).into());
+            }
         }
         None => {}
         Some(SelectedAction::Grab {
