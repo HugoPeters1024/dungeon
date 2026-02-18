@@ -62,6 +62,7 @@ impl Plugin for GamePlugin {
         app.add_plugins(crate::player::PlayerPlugin);
         app.add_plugins(crate::platform::PlatformPlugin);
         app.add_plugins(crate::chunks::ChunksPlugin);
+        app.add_plugins(crate::grid_wall::GridWallPlugin);
         app.add_plugins(ThirdPersonCameraPlugin);
         //app.insert_resource(ClearColor(Color::srgb(0.08, 0.02, 0.02))); // Very dark black background
         app.add_systems(

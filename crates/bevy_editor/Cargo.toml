@@ -12,3 +12,4 @@ bevy-inspector-egui = { workspace = true }
 bevy_egui = { workspace = true }
 bevy_panorbit_camera = { workspace = true }
 egui_dock = { workspace = true }
+

@@ -68,7 +68,6 @@ fn setup(mut commands: Commands, mut prefabs: ResMut<Prefabs>) {
 
     prefabs.register_prefab(&mut commands, "Both", || {
         (
-            Transform::default(),
             InheritedVisibility::default(),
             children![
                 (
