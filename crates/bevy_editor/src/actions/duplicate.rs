@@ -1,6 +1,8 @@
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 
+use crate::PrefabId;
+
 use super::Action;
 
 /// Marker component for entities that have been "undone" (hidden but not despawned)
@@ -42,12 +44,10 @@ fn compute_world_aabb(world: &World, entity: Entity) -> Option<(Vec3, Vec3)> {
     let mut max = Vec3::splat(f32::NEG_INFINITY);
     let mut has_aabb = false;
 
-    // Helper to merge an entity's AABB into the world-space bounds
     let mut merge_aabb = |entity: Entity| {
         if let Some(global_transform) = world.get::<GlobalTransform>(entity) {
             if let Some(aabb) = world.get::<Aabb>(entity) {
                 has_aabb = true;
-                // Transform the 8 corners of the local AABB to world space
                 let center: Vec3 = aabb.center.into();
                 let half: Vec3 = aabb.half_extents.into();
                 for x in [-1.0, 1.0] {
@@ -64,10 +64,8 @@ fn compute_world_aabb(world: &World, entity: Entity) -> Option<(Vec3, Vec3)> {
         }
     };
 
-    // Merge the entity's AABB
     merge_aabb(entity);
 
-    // Merge all descendants' AABBs
     if let Some(children) = world.get::<Children>(entity) {
         fn merge_descendants(world: &World, entity: Entity, merge: &mut impl FnMut(Entity)) {
             if let Some(children) = world.get::<Children>(entity) {
@@ -79,7 +77,6 @@ fn compute_world_aabb(world: &World, entity: Entity) -> Option<(Vec3, Vec3)> {
         }
         for child in children.iter() {
             merge_aabb(child);
-            // Recursively check descendants
             merge_descendants(world, child, &mut merge_aabb);
         }
     }
@@ -87,47 +84,52 @@ fn compute_world_aabb(world: &World, entity: Entity) -> Option<(Vec3, Vec3)> {
     if has_aabb { Some((min, max)) } else { None }
 }
 
+fn compute_offset(world: &World, entity: Entity, direction: Vec3) -> Vec3 {
+    if let Some((min, max)) = compute_world_aabb(world, entity) {
+        let size = max - min;
+        let dir = direction.normalize_or_zero();
+        let distance =
+            size.x * dir.x.abs() + size.y * dir.y.abs() + size.z * dir.z.abs();
+        dir * distance
+    } else {
+        direction
+    }
+}
+
 impl Action for DuplicateAction {
     fn apply(&mut self, world: &mut World) {
         if let Some(existing) = self.created_entity {
-            // Redo: re-enable the existing entity
             if let Ok(mut entity_mut) = world.get_entity_mut(existing) {
                 entity_mut.remove::<UndoneEntity>();
                 entity_mut.insert(Visibility::Inherited);
             }
         } else {
-            // First apply: compute offset based on AABB and create the entity
-            let offset = if let Some(offset) = self.computed_offset {
-                offset
-            } else {
-                // Compute offset based on AABB
-                let offset = if let Some((min, max)) = compute_world_aabb(world, self.entity) {
-                    let size = max - min;
-                    let direction = self.direction.normalize_or_zero();
-                    // Project the size onto the direction to get the offset distance
-                    // We need to move by the full extent in that direction (size * |direction component|)
-                    let offset_distance = size.x * direction.x.abs()
-                        + size.y * direction.y.abs()
-                        + size.z * direction.z.abs();
-                    direction * offset_distance
-                } else {
-                    // Fallback: use direction as-is if no AABB
-                    self.direction
-                };
-                self.computed_offset = Some(offset);
-                offset
-            };
+            let offset = *self.computed_offset.get_or_insert_with(|| {
+                compute_offset(world, self.entity, self.direction)
+            });
 
-            let new_entity =
-                world
+            let original_transform = world
+                .get::<Transform>(self.entity)
+                .copied()
+                .unwrap_or_default();
+
+            let mut new_transform = original_transform;
+            new_transform.translation += offset;
+
+            let new_entity = if let Some(prefab_id) = world.get::<PrefabId>(self.entity) {
+                let prefab_id = prefab_id.clone();
+                world.spawn((prefab_id, new_transform)).id()
+            } else {
+                let e = world
                     .entity_mut(self.entity)
                     .clone_and_spawn_with_opt_out(|builder| {
                         builder.linked_cloning(true);
                     });
-
-            if let Some(mut transform) = world.get_mut::<Transform>(new_entity) {
-                transform.translation += offset;
-            }
+                if let Some(mut transform) = world.get_mut::<Transform>(e) {
+                    transform.translation += offset;
+                }
+                e
+            };
 
             self.created_entity = Some(new_entity);
         }
@@ -135,7 +137,6 @@ impl Action for DuplicateAction {
 
     fn revert(&mut self, world: &mut World) {
         if let Some(entity) = self.created_entity {
-            // Hide the entity instead of despawning it
             if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
                 entity_mut.insert((UndoneEntity, Visibility::Hidden));
             }
@@ -164,6 +165,56 @@ mod tests {
     }
 
     #[test]
+    fn test_duplicate_prefab_spawns_only_prefab_id() {
+        let mut world = World::new();
+        let prefab_id = PrefabId::new("test_prefab");
+        let original = world
+            .spawn((prefab_id.clone(), Transform::from_xyz(1.0, 0.0, 0.0)))
+            .id();
+
+        let mut action = DuplicateAction::new(original, Vec3::X);
+        action.apply(&mut world);
+
+        let created = action.created_entity().unwrap();
+        assert_ne!(created, original);
+
+        let new_prefab = world.get::<PrefabId>(created).unwrap();
+        assert_eq!(new_prefab.name(), "test_prefab");
+
+        assert!(world.get::<Children>(created).is_none());
+    }
+
+    #[test]
+    fn test_duplicate_prefab_copies_transform_with_offset() {
+        let mut world = World::new();
+        let original_pos = Vec3::new(3.0, 0.0, 0.0);
+        let direction = Vec3::new(2.0, 0.0, 0.0);
+        let original = world
+            .spawn((PrefabId::new("thing"), Transform::from_translation(original_pos)))
+            .id();
+
+        let mut action = DuplicateAction::new(original, direction);
+        action.apply(&mut world);
+
+        let created = action.created_entity().unwrap();
+        let new_transform = world.get::<Transform>(created).unwrap();
+        assert_eq!(new_transform.translation, original_pos + direction);
+    }
+
+    #[test]
+    fn test_duplicate_non_prefab_still_clones() {
+        let mut world = World::new();
+        let original = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
+
+        let mut action = DuplicateAction::new(original, Vec3::X);
+        action.apply(&mut world);
+
+        let created = action.created_entity().unwrap();
+        assert!(world.get::<PrefabId>(created).is_none());
+        assert!(world.get::<Transform>(created).is_some());
+    }
+
+    #[test]
     fn test_duplicate_undo_hides_entity() {
         let mut world = World::new();
         let original = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
@@ -173,7 +224,6 @@ mod tests {
         assert_eq!(world.query::<&Transform>().iter(&world).count(), 2);
 
         action.revert(&mut world);
-        // Entity still exists but is hidden
         assert_eq!(world.query::<&Transform>().iter(&world).count(), 2);
         let created = action.created_entity().unwrap();
         assert!(world.get::<UndoneEntity>(created).is_some());
@@ -196,7 +246,6 @@ mod tests {
         assert!(world.get::<UndoneEntity>(created).is_some());
 
         action.apply(&mut world);
-        // Entity should be visible again with same ID
         assert_eq!(action.created_entity().unwrap(), created);
         assert!(world.get::<UndoneEntity>(created).is_none());
         assert_eq!(
@@ -210,26 +259,22 @@ mod tests {
         let mut world = World::new();
         let original_pos = Vec3::ZERO;
 
-        // Create entity with AABB (2x2x2 box centered at origin)
         let original = world
             .spawn((
                 Transform::from_translation(original_pos),
                 GlobalTransform::from_translation(original_pos),
                 Aabb {
                     center: Vec3A::ZERO,
-                    half_extents: Vec3A::ONE, // 2x2x2 box
+                    half_extents: Vec3A::ONE,
                 },
             ))
             .id();
 
-        // Duplicate in +X direction
         let mut action = DuplicateAction::new(original, Vec3::X);
         action.apply(&mut world);
 
         let created = action.created_entity().unwrap();
         let new_transform = world.get::<Transform>(created).unwrap();
-
-        // Should be offset by 2.0 (full width) in X direction
         assert_eq!(new_transform.translation, Vec3::new(2.0, 0.0, 0.0));
     }
 
@@ -238,26 +283,22 @@ mod tests {
         let mut world = World::new();
         let original_pos = Vec3::ZERO;
 
-        // Create entity with non-uniform AABB (4x2x6 box)
         let original = world
             .spawn((
                 Transform::from_translation(original_pos),
                 GlobalTransform::from_translation(original_pos),
                 Aabb {
                     center: Vec3A::ZERO,
-                    half_extents: Vec3A::new(2.0, 1.0, 3.0), // 4x2x6 box
+                    half_extents: Vec3A::new(2.0, 1.0, 3.0),
                 },
             ))
             .id();
 
-        // Duplicate in +Y direction
         let mut action = DuplicateAction::new(original, Vec3::Y);
         action.apply(&mut world);
 
         let created = action.created_entity().unwrap();
         let new_transform = world.get::<Transform>(created).unwrap();
-
-        // Should be offset by 2.0 (full height) in Y direction
         assert_eq!(new_transform.translation, Vec3::new(0.0, 2.0, 0.0));
     }
 
@@ -268,14 +309,11 @@ mod tests {
         let direction = Vec3::new(5.0, 0.0, 0.0);
         let original = world.spawn(Transform::from_translation(original_pos)).id();
 
-        // No AABB, so direction is used as-is
         let mut action = DuplicateAction::new(original, direction);
         action.apply(&mut world);
 
         let created = action.created_entity().unwrap();
         let new_transform = world.get::<Transform>(created).unwrap();
-
-        // Should be offset by the direction directly
         assert_eq!(new_transform.translation, original_pos + direction);
     }
 
@@ -294,7 +332,6 @@ mod tests {
         let mut action = DuplicateAction::new(original, Vec3::ZERO);
         action.apply(&mut world);
 
-        // Both entities should be at the same position (zero direction = zero offset)
         let transforms: Vec<_> = world.query::<&Transform>().iter(&world).collect();
         assert_eq!(transforms.len(), 2);
         assert!(transforms.iter().all(|t| t.translation == original_pos));
@@ -309,7 +346,6 @@ mod tests {
         let mut action = DuplicateAction::new(original, Vec3::X * 10.0);
         action.apply(&mut world);
 
-        // Original entity should still exist and be unchanged
         let original_transform = world.get::<Transform>(original).unwrap();
         assert_eq!(original_transform.translation, original_pos);
     }
@@ -324,7 +360,6 @@ mod tests {
         action.apply(&mut world);
         action.revert(&mut world);
 
-        // Original should still exist
         let original_transform = world.get::<Transform>(original).unwrap();
         assert_eq!(original_transform.translation, original_pos);
     }

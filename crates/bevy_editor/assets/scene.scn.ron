@@ -1,4 +1,113 @@
 (
   resources: {},
-  entities: {},
+  entities: {
+    4294966711: (
+      components: {
+        "bevy_camera::visibility::InheritedVisibility": (false),
+        "bevy_ecs::hierarchy::Children": ([
+          4294966710,
+          4294966709,
+          4294966708,
+          4294966707,
+          4294966706,
+        ]),
+        "bevy_editor::prefabs::PrefabId": ("GridWall"),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.07031691, -0.08789611, -0.17579222),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294966717: (
+      components: {
+        "bevy_camera::visibility::InheritedVisibility": (false),
+        "bevy_ecs::hierarchy::Children": ([
+          4294966716,
+          4294966715,
+          4294966714,
+          4294966713,
+          4294966712,
+        ]),
+        "bevy_editor::prefabs::PrefabId": ("GridWall"),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-2.8331885, 2.2914853, 4.582971),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294966723: (
+      components: {
+        "bevy_camera::visibility::InheritedVisibility": (false),
+        "bevy_ecs::hierarchy::Children": ([
+          4294966722,
+          4294966721,
+          4294966720,
+          4294966719,
+          4294966718,
+        ]),
+        "bevy_editor::prefabs::PrefabId": ("GridWall"),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-2.8331883, 2.2914853, 5.582971),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294966729: (
+      components: {
+        "bevy_camera::visibility::InheritedVisibility": (false),
+        "bevy_ecs::hierarchy::Children": ([
+          4294966728,
+          4294966727,
+          4294966726,
+          4294966725,
+          4294966724,
+        ]),
+        "bevy_editor::prefabs::PrefabId": ("GridWall"),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-1.8331883, 2.2914853, 6.582971),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294966735: (
+      components: {
+        "bevy_camera::visibility::InheritedVisibility": (false),
+        "bevy_ecs::hierarchy::Children": ([
+          4294966734,
+          4294966733,
+          4294966732,
+          4294966731,
+          4294966730,
+        ]),
+        "bevy_editor::prefabs::PrefabId": ("GridWall"),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-1.8331883, 2.2914853, 5.582971),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294966741: (
+      components: {
+        "bevy_camera::visibility::InheritedVisibility": (false),
+        "bevy_ecs::hierarchy::Children": ([
+          4294966740,
+          4294966739,
+          4294966738,
+          4294966737,
+          4294966736,
+        ]),
+        "bevy_editor::prefabs::PrefabId": ("GridWall"),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-1.8331884, 2.2914853, 4.582971),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+  },
 )

@@ -104,7 +104,7 @@ fn setup_prefabs(
     prefabs.register_prefab(
         &mut commands,
         "GridWall",
-        |mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>| {
+        || {
             (
                 GridWall::default(),
             )

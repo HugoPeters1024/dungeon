@@ -4,7 +4,7 @@ use bevy::{
 };
 use rstar::RTree;
 
-use crate::assets::{GameAssets, MyStates};
+use crate::assets::GameAssets;
 
 struct MeshBounds {
     extents: [f32; 3],
@@ -34,6 +34,38 @@ fn mesh_bounds(mesh: &Mesh) -> MeshBounds {
             (min[1] + max[1]) / 2.0,
             (min[2] + max[2]) / 2.0,
         ),
+    }
+}
+
+/// Pre-computed placement info for fitting a mesh into a unit cube face.
+struct FittedMesh {
+    scale: f32,
+    thickness: f32,
+    center: Vec3,
+}
+
+impl FittedMesh {
+    fn from_mesh(mesh: Option<&Mesh>) -> Self {
+        let Some(mesh) = mesh else {
+            return Self { scale: 1.0, thickness: 0.0, center: Vec3::ZERO };
+        };
+        let bounds = mesh_bounds(mesh);
+        let dominant = bounds.extents.into_iter().fold(0.0f32, f32::max);
+        let scale = if dominant > 0.0 { 1.0 / dominant } else { 1.0 };
+        let thickness = bounds.extents.into_iter().fold(f32::MAX, f32::min) * scale;
+        Self { scale, thickness, center: bounds.center }
+    }
+
+    fn edge_offset(&self) -> f32 {
+        0.5 - self.thickness / 2.0
+    }
+
+    /// Translation that places the mesh at a cube face.
+    /// `face_dir` is the outward direction of the face (e.g. -Y for floor),
+    /// `rotation` is the rotation applied to the mesh.
+    fn face_translation(&self, face_dir: Vec3, rotation: Quat) -> Vec3 {
+        let center_correction = rotation * (self.center * self.scale);
+        face_dir.normalize() * self.edge_offset() - center_correction
     }
 }
 
@@ -91,22 +123,11 @@ fn on_grid_wall_added(
 
     commands.entity(entity).with_children(|parent| {
         for primitive in &gltf_mesh.primitives {
-            let bounds = meshes.get(&primitive.mesh).map(mesh_bounds);
-            let scale = bounds
-                .as_ref()
-                .map(|b| {
-                    let dominant = b.extents.into_iter().fold(0.0f32, f32::max);
-                    if dominant > 0.0 { 1.0 / dominant } else { 1.0 }
-                })
-                .unwrap_or(1.0);
-            let center_correction = bounds
-                .as_ref()
-                .map(|b| b.center * scale)
-                .unwrap_or(Vec3::ZERO);
+            let fitted = FittedMesh::from_mesh(meshes.get(&primitive.mesh));
+            let offset = fitted.face_translation(Vec3::NEG_Y, Quat::IDENTITY);
             let mut child = parent.spawn((
                 Mesh3d(primitive.mesh.clone()),
-                Transform::from_translation(-center_correction)
-                    .with_scale(Vec3::splat(scale)),
+                Transform::from_translation(offset).with_scale(Vec3::splat(fitted.scale)),
             ));
             if let Some(material) = primitive.material.as_ref() {
                 child.insert(MeshMaterial3d(material.clone()));
@@ -118,37 +139,19 @@ fn on_grid_wall_added(
     let wall_mesh_handle = gltf.named_meshes.get("Wall").unwrap();
     let wall_gltf_mesh = gltf_meshes.get(wall_mesh_handle).unwrap();
     let wall_primitive = &wall_gltf_mesh.primitives[0];
-    let wall_mesh = meshes.get(&wall_primitive.mesh);
-    let wall_bounds = wall_mesh.map(mesh_bounds);
-    let wall_scale = wall_bounds
-        .as_ref()
-        .map(|b| {
-            let dominant = b.extents.into_iter().fold(0.0f32, f32::max);
-            if dominant > 0.0 { 1.0 / dominant } else { 1.0 }
-        })
-        .unwrap_or(1.0);
-    let wall_thickness = wall_bounds
-        .as_ref()
-        .map(|b| b.extents.into_iter().fold(f32::MAX, f32::min) * wall_scale)
-        .unwrap_or(0.0);
-    let wall_center = wall_bounds
-        .as_ref()
-        .map(|b| b.center)
-        .unwrap_or(Vec3::ZERO);
-    let wall_offset = 0.5 - wall_thickness / 2.0;
+    let fitted_wall = FittedMesh::from_mesh(meshes.get(&wall_primitive.mesh));
 
     let mut wall_entities = [Entity::PLACEHOLDER; 4];
     for (i, &(_neighbour_idx, dir, rotation_y)) in WALL_FACES.iter().enumerate() {
         let rotation = Quat::from_rotation_y(rotation_y);
-        let center_correction = rotation * (wall_center * wall_scale);
-        let offset = dir.normalize() * wall_offset - center_correction;
+        let offset = fitted_wall.face_translation(dir, rotation);
         let wall = commands
             .spawn((
                 Mesh3d(wall_primitive.mesh.clone()),
                 MeshMaterial3d(wall_primitive.material.clone().unwrap()),
                 Transform::from_translation(offset)
                     .with_rotation(rotation)
-                    .with_scale(Vec3::splat(wall_scale)),
+                    .with_scale(Vec3::splat(fitted_wall.scale)),
                 ChildOf(entity),
             ))
             .id();
@@ -212,5 +215,240 @@ fn update_walls(
                 };
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::PrimitiveTopology;
+
+    fn make_box_mesh(min: [f32; 3], max: [f32; 3]) -> Mesh {
+        let positions = vec![min, max, [max[0], min[1], min[2]], [min[0], max[1], max[2]]];
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::MAIN_WORLD,
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+        mesh
+    }
+
+    #[test]
+    fn mesh_bounds_centered_box() {
+        let mesh = make_box_mesh([-1.0, -2.0, -3.0], [1.0, 2.0, 3.0]);
+        let bounds = mesh_bounds(&mesh);
+        assert_eq!(bounds.extents, [2.0, 4.0, 6.0]);
+        assert!(bounds.center.abs_diff_eq(Vec3::ZERO, 1e-6));
+    }
+
+    #[test]
+    fn mesh_bounds_off_center_box() {
+        let mesh = make_box_mesh([1.0, 2.0, 3.0], [3.0, 6.0, 9.0]);
+        let bounds = mesh_bounds(&mesh);
+        assert_eq!(bounds.extents, [2.0, 4.0, 6.0]);
+        assert!(bounds.center.abs_diff_eq(Vec3::new(2.0, 4.0, 6.0), 1e-6));
+    }
+
+    #[test]
+    fn mesh_bounds_no_positions_returns_defaults() {
+        let mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::MAIN_WORLD,
+        );
+        let bounds = mesh_bounds(&mesh);
+        assert_eq!(bounds.extents, [1.0, 1.0, 1.0]);
+        assert_eq!(bounds.center, Vec3::ZERO);
+    }
+
+    #[test]
+    fn mesh_bounds_thin_wall() {
+        let mesh = make_box_mesh([-5.0, -5.0, -0.1], [5.0, 5.0, 0.1]);
+        let bounds = mesh_bounds(&mesh);
+        let thickness = bounds.extents.into_iter().fold(f32::MAX, f32::min);
+        let dominant = bounds.extents.into_iter().fold(0.0f32, f32::max);
+        let scale = 1.0 / dominant;
+        assert!((thickness * scale - 0.02).abs() < 1e-6);
+    }
+
+    #[test]
+    fn wall_faces_neighbour_indices_are_valid() {
+        for &(idx, _, _) in &WALL_FACES {
+            assert!(idx < 27, "neighbour index {idx} out of 3x3x3 range");
+        }
+    }
+
+    /// The 3x3x3 neighbour grid is indexed as x * 9 + y * 3 + z with
+    /// x,y,z each in -1..=1 mapped to 0..=2. Verify the WALL_FACES
+    /// indices match the expected cardinal directions.
+    #[test]
+    fn wall_faces_neighbour_indices_match_directions() {
+        let idx =
+            |x: i32, y: i32, z: i32| -> usize { ((x + 1) * 9 + (y + 1) * 3 + (z + 1)) as usize };
+        assert_eq!(WALL_FACES[0].0, idx(-1, 0, 0), "-X face");
+        assert_eq!(WALL_FACES[1].0, idx(1, 0, 0), "+X face");
+        assert_eq!(WALL_FACES[2].0, idx(0, 0, -1), "-Z face");
+        assert_eq!(WALL_FACES[3].0, idx(0, 0, 1), "+Z face");
+    }
+
+    #[test]
+    fn wall_faces_directions_are_unit_length_scaled() {
+        for &(_, dir, _) in &WALL_FACES {
+            assert!(
+                (dir.length() - 0.5).abs() < 1e-6,
+                "direction {dir} should have length 0.5"
+            );
+        }
+    }
+
+    #[test]
+    fn grid_wall_default_has_no_neighbours() {
+        let gw = GridWall::default();
+        assert!(gw.neighbours.iter().all(|&n| !n));
+    }
+
+    #[test]
+    fn update_walls_hides_wall_when_neighbour_present() {
+        let mut app = App::new();
+        app.add_systems(Update, update_walls);
+
+        let wall_entities: [Entity; 4] =
+            std::array::from_fn(|_| app.world_mut().spawn(Visibility::Visible).id());
+
+        let mut gw = GridWall::default();
+        gw.neighbours[WALL_FACES[0].0] = true;
+        gw.neighbours[WALL_FACES[2].0] = true;
+
+        app.world_mut().spawn((
+            gw,
+            GridMeshes {
+                walls: wall_entities,
+            },
+        ));
+        app.update();
+
+        let vis = |e: Entity| *app.world().get::<Visibility>(e).unwrap();
+        assert_eq!(
+            vis(wall_entities[0]),
+            Visibility::Hidden,
+            "-X wall should be hidden"
+        );
+        assert_eq!(
+            vis(wall_entities[1]),
+            Visibility::Visible,
+            "+X wall should be visible"
+        );
+        assert_eq!(
+            vis(wall_entities[2]),
+            Visibility::Hidden,
+            "-Z wall should be hidden"
+        );
+        assert_eq!(
+            vis(wall_entities[3]),
+            Visibility::Visible,
+            "+Z wall should be visible"
+        );
+    }
+
+    #[test]
+    fn update_walls_shows_all_when_no_neighbours() {
+        let mut app = App::new();
+        app.add_systems(Update, update_walls);
+
+        let wall_entities: [Entity; 4] =
+            std::array::from_fn(|_| app.world_mut().spawn(Visibility::Hidden).id());
+
+        let gw = GridWall::default();
+        app.world_mut().spawn((
+            gw,
+            GridMeshes {
+                walls: wall_entities,
+            },
+        ));
+        app.update();
+
+        for (i, &e) in wall_entities.iter().enumerate() {
+            assert_eq!(
+                *app.world().get::<Visibility>(e).unwrap(),
+                Visibility::Visible,
+                "wall {i} should be visible with no neighbours"
+            );
+        }
+    }
+
+    #[test]
+    fn fitted_mesh_edge_offset_accounts_for_thickness() {
+        let mesh = make_box_mesh([-5.0, -4.0, -0.25], [5.0, 4.0, 0.25]);
+        let fitted = FittedMesh::from_mesh(Some(&mesh));
+        let edge = fitted.edge_offset();
+        assert!(edge < 0.5, "offset should be less than 0.5 for non-zero thickness");
+        assert!(edge > 0.0, "offset should be positive");
+        assert!((edge - (0.5 - 0.05 / 2.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fitted_mesh_none_returns_defaults() {
+        let fitted = FittedMesh::from_mesh(None);
+        assert_eq!(fitted.scale, 1.0);
+        assert_eq!(fitted.thickness, 0.0);
+        assert_eq!(fitted.center, Vec3::ZERO);
+        assert!((fitted.edge_offset() - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn face_translation_corrects_off_center_mesh() {
+        let mesh = make_box_mesh([0.0, 0.0, 0.0], [10.0, 8.0, 0.5]);
+        let fitted = FittedMesh::from_mesh(Some(&mesh));
+
+        let translation = fitted.face_translation(Vec3::new(0.0, 0.0, 0.5), Quat::IDENTITY);
+        let expected_edge = fitted.edge_offset();
+        let expected_center = fitted.center * fitted.scale;
+        let expected = Vec3::new(0.0, 0.0, 1.0) * expected_edge - expected_center;
+        assert!(
+            translation.abs_diff_eq(expected, 1e-6),
+            "got {translation}, expected {expected}"
+        );
+    }
+
+    #[test]
+    fn face_translation_rotated_wall() {
+        let mesh = make_box_mesh([-5.0, -4.0, -0.1], [5.0, 4.0, 0.1]);
+        let fitted = FittedMesh::from_mesh(Some(&mesh));
+
+        let rot = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        let t1 = fitted.face_translation(Vec3::NEG_X, rot);
+        let t2 = fitted.face_translation(Vec3::X, Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2));
+        assert!(
+            (t1.x.abs() - t2.x.abs()).abs() < 1e-5,
+            "symmetric walls should have symmetric X offsets"
+        );
+    }
+
+    #[test]
+    fn floor_pushed_to_negative_y_edge() {
+        let mesh = make_box_mesh([-5.0, -0.1, -5.0], [5.0, 0.1, 5.0]);
+        let fitted = FittedMesh::from_mesh(Some(&mesh));
+        let translation = fitted.face_translation(Vec3::NEG_Y, Quat::IDENTITY);
+
+        let expected_y = -fitted.edge_offset() - fitted.center.y * fitted.scale;
+        assert!(
+            (translation.y - expected_y).abs() < 1e-6,
+            "floor y={}, expected {expected_y}", translation.y
+        );
+        assert!(translation.y < 0.0, "floor should be below center");
+    }
+
+    #[test]
+    fn floor_and_wall_use_same_logic() {
+        let wall_mesh = make_box_mesh([-5.0, -4.0, -0.1], [5.0, 4.0, 0.1]);
+        let floor_mesh = make_box_mesh([-5.0, -0.1, -5.0], [5.0, 0.1, 5.0]);
+
+        let wall_fitted = FittedMesh::from_mesh(Some(&wall_mesh));
+        let floor_fitted = FittedMesh::from_mesh(Some(&floor_mesh));
+
+        assert!(
+            (wall_fitted.edge_offset() - floor_fitted.edge_offset()).abs() < 1e-6,
+            "same-thickness meshes should produce the same edge offset"
+        );
     }
 }
