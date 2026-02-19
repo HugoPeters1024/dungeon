@@ -2,7 +2,6 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use bevy::camera::Viewport;
-use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::RenderLayers;
 use bevy::color::palettes::tailwind::{PINK_100, RED_500};
 use bevy::mesh::Indices;
@@ -58,6 +57,7 @@ impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(PrefabPlugin);
         app.add_plugins(crate::scene::ScenePlugin);
+        app.add_plugins(crate::merged_aabb::MergedAabbPlugin);
 
         if !app.is_plugin_added::<MeshPickingPlugin>() {
             app.add_plugins(MeshPickingPlugin);
@@ -374,48 +374,13 @@ fn draw_axes(mut gizmos: Gizmos, query: Query<&GlobalTransform>, selected: Res<S
 
 fn draw_aabb(
     mut gizmos: Gizmos,
-    query: Query<(&GlobalTransform, &Aabb)>,
-    children_query: Query<&Children>,
+    query: Query<&crate::merged_aabb::MergedAabb>,
     selected: Res<Selected>,
 ) {
     for entity in selected.entities.iter().copied() {
-        // Collect all AABBs from the entity and its descendants, transformed to world space
-        let mut min = Vec3::splat(f32::INFINITY);
-        let mut max = Vec3::splat(f32::NEG_INFINITY);
-        let mut has_aabb = false;
-
-        // Helper to merge an entity's AABB into the world-space bounds
-        let mut merge_aabb = |entity: Entity| {
-            if let Ok((global_transform, aabb)) = query.get(entity) {
-                has_aabb = true;
-                // Transform the 8 corners of the local AABB to world space
-                let center: Vec3 = aabb.center.into();
-                let half: Vec3 = aabb.half_extents.into();
-                for x in [-1.0, 1.0] {
-                    for y in [-1.0, 1.0] {
-                        for z in [-1.0, 1.0] {
-                            let local_corner = center + half * Vec3::new(x, y, z);
-                            let world_corner = global_transform.transform_point(local_corner);
-                            min = min.min(world_corner);
-                            max = max.max(world_corner);
-                        }
-                    }
-                }
-            }
-        };
-
-        // Merge the selected entity's AABB
-        merge_aabb(entity);
-
-        // Merge all descendants' AABBs
-        for descendant in children_query.iter_descendants(entity) {
-            merge_aabb(descendant);
-        }
-
-        // Draw the merged world-space AABB
-        if has_aabb {
-            let center = (min + max) * 0.5;
-            let size = max - min;
+        if let Ok(merged) = query.get(entity) {
+            let center: Vec3 = merged.center.into();
+            let size: Vec3 = Vec3::from(merged.half_extents) * 2.0;
             let aabb_transform =
                 GlobalTransform::from(Transform::from_translation(center).with_scale(size));
             gizmos.cuboid(aabb_transform, PINK_100);

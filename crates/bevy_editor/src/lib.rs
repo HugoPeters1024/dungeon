@@ -4,6 +4,7 @@ mod prefabs;
 mod scene;
 mod state;
 mod ui;
+pub mod merged_aabb;
 
 pub use actions::{
     Action, ActionQueue, DuplicateAction, EditorAction, FocusCameraAction, MergeAction,
