@@ -1,6 +1,6 @@
 use bevy::{ecs::entity::EntitySetIterator, platform::collections::HashSet, prelude::*};
 
-use crate::PrefabId;
+use crate::{PrefabId, actions::TrashRoot};
 
 pub struct ScenePlugin;
 
@@ -10,11 +10,15 @@ impl Plugin for ScenePlugin {
     }
 }
 
-fn do_the_save(world: &mut World) {
-    let entities: HashSet<Entity> = world
+fn do_the_save(In(trashed): In<Vec<Entity>>, world: &mut World) {
+    let mut entities: HashSet<Entity> = world
         .query_filtered::<Entity, With<PrefabId>>()
         .iter(world)
         .collect_set();
+
+    for t in trashed.iter() {
+        entities.remove(t);
+    }
 
     let scene = DynamicSceneBuilder::from_world(world)
         .deny_all_components()
@@ -41,9 +45,14 @@ fn do_the_save(world: &mut World) {
     }
 }
 
-fn save_scene(mut commands: Commands, keyboard: Res<ButtonInput<KeyCode>>) {
+fn save_scene(
+    mut commands: Commands,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    trash: Res<TrashRoot>,
+    children: Query<&Children>,
+) {
     if keyboard.just_pressed(KeyCode::KeyS) {
-        commands.run_system_cached(do_the_save);
+        commands.run_system_cached_with(do_the_save, children.iter_descendants(trash.0).collect());
     }
 }
 
