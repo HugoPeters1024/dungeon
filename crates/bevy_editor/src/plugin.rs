@@ -325,6 +325,7 @@ fn on_click_object(
     if !ui_state.pointer_in_viewport
         || ui_state.egui_wants_pointer_input
         || trigger.duration > CLICK_DURATION
+        || !prefab_ids.contains(trigger.event_target())
         || windows.contains(trigger.event_target())
     {
         return;

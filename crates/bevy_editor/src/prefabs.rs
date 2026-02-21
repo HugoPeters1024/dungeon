@@ -1,5 +1,7 @@
 use bevy::{ecs::system::SystemId, platform::collections::HashMap, prelude::*};
 
+use crate::merged_aabb::MergedAabb;
+
 pub struct PrefabPlugin;
 
 impl Plugin for PrefabPlugin {
@@ -13,7 +15,7 @@ impl Plugin for PrefabPlugin {
 /// Marker component for prefabs that haven't been spawned yet
 #[derive(Component, Clone, Debug, Hash, PartialEq, Eq, Reflect)]
 #[reflect(Component)]
-#[require(Visibility)]
+#[require(Visibility, MergedAabb)]
 pub struct PrefabId(String);
 
 impl PrefabId {

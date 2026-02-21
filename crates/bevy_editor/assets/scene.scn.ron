@@ -1,38 +1,10 @@
 (
   resources: {},
   entities: {
-    4294967266: (
-      components: {
-        "bevy_camera::visibility::InheritedVisibility": (true),
-        "bevy_camera::visibility::Visibility": Inherited,
-        "bevy_editor::prefabs::PrefabId": ("Blue Sphere"),
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 0.0, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967267: (
-      components: {
-        "bevy_camera::visibility::InheritedVisibility": (true),
-        "bevy_camera::visibility::Visibility": Inherited,
-        "bevy_editor::prefabs::PrefabId": ("Red Cube"),
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 1.0, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
     4294967268: (
       components: {
         "bevy_camera::visibility::InheritedVisibility": (true),
         "bevy_camera::visibility::Visibility": Inherited,
-        "bevy_ecs::hierarchy::Children": ([
-          4294967267,
-          4294967266,
-        ]),
         "bevy_editor::prefabs::PrefabId": ("Both"),
         "bevy_transform::components::transform::Transform": (
           translation: (-0.9894177, 1.236772, 2.4735441),

@@ -1,4 +1,7 @@
-use bevy::{ecs::entity::EntitySetIterator, platform::collections::HashSet, prelude::*};
+use bevy::{
+    camera::primitives::Aabb, ecs::entity::EntitySetIterator, platform::collections::HashSet,
+    prelude::*,
+};
 
 use crate::{PrefabId, actions::TrashRoot};
 
@@ -20,11 +23,23 @@ fn do_the_save(In(trashed): In<Vec<Entity>>, world: &mut World) {
         entities.remove(t);
     }
 
+    // Only keep root PrefabId entities: exclude any whose ancestor also has PrefabId
+    entities.retain(|&entity| {
+        let mut current = entity;
+        while let Some(child_of) = world.get::<ChildOf>(current) {
+            let parent = child_of.parent();
+            if world.get::<PrefabId>(parent).is_some() {
+                return false;
+            }
+            current = parent;
+        }
+        true
+    });
+
     let scene = DynamicSceneBuilder::from_world(world)
         .deny_all_components()
         .allow_component::<PrefabId>()
         .allow_component::<Transform>()
-        .allow_component::<Children>()
         .allow_component::<InheritedVisibility>()
         .allow_component::<Visibility>()
         .extract_entities(entities.iter().cloned())
@@ -62,7 +77,11 @@ fn load_scene(
     asset_server: Res<AssetServer>,
 ) {
     if keyboard.just_pressed(KeyCode::KeyL) {
-        commands.spawn(DynamicSceneRoot(asset_server.load("scene.scn.ron")));
+        commands.spawn((
+            DynamicSceneRoot(asset_server.load("scene.scn.ron")),
+            Visibility::default(),
+            Transform::default(),
+        ));
         info!("Loading scene from scene.scn.ron");
     }
 }

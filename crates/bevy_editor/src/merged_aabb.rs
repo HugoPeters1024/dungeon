@@ -1,6 +1,6 @@
 use bevy::{camera::primitives::Aabb, prelude::*, transform::TransformSystems};
 
-#[derive(Component, Deref, DerefMut, Clone, Debug, Reflect)]
+#[derive(Component, Default, Deref, DerefMut, Clone, Debug, Reflect)]
 pub struct MergedAabb(pub Aabb);
 
 pub struct MergedAabbPlugin;
@@ -19,9 +19,9 @@ fn update_merged_aabbs(
     mut commands: Commands,
     aabb_query: Query<(&GlobalTransform, &Aabb)>,
     children_query: Query<&Children>,
-    roots: Query<Entity, Without<ChildOf>>,
+    targets: Query<Entity, With<MergedAabb>>,
 ) {
-    for entity in roots.iter() {
+    for entity in targets.iter() {
         let mut min = Vec3::splat(f32::INFINITY);
         let mut max = Vec3::splat(f32::NEG_INFINITY);
         let mut has_aabb = false;
