@@ -18,12 +18,6 @@ pub use transform::{TransformAction, TransformSelectionAction, TransformKind};
 
 use bevy::prelude::*;
 
-// Type aliases for backwards compatibility
-pub type MoveAction = TransformAction;
-pub type MoveSelectionAction = TransformSelectionAction;
-pub type ScaleAction = TransformAction;
-pub type ScaleSelectionAction = TransformSelectionAction;
-
 /// Represents an action that can be applied to the world.
 /// Actions are queued and executed later, enabling undo/redo support.
 #[derive(Clone, Debug)]
