@@ -54,10 +54,8 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                             .show(ui.ctx(), |ui| {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                                     // Extract all needed data from Selected before any mutable borrows
-                                    let selection_data = self
-                                        .world
-                                        .get_resource::<Selected>()
-                                        .map(|selected| {
+                                    let selection_data =
+                                        self.world.get_resource::<Selected>().map(|selected| {
                                             (
                                                 selected.primary(),
                                                 selected.entities.len(),
@@ -65,7 +63,8 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                             )
                                         });
 
-                                    if let Some((entity, selection_count, entities)) = selection_data
+                                    if let Some((entity, selection_count, entities)) =
+                                        selection_data
                                     {
                                         // Duplicate only available when exactly 1 entity is selected
                                         if selection_count == 1 && ui.button("Duplicate").clicked()

@@ -2,12 +2,9 @@ use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 
 use crate::PrefabId;
+use crate::actions::{TrashRoot, move_to_trash, restore_from_trash};
 
 use super::Action;
-
-/// Marker component for entities that have been "undone" (hidden but not despawned)
-#[derive(Component)]
-pub struct UndoneEntity;
 
 /// Duplicate an entity, offsetting it in the given direction based on its AABB
 /// so the duplicated object exactly touches the original.
@@ -88,8 +85,7 @@ fn compute_offset(world: &World, entity: Entity, direction: Vec3) -> Vec3 {
     if let Some((min, max)) = compute_world_aabb(world, entity) {
         let size = max - min;
         let dir = direction.normalize_or_zero();
-        let distance =
-            size.x * dir.x.abs() + size.y * dir.y.abs() + size.z * dir.z.abs();
+        let distance = size.x * dir.x.abs() + size.y * dir.y.abs() + size.z * dir.z.abs();
         dir * distance
     } else {
         direction
@@ -100,13 +96,12 @@ impl Action for DuplicateAction {
     fn apply(&mut self, world: &mut World) {
         if let Some(existing) = self.created_entity {
             if let Ok(mut entity_mut) = world.get_entity_mut(existing) {
-                entity_mut.remove::<UndoneEntity>();
-                entity_mut.insert(Visibility::Inherited);
+                restore_from_trash(&mut entity_mut);
             }
         } else {
-            let offset = *self.computed_offset.get_or_insert_with(|| {
-                compute_offset(world, self.entity, self.direction)
-            });
+            let offset = *self
+                .computed_offset
+                .get_or_insert_with(|| compute_offset(world, self.entity, self.direction));
 
             let original_transform = world
                 .get::<Transform>(self.entity)
@@ -136,11 +131,13 @@ impl Action for DuplicateAction {
     }
 
     fn revert(&mut self, world: &mut World) {
-        if let Some(entity) = self.created_entity {
-            if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                entity_mut.insert((UndoneEntity, Visibility::Hidden));
+        world.resource_scope::<TrashRoot, ()>(|world, trash| {
+            if let Some(entity) = self.created_entity {
+                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                    move_to_trash(&mut entity_mut, trash.0);
+                }
             }
-        }
+        });
     }
 
     fn name(&self) -> String {
@@ -151,6 +148,13 @@ impl Action for DuplicateAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actions::{TrashRoot, TrashRootMarker};
+
+    fn setup_trash(world: &mut World) -> Entity {
+        let trash = world.spawn(TrashRootMarker).id();
+        world.insert_resource(TrashRoot(trash));
+        trash
+    }
 
     #[test]
     fn test_duplicate_creates_new_entity() {
@@ -190,7 +194,10 @@ mod tests {
         let original_pos = Vec3::new(3.0, 0.0, 0.0);
         let direction = Vec3::new(2.0, 0.0, 0.0);
         let original = world
-            .spawn((PrefabId::new("thing"), Transform::from_translation(original_pos)))
+            .spawn((
+                PrefabId::new("thing"),
+                Transform::from_translation(original_pos),
+            ))
             .id();
 
         let mut action = DuplicateAction::new(original, direction);
@@ -215,27 +222,24 @@ mod tests {
     }
 
     #[test]
-    fn test_duplicate_undo_hides_entity() {
+    fn test_duplicate_undo_moves_to_trash() {
         let mut world = World::new();
+        let trash = setup_trash(&mut world);
         let original = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
 
         let mut action = DuplicateAction::new(original, Vec3::X);
         action.apply(&mut world);
-        assert_eq!(world.query::<&Transform>().iter(&world).count(), 2);
 
         action.revert(&mut world);
-        assert_eq!(world.query::<&Transform>().iter(&world).count(), 2);
         let created = action.created_entity().unwrap();
-        assert!(world.get::<UndoneEntity>(created).is_some());
-        assert_eq!(
-            *world.get::<Visibility>(created).unwrap(),
-            Visibility::Hidden
-        );
+        let child_of = world.get::<ChildOf>(created).unwrap();
+        assert_eq!(child_of.parent(), trash);
     }
 
     #[test]
     fn test_duplicate_redo_restores_entity() {
         let mut world = World::new();
+        let trash = setup_trash(&mut world);
         let original = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
 
         let mut action = DuplicateAction::new(original, Vec3::X);
@@ -243,15 +247,31 @@ mod tests {
         let created = action.created_entity().unwrap();
 
         action.revert(&mut world);
-        assert!(world.get::<UndoneEntity>(created).is_some());
+        assert_eq!(world.get::<ChildOf>(created).unwrap().parent(), trash);
 
         action.apply(&mut world);
         assert_eq!(action.created_entity().unwrap(), created);
-        assert!(world.get::<UndoneEntity>(created).is_none());
-        assert_eq!(
-            *world.get::<Visibility>(created).unwrap(),
-            Visibility::Inherited
-        );
+        assert!(world.get::<ChildOf>(created).is_none());
+    }
+
+    #[test]
+    fn test_duplicate_redo_restores_previous_parent() {
+        let mut world = World::new();
+        setup_trash(&mut world);
+        let parent = world.spawn_empty().id();
+        let original = world
+            .spawn((Transform::from_xyz(1.0, 2.0, 3.0), ChildOf(parent)))
+            .id();
+
+        let mut action = DuplicateAction::new(original, Vec3::X);
+        action.apply(&mut world);
+        let created = action.created_entity().unwrap();
+
+        action.revert(&mut world);
+        action.apply(&mut world);
+        assert_eq!(action.created_entity().unwrap(), created);
+        // Clone inherited ChildOf(parent) from original, so redo restores that
+        assert_eq!(world.get::<ChildOf>(created).unwrap().parent(), parent);
     }
 
     #[test]
@@ -353,6 +373,7 @@ mod tests {
     #[test]
     fn test_duplicate_undo_preserves_original() {
         let mut world = World::new();
+        setup_trash(&mut world);
         let original_pos = Vec3::new(1.0, 2.0, 3.0);
         let original = world.spawn(Transform::from_translation(original_pos)).id();
 

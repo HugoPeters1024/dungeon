@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use bevy::input::ButtonInput;
+use bevy::prelude::*;
 
 use super::EditorAction;
 
@@ -142,11 +142,7 @@ mod tests {
     #[test]
     fn test_action_queue_push_and_take() {
         let mut queue = ActionQueue::default();
-        queue.push(TransformAction::move_entity(
-            Entity::PLACEHOLDER,
-            Vec3::ZERO,
-            Vec3::ONE,
-        ).into());
+        queue.push(TransformAction::move_entity(Entity::PLACEHOLDER, Vec3::ZERO, Vec3::ONE).into());
 
         let pending = queue.take_pending();
         assert_eq!(pending.len(), 1);
@@ -159,7 +155,9 @@ mod tests {
 
         queue.push(TransformAction::move_entity(Entity::PLACEHOLDER, Vec3::ZERO, Vec3::ONE).into());
         queue.push(TransformAction::scale(Entity::PLACEHOLDER, Vec3::ONE, Vec3::splat(2.0)).into());
-        queue.push(TransformAction::rotate(Entity::PLACEHOLDER, Quat::IDENTITY, Quat::IDENTITY).into());
+        queue.push(
+            TransformAction::rotate(Entity::PLACEHOLDER, Quat::IDENTITY, Quat::IDENTITY).into(),
+        );
 
         let pending = queue.take_pending();
         assert_eq!(pending.len(), 3);

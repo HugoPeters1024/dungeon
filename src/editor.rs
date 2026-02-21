@@ -1,5 +1,8 @@
 use crate::{
-    assets::{GameAssets, MyStates}, game::Pickupable, grid_wall::GridWall, player::controller::ControllerCamera
+    assets::{GameAssets, MyStates},
+    game::Pickupable,
+    grid_wall::GridWall,
+    player::controller::ControllerCamera,
 };
 use avian3d::prelude::*;
 use bevy::{
@@ -101,15 +104,7 @@ fn setup_prefabs(
         )
     });
 
-    prefabs.register_prefab(
-        &mut commands,
-        "GridWall",
-        || {
-            (
-                GridWall::default(),
-            )
-        },
-    );
+    prefabs.register_prefab(&mut commands, "GridWall", || (GridWall::default(),));
 
     let gltf = gltfs.get(assets.castle_test.id()).unwrap();
     for (name, node) in gltf.named_nodes.iter() {

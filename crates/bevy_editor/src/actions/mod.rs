@@ -1,22 +1,62 @@
-mod traits;
 mod duplicate;
 mod focus_camera;
 mod merge;
 mod queue;
 mod remove;
 mod spawn_prefab;
+mod traits;
 mod transform;
 
-pub use traits::Action;
 pub use duplicate::DuplicateAction;
 pub use focus_camera::FocusCameraAction;
 pub use merge::MergeAction;
 pub use queue::{ActionQueue, handle_undo_redo_input, process_action_queue};
 pub use remove::RemoveAction;
 pub use spawn_prefab::SpawnPrefabAction;
-pub use transform::{TransformAction, TransformSelectionAction, TransformKind};
+pub use traits::Action;
+pub use transform::{TransformAction, TransformKind, TransformSelectionAction};
 
 use bevy::prelude::*;
+
+#[derive(Component)]
+#[require(InheritedVisibility, Transform)]
+pub struct TrashRootMarker;
+
+#[derive(Resource)]
+pub struct TrashRoot(pub Entity);
+
+#[derive(Component)]
+pub struct PreviousParent(Entity);
+
+/// Restore an entity from the trash root, returning it to its previous parent
+/// (or making it a root entity if it had no parent).
+///
+/// Re-inserts `Visibility` when removing `ChildOf` to trigger `Changed<Visibility>`,
+/// because component removal doesn't fire `Changed<ChildOf>` and the visibility
+/// propagation system would leave `InheritedVisibility` stale.
+pub fn restore_from_trash(entity_mut: &mut EntityWorldMut) {
+    if let Some(PreviousParent(parent)) = entity_mut.take::<PreviousParent>() {
+        entity_mut.insert(ChildOf(parent));
+    } else {
+        entity_mut.remove::<ChildOf>();
+        // Hack, re-insert to trigger recompute of InheritedVisibility,
+        // can be removed if https://github.com/bevyengine/bevy/pull/23100 is merged
+        if let Some(&vis) = entity_mut.get::<Visibility>() {
+            entity_mut.insert(vis);
+        }
+    }
+}
+
+/// Move an entity to the trash root, saving its current parent (if any) so it
+/// can be restored later.
+pub fn move_to_trash(entity_mut: &mut EntityWorldMut, trash: Entity) {
+    if let Some(parent) = entity_mut.get::<ChildOf>().map(|c| c.parent()) {
+        if parent != trash {
+            entity_mut.insert(PreviousParent(parent));
+        }
+    }
+    entity_mut.insert(ChildOf(trash));
+}
 
 /// Represents an action that can be applied to the world.
 /// Actions are queued and executed later, enabling undo/redo support.

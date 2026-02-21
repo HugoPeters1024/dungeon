@@ -131,7 +131,8 @@ impl TransformAction {
     fn apply_transform(&self, world: &mut World, target: &Transform) {
         match self.kind {
             TransformKind::Move => {
-                let local_position = world_position_to_local(world, self.entity, target.translation);
+                let local_position =
+                    world_position_to_local(world, self.entity, target.translation);
                 if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
                     transform.translation = local_position;
                 }
@@ -149,7 +150,8 @@ impl TransformAction {
                 }
             }
             TransformKind::Full => {
-                let local_translation = world_position_to_local(world, self.entity, target.translation);
+                let local_translation =
+                    world_position_to_local(world, self.entity, target.translation);
                 let local_rotation = world_rotation_to_local(world, self.entity, target.rotation);
                 let local_scale = world_scale_to_local(world, self.entity, target.scale);
                 if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
@@ -188,7 +190,10 @@ impl TransformSelectionAction {
     }
 
     fn kind(&self) -> TransformKind {
-        self.transforms.first().map(|t| t.kind).unwrap_or(TransformKind::Full)
+        self.transforms
+            .first()
+            .map(|t| t.kind)
+            .unwrap_or(TransformKind::Full)
     }
 }
 
@@ -206,7 +211,11 @@ impl Action for TransformSelectionAction {
     }
 
     fn name(&self) -> String {
-        format!("{} selection ({})", self.kind().verb(), self.transforms.len())
+        format!(
+            "{} selection ({})",
+            self.kind().verb(),
+            self.transforms.len()
+        )
     }
 }
 
@@ -252,9 +261,7 @@ mod tests {
     fn test_move_preserves_other_components() {
         let mut world = World::new();
         let entity = world
-            .spawn((
-                Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(2.0)),
-            ))
+            .spawn((Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(2.0)),))
             .id();
 
         let mut action = TransformAction::move_entity(entity, Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0));
@@ -410,7 +417,11 @@ mod tests {
 
     #[test]
     fn test_full_transform_name() {
-        let action = TransformAction::full(Entity::PLACEHOLDER, Transform::IDENTITY, Transform::IDENTITY);
+        let action = TransformAction::full(
+            Entity::PLACEHOLDER,
+            Transform::IDENTITY,
+            Transform::IDENTITY,
+        );
         assert!(action.name().starts_with("transform "));
     }
 
@@ -496,10 +507,15 @@ mod tests {
         let scale_action = TransformAction::scale(Entity::PLACEHOLDER, Vec3::ONE, Vec3::splat(2.0));
         assert_eq!(scale_action.kind(), TransformKind::Scale);
 
-        let rotate_action = TransformAction::rotate(Entity::PLACEHOLDER, Quat::IDENTITY, Quat::IDENTITY);
+        let rotate_action =
+            TransformAction::rotate(Entity::PLACEHOLDER, Quat::IDENTITY, Quat::IDENTITY);
         assert_eq!(rotate_action.kind(), TransformKind::Rotate);
 
-        let full_action = TransformAction::full(Entity::PLACEHOLDER, Transform::IDENTITY, Transform::IDENTITY);
+        let full_action = TransformAction::full(
+            Entity::PLACEHOLDER,
+            Transform::IDENTITY,
+            Transform::IDENTITY,
+        );
         assert_eq!(full_action.kind(), TransformKind::Full);
     }
 }

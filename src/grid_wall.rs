@@ -47,13 +47,21 @@ struct FittedMesh {
 impl FittedMesh {
     fn from_mesh(mesh: Option<&Mesh>) -> Self {
         let Some(mesh) = mesh else {
-            return Self { scale: 1.0, thickness: 0.0, center: Vec3::ZERO };
+            return Self {
+                scale: 1.0,
+                thickness: 0.0,
+                center: Vec3::ZERO,
+            };
         };
         let bounds = mesh_bounds(mesh);
         let dominant = bounds.extents.into_iter().fold(0.0f32, f32::max);
         let scale = if dominant > 0.0 { 1.0 / dominant } else { 1.0 };
         let thickness = bounds.extents.into_iter().fold(f32::MAX, f32::min) * scale;
-        Self { scale, thickness, center: bounds.center }
+        Self {
+            scale,
+            thickness,
+            center: bounds.center,
+        }
     }
 
     fn edge_offset(&self) -> f32 {
@@ -381,7 +389,10 @@ mod tests {
         let mesh = make_box_mesh([-5.0, -4.0, -0.25], [5.0, 4.0, 0.25]);
         let fitted = FittedMesh::from_mesh(Some(&mesh));
         let edge = fitted.edge_offset();
-        assert!(edge < 0.5, "offset should be less than 0.5 for non-zero thickness");
+        assert!(
+            edge < 0.5,
+            "offset should be less than 0.5 for non-zero thickness"
+        );
         assert!(edge > 0.0, "offset should be positive");
         assert!((edge - (0.5 - 0.05 / 2.0)).abs() < 1e-6);
     }
@@ -417,7 +428,8 @@ mod tests {
 
         let rot = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
         let t1 = fitted.face_translation(Vec3::NEG_X, rot);
-        let t2 = fitted.face_translation(Vec3::X, Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2));
+        let t2 =
+            fitted.face_translation(Vec3::X, Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2));
         assert!(
             (t1.x.abs() - t2.x.abs()).abs() < 1e-5,
             "symmetric walls should have symmetric X offsets"
@@ -433,7 +445,8 @@ mod tests {
         let expected_y = -fitted.edge_offset() - fitted.center.y * fitted.scale;
         assert!(
             (translation.y - expected_y).abs() < 1e-6,
-            "floor y={}, expected {expected_y}", translation.y
+            "floor y={}, expected {expected_y}",
+            translation.y
         );
         assert!(translation.y < 0.0, "floor should be below center");
     }

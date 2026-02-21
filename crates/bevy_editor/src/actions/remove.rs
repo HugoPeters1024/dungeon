@@ -1,42 +1,32 @@
 use bevy::prelude::*;
 
 use super::Action;
-use super::duplicate::UndoneEntity;
+use super::{TrashRoot, move_to_trash, restore_from_trash};
 
 /// Remove an entity from the scene
 #[derive(Clone, Debug)]
 pub struct RemoveAction {
     pub entity: Entity,
-    /// Whether the entity was already hidden before removal (for proper undo)
-    was_hidden: bool,
 }
 
 impl RemoveAction {
     pub fn new(entity: Entity) -> Self {
-        Self {
-            entity,
-            was_hidden: false,
-        }
+        Self { entity }
     }
 }
 
 impl Action for RemoveAction {
     fn apply(&mut self, world: &mut World) {
-        if let Ok(mut entity_mut) = world.get_entity_mut(self.entity) {
-            // Check if already hidden
-            self.was_hidden = entity_mut.get::<UndoneEntity>().is_some();
-            // Hide the entity instead of despawning it (allows undo)
-            entity_mut.insert((UndoneEntity, Visibility::Hidden));
-        }
+        world.resource_scope::<TrashRoot, ()>(|world, trash| {
+            if let Ok(mut entity_mut) = world.get_entity_mut(self.entity) {
+                move_to_trash(&mut entity_mut, trash.0);
+            }
+        });
     }
 
     fn revert(&mut self, world: &mut World) {
         if let Ok(mut entity_mut) = world.get_entity_mut(self.entity) {
-            // Only restore if it wasn't already hidden before
-            if !self.was_hidden {
-                entity_mut.remove::<UndoneEntity>();
-                entity_mut.insert(Visibility::Inherited);
-            }
+            restore_from_trash(&mut entity_mut);
         }
     }
 
@@ -48,50 +38,70 @@ impl Action for RemoveAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actions::TrashRootMarker;
+
+    fn setup_trash(world: &mut World) -> Entity {
+        let trash = world.spawn(TrashRootMarker).id();
+        world.insert_resource(TrashRoot(trash));
+        trash
+    }
 
     #[test]
-    fn test_remove_hides_entity() {
+    fn test_remove_moves_to_trash() {
         let mut world = World::new();
+        let trash = setup_trash(&mut world);
         let entity = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
 
         let mut action = RemoveAction::new(entity);
         action.apply(&mut world);
 
-        assert!(world.get::<UndoneEntity>(entity).is_some());
-        assert_eq!(*world.get::<Visibility>(entity).unwrap(), Visibility::Hidden);
+        assert_eq!(world.get::<ChildOf>(entity).unwrap().parent(), trash);
     }
 
     #[test]
     fn test_remove_undo_restores_entity() {
         let mut world = World::new();
+        setup_trash(&mut world);
         let entity = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
 
         let mut action = RemoveAction::new(entity);
         action.apply(&mut world);
-        
-        assert!(world.get::<UndoneEntity>(entity).is_some());
-
         action.revert(&mut world);
-        
-        assert!(world.get::<UndoneEntity>(entity).is_none());
-        assert_eq!(*world.get::<Visibility>(entity).unwrap(), Visibility::Inherited);
+
+        assert!(world.get::<ChildOf>(entity).is_none());
     }
 
     #[test]
-    fn test_remove_redo_hides_again() {
+    fn test_remove_undo_restores_previous_parent() {
         let mut world = World::new();
+        setup_trash(&mut world);
+        let parent = world.spawn_empty().id();
+        let entity = world
+            .spawn((Transform::from_xyz(1.0, 2.0, 3.0), ChildOf(parent)))
+            .id();
+
+        let mut action = RemoveAction::new(entity);
+        action.apply(&mut world);
+        action.revert(&mut world);
+
+        assert_eq!(world.get::<ChildOf>(entity).unwrap().parent(), parent);
+    }
+
+    #[test]
+    fn test_remove_redo_moves_to_trash_again() {
+        let mut world = World::new();
+        let trash = setup_trash(&mut world);
         let entity = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
 
         let mut action = RemoveAction::new(entity);
         action.apply(&mut world);
         action.revert(&mut world);
-        
-        assert!(world.get::<UndoneEntity>(entity).is_none());
-        
+
+        assert!(world.get::<ChildOf>(entity).is_none());
+
         action.apply(&mut world);
-        
-        assert!(world.get::<UndoneEntity>(entity).is_some());
-        assert_eq!(*world.get::<Visibility>(entity).unwrap(), Visibility::Hidden);
+
+        assert_eq!(world.get::<ChildOf>(entity).unwrap().parent(), trash);
     }
 
     #[test]
@@ -103,13 +113,13 @@ mod tests {
     #[test]
     fn test_remove_preserves_entity_data() {
         let mut world = World::new();
+        setup_trash(&mut world);
         let entity = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
 
         let mut action = RemoveAction::new(entity);
         action.apply(&mut world);
         action.revert(&mut world);
 
-        // Entity should still have its original transform
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.translation, Vec3::new(1.0, 2.0, 3.0));
     }

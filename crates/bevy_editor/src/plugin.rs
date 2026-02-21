@@ -17,7 +17,7 @@ use bevy_panorbit_camera::PanOrbitCamera;
 
 use crate::actions::{
     ActionQueue, FocusCameraAction, RemoveAction, TransformAction, TransformSelectionAction,
-    process_action_queue, handle_undo_redo_input,
+    TrashRoot, TrashRootMarker, handle_undo_redo_input, process_action_queue,
 };
 use crate::state::{AxisMask, UiDockState, UiState};
 use crate::{ContextMenu, HoverNormal, PrefabId, PrefabPlugin, Selected, SelectedAction};
@@ -58,6 +58,16 @@ impl Plugin for EditorPlugin {
         app.add_plugins(PrefabPlugin);
         app.add_plugins(crate::scene::ScenePlugin);
         app.add_plugins(crate::merged_aabb::MergedAabbPlugin);
+        let trash_root = app
+            .world_mut()
+            .spawn((
+                Name::new("Trash"),
+                TrashRootMarker,
+                Visibility::Hidden,
+                InheritedVisibility::HIDDEN,
+            ))
+            .id();
+        app.insert_resource(TrashRoot(trash_root));
 
         if !app.is_plugin_added::<MeshPickingPlugin>() {
             app.add_plugins(MeshPickingPlugin);
@@ -106,7 +116,12 @@ impl Plugin for EditorPlugin {
                 .run_if(editor_enabled),
         );
 
-        app.add_systems(Update, (handle_undo_redo_input, process_action_queue).chain().run_if(editor_enabled));
+        app.add_systems(
+            Update,
+            (handle_undo_redo_input, process_action_queue)
+                .chain()
+                .run_if(editor_enabled),
+        );
 
         {
             let mut system = show_ui_system.into_configs();
@@ -758,7 +773,11 @@ fn record_selected_actions(
                 if let Ok(global_transform) = global_transforms.get(entity) {
                     let new_position = global_transform.translation();
                     if (old_position - new_position).length_squared() > 1e-6 {
-                        transforms.push(TransformAction::move_entity(entity, old_position, new_position));
+                        transforms.push(TransformAction::move_entity(
+                            entity,
+                            old_position,
+                            new_position,
+                        ));
                     }
                 }
             }

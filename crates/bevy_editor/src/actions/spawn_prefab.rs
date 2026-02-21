@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::PrefabId;
 
 use super::Action;
-use super::duplicate::UndoneEntity;
+use super::{TrashRoot, move_to_trash, restore_from_trash};
 
 /// Spawn a prefab at a given position
 #[derive(Clone, Debug)]
@@ -32,13 +32,10 @@ impl SpawnPrefabAction {
 impl Action for SpawnPrefabAction {
     fn apply(&mut self, world: &mut World) {
         if let Some(existing) = self.created_entity {
-            // Redo: re-enable the existing entity
             if let Ok(mut entity_mut) = world.get_entity_mut(existing) {
-                entity_mut.remove::<UndoneEntity>();
-                entity_mut.insert(Visibility::Inherited);
+                restore_from_trash(&mut entity_mut);
             }
         } else {
-            // First apply: create the entity
             let entity = world
                 .spawn((
                     self.prefab_id.clone(),
@@ -51,12 +48,13 @@ impl Action for SpawnPrefabAction {
     }
 
     fn revert(&mut self, world: &mut World) {
-        if let Some(entity) = self.created_entity {
-            // Hide the entity instead of despawning it
-            if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                entity_mut.insert((UndoneEntity, Visibility::Hidden));
+        world.resource_scope::<TrashRoot, ()>(|world, trash| {
+            if let Some(entity) = self.created_entity {
+                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                    move_to_trash(&mut entity_mut, trash.0);
+                }
             }
-        }
+        });
     }
 
     fn name(&self) -> String {
@@ -67,6 +65,13 @@ impl Action for SpawnPrefabAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actions::TrashRootMarker;
+
+    fn setup_trash(world: &mut World) -> Entity {
+        let trash = world.spawn(TrashRootMarker).id();
+        world.insert_resource(TrashRoot(trash));
+        trash
+    }
 
     #[test]
     fn test_spawn_prefab_creates_entity() {
@@ -77,46 +82,45 @@ mod tests {
 
         assert!(action.created_entity().is_some());
         let entity = action.created_entity().unwrap();
-        
+
         let transform = world.get::<Transform>(entity).unwrap();
         assert_eq!(transform.translation, Vec3::new(1.0, 2.0, 3.0));
-        
+
         let prefab_id = world.get::<PrefabId>(entity).unwrap();
         assert_eq!(prefab_id.name(), "test");
     }
 
     #[test]
-    fn test_spawn_prefab_undo_hides_entity() {
+    fn test_spawn_prefab_undo_moves_to_trash() {
         let mut world = World::new();
+        let trash = setup_trash(&mut world);
 
         let mut action = SpawnPrefabAction::new(PrefabId::new("test"), Vec3::ZERO);
         action.apply(&mut world);
-        
+
         let entity = action.created_entity().unwrap();
-        assert!(world.get::<UndoneEntity>(entity).is_none());
+        assert!(world.get::<ChildOf>(entity).is_none());
 
         action.revert(&mut world);
-        
-        assert!(world.get::<UndoneEntity>(entity).is_some());
-        assert_eq!(*world.get::<Visibility>(entity).unwrap(), Visibility::Hidden);
+
+        assert_eq!(world.get::<ChildOf>(entity).unwrap().parent(), trash);
     }
 
     #[test]
     fn test_spawn_prefab_redo_restores_entity() {
         let mut world = World::new();
+        let trash = setup_trash(&mut world);
 
         let mut action = SpawnPrefabAction::new(PrefabId::new("test"), Vec3::ZERO);
         action.apply(&mut world);
         let entity = action.created_entity().unwrap();
-        
+
         action.revert(&mut world);
-        assert!(world.get::<UndoneEntity>(entity).is_some());
-        
+        assert_eq!(world.get::<ChildOf>(entity).unwrap().parent(), trash);
+
         action.apply(&mut world);
-        // Same entity ID should be reused
         assert_eq!(action.created_entity().unwrap(), entity);
-        assert!(world.get::<UndoneEntity>(entity).is_none());
-        assert_eq!(*world.get::<Visibility>(entity).unwrap(), Visibility::Inherited);
+        assert!(world.get::<ChildOf>(entity).is_none());
     }
 
     #[test]
