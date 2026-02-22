@@ -172,6 +172,132 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                                 });
                         });
                 }
+
+                // Orientation gizmo in top-right corner
+                {
+                    let gizmo_radius: f32 = 45.0;
+                    let gizmo_pad: f32 = 12.0;
+                    let axis_len = gizmo_radius * 0.75;
+
+                    let cam_rotation = self
+                        .world
+                        .query_filtered::<
+                            &bevy_panorbit_camera::PanOrbitCamera,
+                            With<EditorCamera>,
+                        >()
+                        .iter(self.world)
+                        .next()
+                        .map(|cam| {
+                            let yaw = cam.yaw.unwrap_or(cam.target_yaw);
+                            let pitch = cam.pitch.unwrap_or(cam.target_pitch);
+                            Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch)
+                        });
+
+                    if let Some(rotation) = cam_rotation {
+                        let inv = rotation.inverse();
+
+                        let axis_defs: [(Vec3, egui::Color32, &str); 3] = [
+                            (Vec3::X, egui::Color32::from_rgb(230, 70, 70), "X"),
+                            (Vec3::Y, egui::Color32::from_rgb(100, 210, 70), "Y"),
+                            (Vec3::Z, egui::Color32::from_rgb(70, 120, 255), "Z"),
+                        ];
+
+                        // (screen_x, screen_y, depth, color, label, endpoint_radius)
+                        let mut ends: Vec<(f32, f32, f32, egui::Color32, Option<&str>, f32)> =
+                            Vec::with_capacity(6);
+                        for &(axis, color, label) in &axis_defs {
+                            let v = inv * axis;
+                            ends.push((v.x, -v.y, v.z, color, Some(label), 10.0));
+                            let nv = inv * (-axis);
+                            let dim = egui::Color32::from_rgba_unmultiplied(
+                                color.r() / 2,
+                                color.g() / 2,
+                                color.b() / 2,
+                                180,
+                            );
+                            ends.push((nv.x, -nv.y, nv.z, dim, None, 5.0));
+                        }
+                        ends.sort_by(|a, b| {
+                            a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal)
+                        });
+
+                        let total = (gizmo_radius + gizmo_pad) * 2.0;
+                        let area_x = self.state.viewport.right() - total - gizmo_pad;
+                        let area_y = self.state.viewport.top() + gizmo_pad;
+
+                        let area_resp = egui::Area::new(egui::Id::new("orientation_gizmo"))
+                            .fixed_pos(egui::pos2(area_x, area_y))
+                            .show(ui.ctx(), |ui| {
+                                let (resp, painter) = ui.allocate_painter(
+                                    egui::vec2(total, total),
+                                    egui::Sense::click_and_drag(),
+                                );
+                                let c = resp.rect.center();
+
+                                painter.circle_filled(
+                                    c,
+                                    gizmo_radius + 4.0,
+                                    egui::Color32::from_black_alpha(140),
+                                );
+                                painter.circle_stroke(
+                                    c,
+                                    gizmo_radius + 4.0,
+                                    egui::Stroke::new(1.0, egui::Color32::from_white_alpha(30)),
+                                );
+
+                                // Lines (back to front)
+                                for &(sx, sy, _, color, label, _) in &ends {
+                                    let ep = egui::pos2(
+                                        c.x + sx * axis_len,
+                                        c.y + sy * axis_len,
+                                    );
+                                    let width = if label.is_some() { 2.5 } else { 1.5 };
+                                    painter.line_segment(
+                                        [c, ep],
+                                        egui::Stroke::new(width, color),
+                                    );
+                                }
+
+                                // Endpoints on top (back to front)
+                                for &(sx, sy, _, color, label, radius) in &ends {
+                                    let ep = egui::pos2(
+                                        c.x + sx * axis_len,
+                                        c.y + sy * axis_len,
+                                    );
+                                    painter.circle_filled(ep, radius, color);
+                                    if let Some(lbl) = label {
+                                        painter.text(
+                                            ep,
+                                            egui::Align2::CENTER_CENTER,
+                                            lbl,
+                                            egui::FontId::proportional(11.0),
+                                            egui::Color32::WHITE,
+                                        );
+                                    }
+                                }
+
+                                painter.circle_filled(
+                                    c,
+                                    3.0,
+                                    egui::Color32::from_white_alpha(100),
+                                );
+
+                                resp.dragged().then(|| resp.drag_delta())
+                            });
+
+                        if let Some(delta) = area_resp.inner {
+                            let sensitivity = 0.01;
+                            let mut q = self.world.query_filtered::<
+                                &mut bevy_panorbit_camera::PanOrbitCamera,
+                                With<EditorCamera>,
+                            >();
+                            for mut cam in q.iter_mut(self.world) {
+                                cam.target_yaw -= delta.x * sensitivity;
+                                cam.target_pitch -= delta.y * sensitivity;
+                            }
+                        }
+                    }
+                }
             }
             EguiWindow::Prefabs => {
                 ui.label("Prefabs");
