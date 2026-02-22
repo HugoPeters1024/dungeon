@@ -91,8 +91,6 @@ impl Action for MergeAction {
                 world.entity_mut(entity).remove::<PrefabId>();
             }
 
-            let combined_name = prefab_names.join("-");
-
             let count = world_transforms.len() as f32;
             let parent_transform = if count > 0.0 {
                 let avg_translation = world_transforms
@@ -116,7 +114,6 @@ impl Action for MergeAction {
 
             let parent = world
                 .spawn((
-                    PrefabId::new(&combined_name),
                     parent_transform,
                     InheritedVisibility::default(),
                 ))
@@ -220,22 +217,24 @@ mod tests {
             .spawn((
                 Transform::from_xyz(0.0, 0.0, 0.0),
                 GlobalTransform::from_xyz(0.0, 0.0, 0.0),
-                PrefabId::new("entity1"),
+                Name::new("entity1"),
             ))
             .id();
         let e2 = world
             .spawn((
                 Transform::from_xyz(2.0, 0.0, 0.0),
                 GlobalTransform::from_xyz(2.0, 0.0, 0.0),
-                PrefabId::new("entity2"),
+                Name::new("entity2"),
             ))
             .id();
 
         let mut action = MergeAction::new(vec![e1, e2]);
         action.apply(&mut world);
 
-        let prefab_count = world.query::<&PrefabId>().iter(&world).count();
-        assert_eq!(prefab_count, 1);
+        let mut q = world.query::<&ChildOf>();
+        let parent_e1 = q.get(&world, e1);
+        let parent_e2 = q.get(&world, e2);
+        assert_eq!(parent_e1, parent_e2);
     }
 
     #[test]
@@ -331,33 +330,5 @@ mod tests {
         let mut action = MergeAction::new(vec![]);
         action.apply(&mut world);
         action.revert(&mut world);
-    }
-
-    #[test]
-    fn test_merge_combined_prefab_name() {
-        let mut world = World::new();
-        setup_world(&mut world);
-
-        let e1 = world
-            .spawn((
-                Transform::from_xyz(0.0, 0.0, 0.0),
-                GlobalTransform::from_xyz(0.0, 0.0, 0.0),
-                PrefabId::new("rock"),
-            ))
-            .id();
-        let e2 = world
-            .spawn((
-                Transform::from_xyz(2.0, 0.0, 0.0),
-                GlobalTransform::from_xyz(2.0, 0.0, 0.0),
-                PrefabId::new("tree"),
-            ))
-            .id();
-
-        let mut action = MergeAction::new(vec![e1, e2]);
-        action.apply(&mut world);
-
-        let prefab_ids: Vec<_> = world.query::<&PrefabId>().iter(&world).collect();
-        assert_eq!(prefab_ids.len(), 1);
-        assert_eq!(prefab_ids[0].name(), "rock-tree");
     }
 }

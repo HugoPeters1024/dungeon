@@ -4,7 +4,7 @@ use bevy::{
     prelude::*,
 };
 
-use crate::{asset_ref::AssetRefRegistry, merged_aabb::MergedAabb};
+use crate::asset_ref::AssetRefRegistry;
 
 pub struct PrefabPlugin;
 
@@ -19,7 +19,7 @@ impl Plugin for PrefabPlugin {
 /// Marker component for prefabs that haven't been spawned yet
 #[derive(Component, Clone, Debug, Hash, PartialEq, Eq, Reflect)]
 #[reflect(Component)]
-#[require(Visibility, Transform, MergedAabb)]
+#[require(Visibility, Transform)]
 pub struct PrefabId(String);
 
 impl PrefabId {
