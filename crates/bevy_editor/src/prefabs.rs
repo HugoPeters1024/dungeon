@@ -19,7 +19,6 @@ impl Plugin for PrefabPlugin {
 /// Marker component for prefabs that haven't been spawned yet
 #[derive(Component, Clone, Debug, Hash, PartialEq, Eq, Reflect)]
 #[reflect(Component)]
-#[require(Visibility, MergedAabb)]
 pub struct PrefabId(String);
 
 impl PrefabId {
@@ -59,8 +58,13 @@ impl Prefabs {
         let prefab_name = name.into();
         let prefab_name_for_warn = prefab_name.clone();
         let wrapper = move |In(target): In<Entity>, world: &mut World| {
-            let before: HashSet<ComponentId> =
-                world.entity(target).archetype().components().iter().copied().collect();
+            let before: HashSet<ComponentId> = world
+                .entity(target)
+                .archetype()
+                .components()
+                .iter()
+                .copied()
+                .collect();
 
             let bundle = world.run_system(get_bundle).unwrap();
             world.entity_mut(target).insert(bundle);
@@ -87,23 +91,16 @@ fn on_prefab_id_spawn(
     on: On<Add, PrefabId>,
     mut commands: Commands,
     prefab_ids: Query<&PrefabId>,
-    children: Query<&Children>,
     prefabs: Res<Prefabs>,
 ) {
     let entity = on.event_target();
-
-    // When an entity is cloned (e.g. duplicate) or loaded from a scene, it already
-    // has its full child hierarchy. Re-running the factory would spawn duplicate
-    // children and discard any per-instance modifications like moved transforms.
-    if children.get(entity).is_ok_and(|c| !c.is_empty()) {
-        return;
-    }
 
     let Ok(prefab_id) = prefab_ids.get(entity) else {
         return;
     };
 
     if let Some(factory) = prefabs.prefabs.get(prefab_id) {
+        commands.entity(entity).remove::<PrefabId>();
         commands.run_system_with(*factory, entity);
     };
 }

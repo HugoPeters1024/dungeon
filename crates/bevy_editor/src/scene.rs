@@ -1,6 +1,6 @@
-use bevy::{ecs::entity::EntitySetIterator, platform::collections::HashSet, prelude::*};
+use bevy::{platform::collections::HashSet, prelude::*};
 
-use crate::{PrefabId, actions::TrashRoot, asset_ref::AssetRef};
+use crate::{actions::TrashRoot, asset_ref::AssetRef};
 
 pub struct ScenePlugin;
 
@@ -11,27 +11,11 @@ impl Plugin for ScenePlugin {
 }
 
 fn do_the_save(In(trashed): In<Vec<Entity>>, world: &mut World) {
-    let mut roots: HashSet<Entity> = world
-        .query_filtered::<Entity, With<PrefabId>>()
-        .iter(world)
-        .collect_set();
+    let mut roots: HashSet<Entity> = world.query::<Entity>().iter(world).collect();
 
     for t in trashed.iter() {
         roots.remove(t);
     }
-
-    // Only keep root PrefabId entities: exclude any whose ancestor also has PrefabId
-    roots.retain(|&entity| {
-        let mut current = entity;
-        while let Some(child_of) = world.get::<ChildOf>(current) {
-            let parent = child_of.parent();
-            if world.get::<PrefabId>(parent).is_some() {
-                return false;
-            }
-            current = parent;
-        }
-        true
-    });
 
     // Collect all entities: roots + their entire descendant hierarchies
     let mut all_entities = roots.clone();
@@ -48,6 +32,7 @@ fn do_the_save(In(trashed): In<Vec<Entity>>, world: &mut World) {
         .allow_component::<InheritedVisibility>()
         .allow_component::<ChildOf>()
         .extract_entities(all_entities.iter().cloned())
+        .remove_empty_entities()
         .build();
 
     let type_registry = world.resource::<AppTypeRegistry>();
@@ -81,7 +66,12 @@ fn save_scene(
     children: Query<&Children>,
 ) {
     if keyboard.just_pressed(KeyCode::KeyS) {
-        commands.run_system_cached_with(do_the_save, children.iter_descendants(trash.0).collect());
+        commands.run_system_cached_with(
+            do_the_save,
+            std::iter::once(trash.0)
+                .chain(children.iter_descendants(trash.0))
+                .collect(),
+        );
     }
 }
 

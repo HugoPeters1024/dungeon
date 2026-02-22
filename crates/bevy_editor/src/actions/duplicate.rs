@@ -375,11 +375,7 @@ mod tests {
         action.apply(&mut world);
 
         let created = action.created_entity().unwrap();
-        let cloned_children: Vec<Entity> = world
-            .get::<Children>(created)
-            .unwrap()
-            .iter()
-            .collect();
+        let cloned_children: Vec<Entity> = world.get::<Children>(created).unwrap().iter().collect();
 
         assert_eq!(cloned_children.len(), 1);
         let cloned_child_transform = world.get::<Transform>(cloned_children[0]).unwrap();

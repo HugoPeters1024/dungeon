@@ -2,6 +2,8 @@ use std::any::TypeId;
 
 use bevy::{ecs::system::SystemId, platform::collections::HashMap, prelude::*};
 
+use crate::merged_aabb::MergedAabb;
+
 /// Marker trait for components that wrap asset handles (e.g., `Mesh3d`, `MeshMaterial3d`).
 ///
 /// These should only be inserted via [`AssetRef`] hydration, not directly in prefab factories.
@@ -48,6 +50,7 @@ impl_asset_bundle_tuple!(A, B, C, D, E, F);
 /// inserting the actual handle-based components (`Mesh3d`, `MeshMaterial3d`, etc.).
 #[derive(Component, Clone, Debug, Hash, PartialEq, Eq, Reflect)]
 #[reflect(Component)]
+#[require(Visibility, Transform, MergedAabb)]
 pub struct AssetRef(String);
 
 impl AssetRef {
@@ -122,6 +125,7 @@ fn on_asset_ref_added(
     };
 
     if let Some(factory) = registry.get(asset_ref.key()) {
+        info!("Runny AssetRef {} for entity {}", asset_ref.key(), entity);
         commands.run_system_with(*factory, entity);
     } else {
         warn!("No factory registered for AssetRef '{}'", asset_ref.key());

@@ -64,7 +64,11 @@ fn project_axes(inv_rotation: Quat) -> Vec<AxisEnd> {
             snap_pitch: neg_pitch,
         });
     }
-    ends.sort_by(|a, b| a.depth.partial_cmp(&b.depth).unwrap_or(std::cmp::Ordering::Equal));
+    ends.sort_by(|a, b| {
+        a.depth
+            .partial_cmp(&b.depth)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     ends
 }
 
@@ -78,7 +82,11 @@ fn negate_snap(pos_yaw: f32, pos_pitch: f32, neg_label: &str) -> (f32, f32) {
 }
 
 fn paint(painter: &egui::Painter, center: egui::Pos2, ends: &[AxisEnd]) {
-    painter.circle_filled(center, GIZMO_RADIUS + 4.0, egui::Color32::from_black_alpha(140));
+    painter.circle_filled(
+        center,
+        GIZMO_RADIUS + 4.0,
+        egui::Color32::from_black_alpha(140),
+    );
     painter.circle_stroke(
         center,
         GIZMO_RADIUS + 4.0,
@@ -86,15 +94,29 @@ fn paint(painter: &egui::Painter, center: egui::Pos2, ends: &[AxisEnd]) {
     );
 
     for end in ends {
-        let ep = egui::pos2(center.x + end.screen_x * AXIS_LEN, center.y + end.screen_y * AXIS_LEN);
-        let width = if end.radius >= POS_ENDPOINT_RADIUS { 2.5 } else { 1.5 };
+        let ep = egui::pos2(
+            center.x + end.screen_x * AXIS_LEN,
+            center.y + end.screen_y * AXIS_LEN,
+        );
+        let width = if end.radius >= POS_ENDPOINT_RADIUS {
+            2.5
+        } else {
+            1.5
+        };
         painter.line_segment([center, ep], egui::Stroke::new(width, end.color));
     }
 
     for end in ends {
-        let ep = egui::pos2(center.x + end.screen_x * AXIS_LEN, center.y + end.screen_y * AXIS_LEN);
+        let ep = egui::pos2(
+            center.x + end.screen_x * AXIS_LEN,
+            center.y + end.screen_y * AXIS_LEN,
+        );
         painter.circle_filled(ep, end.radius, end.color);
-        let font_size = if end.radius >= POS_ENDPOINT_RADIUS { 11.0 } else { 9.0 };
+        let font_size = if end.radius >= POS_ENDPOINT_RADIUS {
+            11.0
+        } else {
+            9.0
+        };
         painter.text(
             ep,
             egui::Align2::CENTER_CENTER,
@@ -111,7 +133,10 @@ fn hit_test(ends: &[AxisEnd], center: egui::Pos2, click: egui::Pos2) -> Option<I
     ends.iter()
         .rev()
         .find(|end| {
-            let ep = egui::pos2(center.x + end.screen_x * AXIS_LEN, center.y + end.screen_y * AXIS_LEN);
+            let ep = egui::pos2(
+                center.x + end.screen_x * AXIS_LEN,
+                center.y + end.screen_y * AXIS_LEN,
+            );
             click.distance(ep) <= end.radius
         })
         .map(|end| Interaction::SnapAxis {
@@ -145,10 +170,8 @@ pub fn show(ctx: &egui::Context, viewport: egui::Rect, world: &mut World) {
     let area_resp = egui::Area::new(egui::Id::new("orientation_gizmo"))
         .fixed_pos(egui::pos2(area_x, area_y))
         .show(ctx, |ui| {
-            let (resp, painter) = ui.allocate_painter(
-                egui::vec2(total, total),
-                egui::Sense::click_and_drag(),
-            );
+            let (resp, painter) =
+                ui.allocate_painter(egui::vec2(total, total), egui::Sense::click_and_drag());
             let center = resp.rect.center();
 
             paint(&painter, center, &ends);
@@ -165,16 +188,16 @@ pub fn show(ctx: &egui::Context, viewport: egui::Rect, world: &mut World) {
 
     match area_resp.inner {
         Some(Interaction::Drag(delta)) => {
-            let mut q =
-                world.query_filtered::<&mut bevy_panorbit_camera::PanOrbitCamera, With<EditorCamera>>();
+            let mut q = world
+                .query_filtered::<&mut bevy_panorbit_camera::PanOrbitCamera, With<EditorCamera>>();
             for mut cam in q.iter_mut(world) {
                 cam.target_yaw -= delta.x * DRAG_SENSITIVITY;
                 cam.target_pitch += delta.y * DRAG_SENSITIVITY;
             }
         }
         Some(Interaction::SnapAxis { yaw, pitch }) => {
-            let mut q =
-                world.query_filtered::<&mut bevy_panorbit_camera::PanOrbitCamera, With<EditorCamera>>();
+            let mut q = world
+                .query_filtered::<&mut bevy_panorbit_camera::PanOrbitCamera, With<EditorCamera>>();
             for mut cam in q.iter_mut(world) {
                 cam.target_yaw = yaw;
                 cam.target_pitch = pitch;

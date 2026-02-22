@@ -89,16 +89,12 @@ fn setup_prefabs(
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
 ) {
-    asset_refs.register(
-        &mut commands,
-        "bong_assets",
-        |assets: Res<GameAssets>| {
-            (
-                Mesh3d(assets.bong.clone()),
-                MeshMaterial3d(assets.bong_material.clone()),
-            )
-        },
-    );
+    asset_refs.register(&mut commands, "bong_assets", |assets: Res<GameAssets>| {
+        (
+            Mesh3d(assets.bong.clone()),
+            MeshMaterial3d(assets.bong_material.clone()),
+        )
+    });
 
     prefabs.register_prefab(&mut commands, "Bong", || {
         (

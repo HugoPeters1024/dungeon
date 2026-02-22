@@ -253,7 +253,6 @@ fn on_click_object(
     mut ui_state: ResMut<UiState>,
     mut selected: Option<ResMut<Selected>>,
     parents: Query<&ChildOf>,
-    prefab_ids: Query<&PrefabId>,
     windows: Query<&Window>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     global_transforms: Query<&GlobalTransform>,
@@ -266,7 +265,6 @@ fn on_click_object(
     if !ui_state.pointer_in_viewport
         || ui_state.egui_wants_pointer_input
         || trigger.duration > CLICK_DURATION
-        || !prefab_ids.contains(trigger.event_target())
         || windows.contains(trigger.event_target())
     {
         return;
@@ -289,7 +287,6 @@ fn on_click_object(
 
         let clicked_entity = parents
             .iter_ancestors(trigger.event_target())
-            .filter(|e| prefab_ids.contains(*e))
             .last()
             .unwrap_or(trigger.event_target());
         match selected.as_mut() {

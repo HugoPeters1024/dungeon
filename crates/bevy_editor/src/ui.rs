@@ -356,15 +356,20 @@ fn assign_positions(
     let mut child_x = x_start;
     for &child_idx in &nodes[idx].children {
         let child_w = compute_subtree_width(nodes, child_idx);
-        assign_positions(nodes, child_idx, child_x, node_width, level_height, positions);
+        assign_positions(
+            nodes,
+            child_idx,
+            child_x,
+            node_width,
+            level_height,
+            positions,
+        );
         child_x += child_w * node_width;
     }
 }
 
 fn hierarchy_graph_tab(ui: &mut egui::Ui, world: &mut World) {
-    let selected_entity = world
-        .get_resource::<Selected>()
-        .map(|s| s.primary());
+    let selected_entity = world.get_resource::<Selected>().map(|s| s.primary());
 
     let Some(selected) = selected_entity else {
         ui.centered_and_justified(|ui| {
@@ -412,7 +417,9 @@ fn hierarchy_graph_tab(ui: &mut egui::Ui, world: &mut World) {
                     let child_pos = positions[&child_idx];
                     let child_screen = origin + egui::vec2(child_pos.x, child_pos.y);
 
-                    let mid_y = (parent_screen.y + node_height / 2.0 + child_screen.y - node_height / 2.0) / 2.0;
+                    let mid_y = (parent_screen.y + node_height / 2.0 + child_screen.y
+                        - node_height / 2.0)
+                        / 2.0;
 
                     let points = vec![
                         egui::pos2(parent_screen.x, parent_screen.y + node_height / 2.0),
@@ -422,10 +429,8 @@ fn hierarchy_graph_tab(ui: &mut egui::Ui, world: &mut World) {
                     ];
 
                     for pair in points.windows(2) {
-                        painter.line_segment(
-                            [pair[0], pair[1]],
-                            egui::Stroke::new(1.5, edge_color),
-                        );
+                        painter
+                            .line_segment([pair[0], pair[1]], egui::Stroke::new(1.5, edge_color));
                     }
                 }
             }
