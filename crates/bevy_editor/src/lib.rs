@@ -1,5 +1,6 @@
 mod actions;
 pub mod merged_aabb;
+mod orientation_gizmo;
 mod plugin;
 mod prefabs;
 mod scene;
