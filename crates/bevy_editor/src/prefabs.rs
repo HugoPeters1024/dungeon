@@ -19,6 +19,7 @@ impl Plugin for PrefabPlugin {
 /// Marker component for prefabs that haven't been spawned yet
 #[derive(Component, Clone, Debug, Hash, PartialEq, Eq, Reflect)]
 #[reflect(Component)]
+#[require(Visibility, Transform, MergedAabb)]
 pub struct PrefabId(String);
 
 impl PrefabId {

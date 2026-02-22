@@ -1,14 +1,73 @@
 (
   resources: {},
   entities: {
-    4294967268: (
+    4294967262: (
       components: {
-        "bevy_camera::visibility::InheritedVisibility": (true),
         "bevy_camera::visibility::Visibility": Inherited,
-        "bevy_editor::prefabs::PrefabId": ("Both"),
+        "bevy_ecs::hierarchy::ChildOf": (4294967264),
+        "bevy_ecs::name::Name": "Blue Sphere",
+        "bevy_editor::asset_ref::AssetRef": ("blue_sphere_assets"),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967263: (
+      components: {
+        "bevy_camera::visibility::Visibility": Inherited,
+        "bevy_ecs::hierarchy::ChildOf": (4294967264),
+        "bevy_ecs::name::Name": "Red Cube",
+        "bevy_editor::asset_ref::AssetRef": ("red_cube_assets"),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 1.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967264: (
+      components: {
+        "bevy_camera::visibility::Visibility": Inherited,
+        "bevy_ecs::hierarchy::Children": ([
+          4294967263,
+          4294967262,
+        ]),
         "bevy_transform::components::transform::Transform": (
           translation: (-0.9894177, 1.236772, 2.4735441),
           rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967275: (
+      components: {
+        "bevy_camera::visibility::Visibility": Inherited,
+        "bevy_ecs::name::Name": "Egui Camera",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967277: (
+      components: {
+        "bevy_camera::visibility::Visibility": Inherited,
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.0, 0.0),
+          rotation: (-0.23971277, -0.23971277, 0.06120872, 0.9387913),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967278: (
+      components: {
+        "bevy_camera::visibility::Visibility": Inherited,
+        "bevy_transform::components::transform::Transform": (
+          translation: (-2.0, 2.4999998, 5.0),
+          rotation: (-0.21171878, -0.18465967, -0.040773313, 0.9588605),
           scale: (1.0, 1.0, 1.0),
         ),
       },

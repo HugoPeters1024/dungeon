@@ -125,7 +125,7 @@ fn on_asset_ref_added(
     };
 
     if let Some(factory) = registry.get(asset_ref.key()) {
-        info!("Runny AssetRef {} for entity {}", asset_ref.key(), entity);
+        info!("Running AssetRef {} for entity {}", asset_ref.key(), entity);
         commands.run_system_with(*factory, entity);
     } else {
         warn!("No factory registered for AssetRef '{}'", asset_ref.key());

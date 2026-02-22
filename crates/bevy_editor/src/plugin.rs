@@ -18,7 +18,7 @@ use crate::actions::{
     TrashRoot, TrashRootMarker, handle_undo_redo_input, process_action_queue,
 };
 use crate::state::{AxisMask, UiDockState, UiState};
-use crate::{ContextMenu, HoverNormal, PrefabId, PrefabPlugin, Selected, SelectedAction};
+use crate::{ContextMenu, HoverNormal, PrefabPlugin, Selected, SelectedAction};
 
 const CLICK_DURATION: Duration = Duration::from_millis(500);
 
