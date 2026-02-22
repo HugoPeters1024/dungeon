@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_world};
@@ -214,6 +216,9 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                         ui_for_entity_with_children(world, selected.primary(), ui);
                     });
             }
+            EguiWindow::HierarchyGraph => {
+                hierarchy_graph_tab(ui, self.world);
+            }
             EguiWindow::History => {
                 self.world
                     .resource_scope::<ActionQueue, ()>(|_world, action_queue| {
@@ -270,4 +275,222 @@ impl egui_dock::TabViewer for UiViewer<'_> {
     fn clear_background(&self, tab: &Self::Tab) -> bool {
         !matches!(tab, EguiWindow::GameView)
     }
+}
+
+struct GraphNode {
+    entity: Entity,
+    label: String,
+    depth: usize,
+    children: Vec<usize>,
+}
+
+fn find_hierarchy_root(world: &World, entity: Entity) -> Entity {
+    let mut current = entity;
+    while let Some(child_of) = world.get::<ChildOf>(current) {
+        current = child_of.parent();
+    }
+    current
+}
+
+fn collect_hierarchy(world: &World, root: Entity) -> Vec<GraphNode> {
+    let mut nodes = Vec::new();
+    collect_recursive(world, root, 0, &mut nodes);
+    nodes
+}
+
+fn collect_recursive(
+    world: &World,
+    entity: Entity,
+    depth: usize,
+    nodes: &mut Vec<GraphNode>,
+) -> usize {
+    let idx = nodes.len();
+
+    let label = world
+        .get::<Name>(entity)
+        .map(|n| n.as_str().to_string())
+        .unwrap_or_else(|| format!("{}", entity));
+
+    nodes.push(GraphNode {
+        entity,
+        label,
+        depth,
+        children: Vec::new(),
+    });
+
+    if let Some(children) = world.get::<Children>(entity) {
+        let child_entities: Vec<Entity> = children.iter().collect();
+        for child in child_entities {
+            let child_idx = collect_recursive(world, child, depth + 1, nodes);
+            nodes[idx].children.push(child_idx);
+        }
+    }
+
+    idx
+}
+
+fn compute_subtree_width(nodes: &[GraphNode], idx: usize) -> f32 {
+    let children = &nodes[idx].children;
+    if children.is_empty() {
+        return 1.0;
+    }
+    children
+        .iter()
+        .map(|&c| compute_subtree_width(nodes, c))
+        .sum()
+}
+
+fn assign_positions(
+    nodes: &[GraphNode],
+    idx: usize,
+    x_start: f32,
+    node_width: f32,
+    level_height: f32,
+    positions: &mut HashMap<usize, egui::Pos2>,
+) {
+    let subtree_w = compute_subtree_width(nodes, idx);
+    let center_x = x_start + subtree_w * node_width / 2.0;
+    let y = nodes[idx].depth as f32 * level_height;
+    positions.insert(idx, egui::pos2(center_x, y));
+
+    let mut child_x = x_start;
+    for &child_idx in &nodes[idx].children {
+        let child_w = compute_subtree_width(nodes, child_idx);
+        assign_positions(nodes, child_idx, child_x, node_width, level_height, positions);
+        child_x += child_w * node_width;
+    }
+}
+
+fn hierarchy_graph_tab(ui: &mut egui::Ui, world: &mut World) {
+    let selected_entity = world
+        .get_resource::<Selected>()
+        .map(|s| s.primary());
+
+    let Some(selected) = selected_entity else {
+        ui.centered_and_justified(|ui| {
+            ui.label("No entity selected");
+        });
+        return;
+    };
+
+    let root = find_hierarchy_root(world, selected);
+    let nodes = collect_hierarchy(world, root);
+
+    if nodes.is_empty() {
+        return;
+    }
+
+    let node_width = 140.0_f32;
+    let node_height = 28.0_f32;
+    let level_height = 60.0_f32;
+
+    let mut positions: HashMap<usize, egui::Pos2> = HashMap::new();
+    assign_positions(&nodes, 0, 0.0, node_width, level_height, &mut positions);
+
+    let max_depth = nodes.iter().map(|n| n.depth).max().unwrap_or(0);
+    let total_width = compute_subtree_width(&nodes, 0) * node_width;
+    let total_height = (max_depth + 1) as f32 * level_height;
+
+    let padding = 20.0;
+
+    egui::ScrollArea::both()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let (response, painter) = ui.allocate_painter(
+                egui::vec2(total_width + padding * 2.0, total_height + padding * 2.0),
+                egui::Sense::click(),
+            );
+            let origin = response.rect.min + egui::vec2(padding, padding + node_height / 2.0);
+
+            let edge_color = ui.visuals().text_color().gamma_multiply(0.4);
+
+            for (idx, node) in nodes.iter().enumerate() {
+                let parent_pos = positions[&idx];
+                let parent_screen = origin + egui::vec2(parent_pos.x, parent_pos.y);
+
+                for &child_idx in &node.children {
+                    let child_pos = positions[&child_idx];
+                    let child_screen = origin + egui::vec2(child_pos.x, child_pos.y);
+
+                    let mid_y = (parent_screen.y + node_height / 2.0 + child_screen.y - node_height / 2.0) / 2.0;
+
+                    let points = vec![
+                        egui::pos2(parent_screen.x, parent_screen.y + node_height / 2.0),
+                        egui::pos2(parent_screen.x, mid_y),
+                        egui::pos2(child_screen.x, mid_y),
+                        egui::pos2(child_screen.x, child_screen.y - node_height / 2.0),
+                    ];
+
+                    for pair in points.windows(2) {
+                        painter.line_segment(
+                            [pair[0], pair[1]],
+                            egui::Stroke::new(1.5, edge_color),
+                        );
+                    }
+                }
+            }
+
+            let mut clicked_entity = None;
+
+            for (idx, node) in nodes.iter().enumerate() {
+                let pos = positions[&idx];
+                let screen_pos = origin + egui::vec2(pos.x, pos.y);
+
+                let node_rect = egui::Rect::from_center_size(
+                    egui::pos2(screen_pos.x, screen_pos.y),
+                    egui::vec2(node_width - 10.0, node_height),
+                );
+
+                let is_selected = node.entity == selected;
+                let (bg, border, text_color) = if is_selected {
+                    (
+                        egui::Color32::from_rgb(50, 90, 160),
+                        egui::Color32::from_rgb(100, 160, 255),
+                        egui::Color32::WHITE,
+                    )
+                } else {
+                    (
+                        ui.visuals().widgets.inactive.bg_fill,
+                        ui.visuals().widgets.inactive.bg_stroke.color,
+                        ui.visuals().text_color(),
+                    )
+                };
+
+                painter.rect(
+                    node_rect,
+                    egui::CornerRadius::same(4),
+                    bg,
+                    egui::Stroke::new(if is_selected { 2.0 } else { 1.0 }, border),
+                    egui::epaint::StrokeKind::Outside,
+                );
+
+                let truncated = if node.label.len() > 16 {
+                    format!("{}...", &node.label[..13])
+                } else {
+                    node.label.clone()
+                };
+
+                painter.text(
+                    node_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    &truncated,
+                    egui::FontId::proportional(11.0),
+                    text_color,
+                );
+
+                if response.clicked() {
+                    if let Some(pointer) = response.interact_pointer_pos() {
+                        if node_rect.contains(pointer) {
+                            clicked_entity = Some(node.entity);
+                        }
+                    }
+                }
+            }
+
+            if let Some(entity) = clicked_entity {
+                if let Some(mut sel) = world.get_resource_mut::<Selected>() {
+                    sel.set_single(entity);
+                }
+            }
+        });
 }
