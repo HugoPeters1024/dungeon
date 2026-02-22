@@ -1,4 +1,5 @@
 mod actions;
+mod asset_ref;
 pub mod merged_aabb;
 mod orientation_gizmo;
 mod plugin;
@@ -12,6 +13,7 @@ pub use actions::{
     Action, ActionQueue, DuplicateAction, EditorAction, FocusCameraAction, MergeAction,
     RemoveAction, SpawnPrefabAction, TransformAction, TransformKind, TransformSelectionAction,
 };
+pub use asset_ref::{AssetBundle, AssetComponent, AssetRef, AssetRefRegistry};
 pub use bevy_panorbit_camera::{self, PanOrbitCamera, TrackpadBehavior};
 pub use plugin::{EditorCamera, EditorPlugin};
 pub use prefabs::*;

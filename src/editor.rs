@@ -9,7 +9,9 @@ use bevy::{
     gltf::{GltfMesh, GltfNode},
     prelude::*,
 };
-use bevy_editor::{EditorCamera, Prefabs, bevy_panorbit_camera::PanOrbitCamera};
+use bevy_editor::{
+    AssetRef, AssetRefRegistry, EditorCamera, Prefabs, bevy_panorbit_camera::PanOrbitCamera,
+};
 use bevy_tnua::TnuaNotPlatform;
 
 pub struct EditorPlugin;
@@ -83,13 +85,24 @@ fn disable_editor_camera(
 fn setup_prefabs(
     mut commands: Commands,
     mut prefabs: ResMut<Prefabs>,
+    mut asset_refs: ResMut<AssetRefRegistry>,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
 ) {
-    prefabs.register_prefab(&mut commands, "Bong", |assets: Res<GameAssets>| {
+    asset_refs.register(
+        &mut commands,
+        "bong_assets",
+        |assets: Res<GameAssets>| {
+            (
+                Mesh3d(assets.bong.clone()),
+                MeshMaterial3d(assets.bong_material.clone()),
+            )
+        },
+    );
+
+    prefabs.register_prefab(&mut commands, "Bong", || {
         (
-            Mesh3d(assets.bong.clone()),
-            MeshMaterial3d(assets.bong_material.clone()),
+            AssetRef::new("bong_assets"),
             Transform::from_scale(Vec3::splat(0.3)),
             Name::new("Bong"),
             Pickupable,

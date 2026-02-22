@@ -1,6 +1,10 @@
-use bevy::{ecs::system::SystemId, platform::collections::HashMap, prelude::*};
+use bevy::{
+    ecs::{component::ComponentId, system::SystemId},
+    platform::collections::{HashMap, HashSet},
+    prelude::*,
+};
 
-use crate::merged_aabb::MergedAabb;
+use crate::{asset_ref::AssetRefRegistry, merged_aabb::MergedAabb};
 
 pub struct PrefabPlugin;
 
@@ -52,13 +56,20 @@ impl Prefabs {
         factory: I,
     ) {
         let get_bundle = commands.register_system(factory);
+        let prefab_name = name.into();
+        let prefab_name_for_warn = prefab_name.clone();
         let wrapper = move |In(target): In<Entity>, world: &mut World| {
+            let before: HashSet<ComponentId> =
+                world.entity(target).archetype().components().iter().copied().collect();
+
             let bundle = world.run_system(get_bundle).unwrap();
             world.entity_mut(target).insert(bundle);
+
+            warn_if_asset_components(world, target, &before, &prefab_name_for_warn);
         };
 
         let factory_id = commands.register_system(wrapper);
-        self.prefabs.insert(PrefabId(name.into()), factory_id);
+        self.prefabs.insert(PrefabId(prefab_name), factory_id);
     }
 
     pub fn register_prefab_spawner<M>(
@@ -76,9 +87,17 @@ fn on_prefab_id_spawn(
     on: On<Add, PrefabId>,
     mut commands: Commands,
     prefab_ids: Query<&PrefabId>,
+    children: Query<&Children>,
     prefabs: Res<Prefabs>,
 ) {
     let entity = on.event_target();
+
+    // When an entity is cloned (e.g. duplicate) or loaded from a scene, it already
+    // has its full child hierarchy. Re-running the factory would spawn duplicate
+    // children and discard any per-instance modifications like moved transforms.
+    if children.get(entity).is_ok_and(|c| !c.is_empty()) {
+        return;
+    }
 
     let Ok(prefab_id) = prefab_ids.get(entity) else {
         return;
@@ -87,4 +106,55 @@ fn on_prefab_id_spawn(
     if let Some(factory) = prefabs.prefabs.get(prefab_id) {
         commands.run_system_with(*factory, entity);
     };
+}
+
+fn warn_if_asset_components(
+    world: &World,
+    entity: Entity,
+    before: &HashSet<ComponentId>,
+    prefab_name: &str,
+) {
+    let Some(registry) = world.get_resource::<AssetRefRegistry>() else {
+        return;
+    };
+    let asset_type_ids = registry.asset_type_ids();
+    if asset_type_ids.is_empty() {
+        return;
+    }
+
+    let newly_added: Vec<ComponentId> = world
+        .entity(entity)
+        .archetype()
+        .components()
+        .iter()
+        .copied()
+        .filter(|id| !before.contains(id))
+        .collect();
+
+    // If the prefab added an AssetRef, any asset handle components came from
+    // hydration (the observer chain resolves synchronously), so don't warn.
+    let added_asset_ref = newly_added.iter().any(|&id| {
+        world
+            .components()
+            .get_info(id)
+            .and_then(|info| info.type_id())
+            .is_some_and(|tid| tid == std::any::TypeId::of::<crate::asset_ref::AssetRef>())
+    });
+    if added_asset_ref {
+        return;
+    }
+
+    for &component_id in &newly_added {
+        if let Some(info) = world.components().get_info(component_id) {
+            if let Some(type_id) = info.type_id() {
+                if asset_type_ids.contains(&type_id) {
+                    warn!(
+                        "Prefab '{}' inserted AssetComponent `{}` directly — use AssetRef instead",
+                        prefab_name,
+                        info.name()
+                    );
+                }
+            }
+        }
+    }
 }

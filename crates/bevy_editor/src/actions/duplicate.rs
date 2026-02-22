@@ -1,7 +1,6 @@
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 
-use crate::PrefabId;
 use crate::actions::{TrashRoot, move_to_trash, restore_from_trash};
 
 use super::Action;
@@ -111,10 +110,7 @@ impl Action for DuplicateAction {
             let mut new_transform = original_transform;
             new_transform.translation += offset;
 
-            let new_entity = if let Some(prefab_id) = world.get::<PrefabId>(self.entity) {
-                let prefab_id = prefab_id.clone();
-                world.spawn((prefab_id, new_transform)).id()
-            } else {
+            let new_entity = {
                 let e = world
                     .entity_mut(self.entity)
                     .clone_and_spawn_with_opt_out(|builder| {
@@ -169,11 +165,10 @@ mod tests {
     }
 
     #[test]
-    fn test_duplicate_prefab_spawns_only_prefab_id() {
+    fn test_duplicate_clones_all_components() {
         let mut world = World::new();
-        let prefab_id = PrefabId::new("test_prefab");
         let original = world
-            .spawn((prefab_id.clone(), Transform::from_xyz(1.0, 0.0, 0.0)))
+            .spawn((Name::new("thing"), Transform::from_xyz(1.0, 0.0, 0.0)))
             .id();
 
         let mut action = DuplicateAction::new(original, Vec3::X);
@@ -181,24 +176,16 @@ mod tests {
 
         let created = action.created_entity().unwrap();
         assert_ne!(created, original);
-
-        let new_prefab = world.get::<PrefabId>(created).unwrap();
-        assert_eq!(new_prefab.name(), "test_prefab");
-
-        assert!(world.get::<Children>(created).is_none());
+        assert!(world.get::<Name>(created).is_some());
+        assert!(world.get::<Transform>(created).is_some());
     }
 
     #[test]
-    fn test_duplicate_prefab_copies_transform_with_offset() {
+    fn test_duplicate_copies_transform_with_offset() {
         let mut world = World::new();
         let original_pos = Vec3::new(3.0, 0.0, 0.0);
         let direction = Vec3::new(2.0, 0.0, 0.0);
-        let original = world
-            .spawn((
-                PrefabId::new("thing"),
-                Transform::from_translation(original_pos),
-            ))
-            .id();
+        let original = world.spawn(Transform::from_translation(original_pos)).id();
 
         let mut action = DuplicateAction::new(original, direction);
         action.apply(&mut world);
@@ -206,19 +193,6 @@ mod tests {
         let created = action.created_entity().unwrap();
         let new_transform = world.get::<Transform>(created).unwrap();
         assert_eq!(new_transform.translation, original_pos + direction);
-    }
-
-    #[test]
-    fn test_duplicate_non_prefab_still_clones() {
-        let mut world = World::new();
-        let original = world.spawn(Transform::from_xyz(1.0, 2.0, 3.0)).id();
-
-        let mut action = DuplicateAction::new(original, Vec3::X);
-        action.apply(&mut world);
-
-        let created = action.created_entity().unwrap();
-        assert!(world.get::<PrefabId>(created).is_none());
-        assert!(world.get::<Transform>(created).is_some());
     }
 
     #[test]
@@ -383,5 +357,32 @@ mod tests {
 
         let original_transform = world.get::<Transform>(original).unwrap();
         assert_eq!(original_transform.translation, original_pos);
+    }
+
+    #[test]
+    fn test_duplicate_preserves_modified_child_transforms() {
+        let mut world = World::new();
+
+        let child_pos = Vec3::new(0.0, 5.0, 0.0);
+        let parent = world
+            .spawn(Transform::from_xyz(0.0, 0.0, 0.0))
+            .with_children(|p| {
+                p.spawn(Transform::from_translation(child_pos));
+            })
+            .id();
+
+        let mut action = DuplicateAction::new(parent, Vec3::ZERO);
+        action.apply(&mut world);
+
+        let created = action.created_entity().unwrap();
+        let cloned_children: Vec<Entity> = world
+            .get::<Children>(created)
+            .unwrap()
+            .iter()
+            .collect();
+
+        assert_eq!(cloned_children.len(), 1);
+        let cloned_child_transform = world.get::<Transform>(cloned_children[0]).unwrap();
+        assert_eq!(cloned_child_transform.translation, child_pos);
     }
 }

@@ -53,6 +53,7 @@ impl EditorPlugin {
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(crate::asset_ref::AssetRefPlugin);
         app.add_plugins(PrefabPlugin);
         app.add_plugins(crate::scene::ScenePlugin);
         app.add_plugins(crate::merged_aabb::MergedAabbPlugin);
