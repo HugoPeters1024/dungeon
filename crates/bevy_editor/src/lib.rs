@@ -4,6 +4,7 @@ mod orientation_gizmo;
 mod plugin;
 mod prefabs;
 mod scene;
+mod screen_grid;
 mod state;
 mod ui;
 

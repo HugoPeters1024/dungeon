@@ -140,6 +140,8 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                     self.state.context_menu = ContextMenu::Closed;
                 }
 
+                crate::screen_grid::show(ui.ctx(), self.state.viewport, self.world);
+
                 // Show selected object position at bottom right of game view
                 if let Some(selected) = self.world.get_resource::<Selected>()
                     && let Some(transform) = self.world.get::<Transform>(selected.primary())

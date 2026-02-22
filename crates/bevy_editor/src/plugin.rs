@@ -4,11 +4,9 @@ use std::time::Duration;
 use bevy::camera::Viewport;
 use bevy::camera::visibility::RenderLayers;
 use bevy::color::palettes::tailwind::{PINK_100, RED_500};
-use bevy::mesh::Indices;
 use bevy::picking::pointer::PointerInteraction;
 use bevy::picking::prelude::Pickable;
 use bevy::prelude::*;
-use bevy::render::render_resource::PrimitiveTopology;
 use bevy::{ecs::schedule::BoxedCondition, window::PrimaryWindow};
 use bevy_egui::prelude::*;
 use bevy_panorbit_camera::PanOrbitCameraPlugin;
@@ -95,7 +93,6 @@ impl Plugin for EditorPlugin {
             app.add_systems(PreUpdate, evaluate_editor_condition);
         }
         app.add_systems(Startup, setup_ui);
-        app.add_systems(Startup, spawn_wireframe_plane);
         app.add_observer(on_click_in_void);
         app.add_observer(on_click_object);
 
@@ -135,63 +132,6 @@ impl Plugin for EditorPlugin {
     }
 }
 
-fn spawn_wireframe_plane(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    // Create a large grid mesh for the wireframe plane
-    let size = 1000.0; // Large size to appear infinite
-    let grid_size = 1000; // Number of grid cells
-
-    let mut mesh = Mesh::new(
-        PrimitiveTopology::LineList,
-        bevy::asset::RenderAssetUsages::RENDER_WORLD,
-    );
-
-    let mut positions = Vec::new();
-    let mut indices = Vec::new();
-
-    let cell_size = size / grid_size as f32;
-    let half_size = size / 2.0;
-
-    // Create grid lines along X axis (lines parallel to X)
-    for i in 0..=grid_size {
-        let z = -half_size + i as f32 * cell_size;
-        positions.push([-half_size, 0.0, z]);
-        positions.push([half_size, 0.0, z]);
-        let base_idx = (positions.len() - 2) as u32;
-        indices.push(base_idx);
-        indices.push(base_idx + 1);
-    }
-
-    // Create grid lines along Z axis (lines parallel to Z)
-    for i in 0..=grid_size {
-        let x = -half_size + i as f32 * cell_size;
-        positions.push([x, 0.0, -half_size]);
-        positions.push([x, 0.0, half_size]);
-        let base_idx = (positions.len() - 2) as u32;
-        indices.push(base_idx);
-        indices.push(base_idx + 1);
-    }
-
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_indices(Indices::U32(indices));
-
-    // Create a material for the wireframe
-    let material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.5, 0.5, 0.5),
-        unlit: true,
-        ..default()
-    });
-
-    // Spawn the wireframe plane
-    commands.spawn((
-        Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(material),
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-    ));
-}
 fn setup_ui(mut commands: Commands, mut egui_global_settings: ResMut<EguiGlobalSettings>) {
     egui_global_settings.auto_create_primary_context = false;
 
