@@ -77,98 +77,94 @@ impl FittedMesh {
     }
 }
 
-#[derive(Component, Reflect)]
-pub struct GridMeshes {
-    walls: [Entity; 4],
-}
-
-impl Default for GridMeshes {
-    fn default() -> Self {
-        Self {
-            walls: [Entity::PLACEHOLDER; 4],
-        }
-    }
-}
+/// Marker on wall-segment children, storing which face index (into WALL_FACES) they represent.
+#[derive(Component, Clone, Copy, Reflect)]
+pub struct WallSegment(usize);
 
 #[derive(Component, Default, Reflect)]
-#[require(GridMeshes, Transform, InheritedVisibility)]
+#[require(Transform, InheritedVisibility)]
 pub struct GridWall {
     neighbours: [bool; 27],
+    initialized: bool,
 }
 
 pub struct GridWallPlugin;
 
 impl Plugin for GridWallPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_grid_wall_added);
         app.add_systems(
             Update,
-            (grid_wall_sync, update_walls).run_if(resource_exists::<GameAssets>),
+            (initialize_grid_walls, grid_wall_sync, update_walls)
+                .run_if(resource_exists::<GameAssets>),
         );
     }
 }
 
-fn on_grid_wall_added(
-    on: On<Add, GridWall>,
+fn initialize_grid_walls(
     mut commands: Commands,
     assets: Res<GameAssets>,
     gltf_assets: Res<Assets<Gltf>>,
     gltf_nodes: Res<Assets<GltfNode>>,
     gltf_meshes: Res<Assets<GltfMesh>>,
     meshes: Res<Assets<Mesh>>,
-    mut grid_meshes_q: Query<&mut GridMeshes>,
+    mut q: Query<(Entity, &mut GridWall)>,
 ) {
-    let entity = on.event_target();
-    commands.entity(entity).remove::<GridWall>();
+    let entities_to_init: Vec<Entity> = q
+        .iter()
+        .filter(|(_, gw)| !gw.initialized)
+        .map(|(e, _)| e)
+        .collect();
+
+    if entities_to_init.is_empty() {
+        return;
+    }
+
     let gltf = gltf_assets.get(&assets.castle_test).unwrap();
 
-    // Spawn floor
     let node_handle = gltf
         .named_nodes
         .get("Ceiling and Beams Tiler, 9 x 9.000")
         .unwrap();
     let node = gltf_nodes.get(node_handle).unwrap();
-    let gltf_mesh = gltf_meshes.get(node.mesh.as_ref().unwrap()).unwrap();
+    let floor_gltf_mesh = gltf_meshes.get(node.mesh.as_ref().unwrap()).unwrap();
 
-    commands.entity(entity).with_children(|parent| {
-        for primitive in &gltf_mesh.primitives {
-            let fitted = FittedMesh::from_mesh(meshes.get(&primitive.mesh));
-            let offset = fitted.face_translation(Vec3::NEG_Y, Quat::IDENTITY);
-            let mut child = parent.spawn((
-                Mesh3d(primitive.mesh.clone()),
-                Transform::from_translation(offset).with_scale(Vec3::splat(fitted.scale)),
-            ));
-            if let Some(material) = primitive.material.as_ref() {
-                child.insert(MeshMaterial3d(material.clone()));
-            }
-        }
-    });
-
-    // Spawn 4 walls (initially visible)
     let wall_mesh_handle = gltf.named_meshes.get("Wall").unwrap();
     let wall_gltf_mesh = gltf_meshes.get(wall_mesh_handle).unwrap();
     let wall_primitive = &wall_gltf_mesh.primitives[0];
     let fitted_wall = FittedMesh::from_mesh(meshes.get(&wall_primitive.mesh));
 
-    let mut wall_entities = [Entity::PLACEHOLDER; 4];
-    for (i, &(_neighbour_idx, dir, rotation_y)) in WALL_FACES.iter().enumerate() {
-        let rotation = Quat::from_rotation_y(rotation_y);
-        let offset = fitted_wall.face_translation(dir, rotation);
-        let wall = commands
-            .spawn((
+    for entity in entities_to_init {
+        commands.entity(entity).with_children(|parent| {
+            for primitive in &floor_gltf_mesh.primitives {
+                let fitted = FittedMesh::from_mesh(meshes.get(&primitive.mesh));
+                let offset = fitted.face_translation(Vec3::NEG_Y, Quat::IDENTITY);
+                let mut child = parent.spawn((
+                    Mesh3d(primitive.mesh.clone()),
+                    Transform::from_translation(offset).with_scale(Vec3::splat(fitted.scale)),
+                ));
+                if let Some(material) = primitive.material.as_ref() {
+                    child.insert(MeshMaterial3d(material.clone()));
+                }
+            }
+        });
+
+        for (i, &(_neighbour_idx, dir, rotation_y)) in WALL_FACES.iter().enumerate() {
+            let rotation = Quat::from_rotation_y(rotation_y);
+            let offset = fitted_wall.face_translation(dir, rotation);
+            commands.spawn((
+                WallSegment(i),
                 Mesh3d(wall_primitive.mesh.clone()),
                 MeshMaterial3d(wall_primitive.material.clone().unwrap()),
                 Transform::from_translation(offset)
                     .with_rotation(rotation)
                     .with_scale(Vec3::splat(fitted_wall.scale)),
                 ChildOf(entity),
-            ))
-            .id();
-        wall_entities[i] = wall;
-    }
+            ));
+        }
 
-    if let Ok(mut grid_meshes) = grid_meshes_q.get_mut(entity) {
-        grid_meshes.walls = wall_entities;
+        if let Ok((_, mut gw)) = q.get_mut(entity) {
+            gw.initialized = true;
+        }
     }
 }
 
@@ -210,14 +206,14 @@ const WALL_FACES: [(usize, Vec3, f32); 4] = [
 ];
 
 fn update_walls(
-    q: Query<(&GridWall, &GridMeshes), Changed<GridWall>>,
-    mut visibility_q: Query<&mut Visibility>,
+    q: Query<(&GridWall, &Children), Changed<GridWall>>,
+    mut wall_q: Query<(&WallSegment, &mut Visibility)>,
 ) {
-    for (grid_wall, grid_meshes) in q.iter() {
-        for (i, &(neighbour_idx, _, _)) in WALL_FACES.iter().enumerate() {
-            let has_neighbour = grid_wall.neighbours[neighbour_idx];
-            if let Ok(mut vis) = visibility_q.get_mut(grid_meshes.walls[i]) {
-                *vis = if has_neighbour {
+    for (grid_wall, children) in q.iter() {
+        for child in children.iter() {
+            if let Ok((segment, mut vis)) = wall_q.get_mut(child) {
+                let (neighbour_idx, _, _) = WALL_FACES[segment.0];
+                *vis = if grid_wall.neighbours[neighbour_idx] {
                     Visibility::Hidden
                 } else {
                     Visibility::Visible
@@ -321,39 +317,46 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, update_walls);
 
-        let wall_entities: [Entity; 4] =
-            std::array::from_fn(|_| app.world_mut().spawn(Visibility::Visible).id());
-
         let mut gw = GridWall::default();
         gw.neighbours[WALL_FACES[0].0] = true;
         gw.neighbours[WALL_FACES[2].0] = true;
+        gw.initialized = true;
 
-        app.world_mut().spawn((
-            gw,
-            GridMeshes {
-                walls: wall_entities,
-            },
-        ));
+        let parent = app
+            .world_mut()
+            .spawn(gw)
+            .with_children(|p| {
+                for i in 0..4 {
+                    p.spawn((WallSegment(i), Visibility::Visible));
+                }
+            })
+            .id();
         app.update();
 
+        let children: Vec<Entity> = app
+            .world()
+            .get::<Children>(parent)
+            .unwrap()
+            .iter()
+            .collect();
         let vis = |e: Entity| *app.world().get::<Visibility>(e).unwrap();
         assert_eq!(
-            vis(wall_entities[0]),
+            vis(children[0]),
             Visibility::Hidden,
             "-X wall should be hidden"
         );
         assert_eq!(
-            vis(wall_entities[1]),
+            vis(children[1]),
             Visibility::Visible,
             "+X wall should be visible"
         );
         assert_eq!(
-            vis(wall_entities[2]),
+            vis(children[2]),
             Visibility::Hidden,
             "-Z wall should be hidden"
         );
         assert_eq!(
-            vis(wall_entities[3]),
+            vis(children[3]),
             Visibility::Visible,
             "+Z wall should be visible"
         );
@@ -364,19 +367,27 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, update_walls);
 
-        let wall_entities: [Entity; 4] =
-            std::array::from_fn(|_| app.world_mut().spawn(Visibility::Hidden).id());
+        let mut gw = GridWall::default();
+        gw.initialized = true;
 
-        let gw = GridWall::default();
-        app.world_mut().spawn((
-            gw,
-            GridMeshes {
-                walls: wall_entities,
-            },
-        ));
+        let parent = app
+            .world_mut()
+            .spawn(gw)
+            .with_children(|p| {
+                for i in 0..4 {
+                    p.spawn((WallSegment(i), Visibility::Hidden));
+                }
+            })
+            .id();
         app.update();
 
-        for (i, &e) in wall_entities.iter().enumerate() {
+        let children: Vec<Entity> = app
+            .world()
+            .get::<Children>(parent)
+            .unwrap()
+            .iter()
+            .collect();
+        for (i, &e) in children.iter().enumerate() {
             assert_eq!(
                 *app.world().get::<Visibility>(e).unwrap(),
                 Visibility::Visible,

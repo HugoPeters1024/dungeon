@@ -370,8 +370,7 @@ mod tests {
         let created = action.created_entity().unwrap();
         let original_children: Vec<Entity> =
             world.get::<Children>(parent).unwrap().iter().collect();
-        let cloned_children: Vec<Entity> =
-            world.get::<Children>(created).unwrap().iter().collect();
+        let cloned_children: Vec<Entity> = world.get::<Children>(created).unwrap().iter().collect();
 
         assert_eq!(original_children.len(), 2);
         assert_eq!(cloned_children.len(), 2);
@@ -396,11 +395,13 @@ mod tests {
         action.apply(&mut world);
 
         let created = action.created_entity().unwrap();
-        let child = world.get::<Children>(created).unwrap().iter().next().unwrap();
+        let child = world
+            .get::<Children>(created)
+            .unwrap()
+            .iter()
+            .next()
+            .unwrap();
         let grandchild = world.get::<Children>(child).unwrap().iter().next().unwrap();
-        assert_eq!(
-            world.get::<Name>(grandchild).unwrap().as_str(),
-            "leaf"
-        );
+        assert_eq!(world.get::<Name>(grandchild).unwrap().as_str(), "leaf");
     }
 }

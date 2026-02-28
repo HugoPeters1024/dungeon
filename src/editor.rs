@@ -168,7 +168,11 @@ fn spawn_node_hierarchy(
         let mesh = meshes.get(mesh).unwrap();
         parent.with_children(|parent| {
             for primitive in mesh.primitives.iter() {
-                parent.spawn((AssetRef::new(&primitive.name),RigidBody::Static, ColliderConstructor::ConvexHullFromMesh ));
+                parent.spawn((
+                    AssetRef::new(&primitive.name),
+                    RigidBody::Static,
+                    ColliderConstructor::ConvexHullFromMesh,
+                ));
             }
         });
     }

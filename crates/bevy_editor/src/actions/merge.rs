@@ -114,7 +114,11 @@ impl Action for MergeAction {
             };
 
             let parent = world
-                .spawn((parent_transform, InheritedVisibility::default(), MergedAabb::default()))
+                .spawn((
+                    parent_transform,
+                    InheritedVisibility::default(),
+                    MergedAabb::default(),
+                ))
                 .add_children(&self.entities)
                 .id();
 
