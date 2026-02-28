@@ -88,6 +88,7 @@ fn setup_prefabs(
     mut asset_refs: ResMut<AssetRefRegistry>,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
+    gltf_meshes: Res<Assets<GltfMesh>>,
 ) {
     asset_refs.register(&mut commands, "bong_assets", |assets: Res<GameAssets>| {
         (
@@ -116,94 +117,66 @@ fn setup_prefabs(
     prefabs.register_prefab(&mut commands, "GridWall", || (GridWall::default(),));
 
     let gltf = gltfs.get(assets.castle_test.id()).unwrap();
-    for (name, node) in gltf.named_nodes.iter() {
-        prefabs.register_prefab(
+
+    // Register an AssetRef for every primitive in every named mesh
+    for (_, mesh_handle) in &gltf.named_meshes {
+        let Some(gltf_mesh) = gltf_meshes.get(mesh_handle) else {
+            continue;
+        };
+        for primitive in gltf_mesh.primitives.iter() {
+            let mesh_h = primitive.mesh.clone();
+            if let Some(mat_h) = primitive.material.clone() {
+                asset_refs.register(&mut commands, &primitive.name, move || {
+                    (Mesh3d(mesh_h.clone()), MeshMaterial3d(mat_h.clone()))
+                });
+            } else {
+                asset_refs.register(&mut commands, &primitive.name, move || {
+                    Mesh3d(mesh_h.clone())
+                });
+            }
+        }
+    }
+
+    // Register a prefab spawner for every top-level named node
+    for (name, node_handle) in gltf.named_nodes.iter() {
+        let h = node_handle.clone();
+        prefabs.register_prefab_spawner(
             &mut commands,
             name.clone(),
-            spawn_gltf_node_system(node.clone()),
+            move |In(entity): In<Entity>,
+                  mut commands: Commands,
+                  gltf_meshes: Res<Assets<GltfMesh>>,
+                  gltf_nodes: Res<Assets<GltfNode>>| {
+                let mut parent = commands.entity(entity);
+                spawn_node_hierarchy(&mut parent, &gltf_nodes, &gltf_meshes, &h);
+            },
         );
     }
 }
 
-fn spawn_gltf_node_system(
-    node: Handle<GltfNode>,
-) -> impl Fn(Commands, Res<Assets<GltfNode>>, Res<Assets<GltfMesh>>) {
-    move |mut commands: Commands, nodes: Res<Assets<GltfNode>>, meshes: Res<Assets<GltfMesh>>| {
-        spawn_gltf_node(&mut commands, &nodes, &meshes, node.clone());
-    }
-}
-
-fn spawn_gltf_node(
-    commands: &mut Commands,
+fn spawn_node_hierarchy(
+    parent: &mut EntityCommands,
     nodes: &Res<Assets<GltfNode>>,
     meshes: &Res<Assets<GltfMesh>>,
-    node_handle: Handle<GltfNode>,
+    node: &Handle<GltfNode>,
 ) {
-    let Some(node) = nodes.get(node_handle.id()) else {
-        return;
-    };
-    let mut builder = commands.spawn((
-        Name::new(node.name.clone()),
-        InheritedVisibility::default(),
-        Transform::default(),
-    ));
-    if let Some(mesh_handle) = node.mesh.as_ref()
-        && let Some(mesh) = meshes.get(mesh_handle.id()).as_ref()
-    {
-        builder.with_children(|parent| {
-            for primitive in mesh.primitives.iter() {
-                let mut child = parent.spawn((
-                    Mesh3d(primitive.mesh.clone()),
-                    Name::new(primitive.name.clone()),
-                    RigidBody::Static,
-                    ColliderConstructor::TrimeshFromMesh,
-                ));
+    let node = nodes.get(node).unwrap();
 
-                if let Some(material) = primitive.material.as_ref() {
-                    child.insert(MeshMaterial3d(material.clone()));
-                }
+    parent.insert(Name::new(node.name.clone()));
+
+    if let Some(mesh) = node.mesh.as_ref() {
+        let mesh = meshes.get(mesh).unwrap();
+        parent.with_children(|parent| {
+            for primitive in mesh.primitives.iter() {
+                parent.spawn((AssetRef::new(&primitive.name),RigidBody::Static, ColliderConstructor::ConvexHullFromMesh ));
             }
         });
-
-        for child_node in node.children.iter() {
-            // Child nodes spawn at origin relative to parent, not at spawn_pos
-            spawn_gltf_node_child(commands, nodes, meshes, child_node.clone());
-        }
     }
-}
 
-fn spawn_gltf_node_child(
-    commands: &mut Commands,
-    nodes: &Res<Assets<GltfNode>>,
-    meshes: &Res<Assets<GltfMesh>>,
-    node_handle: Handle<GltfNode>,
-) {
-    let Some(node) = nodes.get(node_handle.id()) else {
-        return;
-    };
-    let mut builder = commands.spawn((
-        Name::new(node.name.clone()),
-        InheritedVisibility::default(),
-        node.transform,
-    ));
-    if let Some(mesh_handle) = node.mesh.as_ref()
-        && let Some(mesh) = meshes.get(mesh_handle.id()).as_ref()
-    {
-        builder.with_children(|parent| {
-            for primitive in mesh.primitives.iter() {
-                let mut child = parent.spawn((
-                    Mesh3d(primitive.mesh.clone()),
-                    Name::new(primitive.name.clone()),
-                ));
-
-                if let Some(material) = primitive.material.as_ref() {
-                    child.insert(MeshMaterial3d(material.clone()));
-                }
-            }
-        });
-
-        for child_node in node.children.iter() {
-            spawn_gltf_node_child(commands, nodes, meshes, child_node.clone());
+    parent.with_children(|parent| {
+        for child in node.children.iter() {
+            let mut child_builder = parent.spawn_empty();
+            spawn_node_hierarchy(&mut child_builder, nodes, meshes, child);
         }
-    }
+    });
 }

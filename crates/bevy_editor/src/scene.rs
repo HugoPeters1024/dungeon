@@ -64,7 +64,7 @@ fn save_scene(
     trash: Res<TrashRoot>,
     children: Query<&Children>,
 ) {
-    if keyboard.just_pressed(KeyCode::KeyS) {
+    if keyboard.just_pressed(KeyCode::KeyP) {
         commands.run_system_cached_with(
             do_the_save,
             std::iter::once(trash.0)

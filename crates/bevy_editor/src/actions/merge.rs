@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::merged_aabb::MergedAabb;
 use crate::{PrefabId, Selected};
 
 use super::Action;
@@ -113,7 +114,7 @@ impl Action for MergeAction {
             };
 
             let parent = world
-                .spawn((parent_transform, InheritedVisibility::default()))
+                .spawn((parent_transform, InheritedVisibility::default(), MergedAabb::default()))
                 .add_children(&self.entities)
                 .id();
 

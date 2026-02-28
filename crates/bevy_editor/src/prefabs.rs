@@ -74,6 +74,18 @@ impl Prefabs {
         let factory_id = commands.register_system(wrapper);
         self.prefabs.insert(PrefabId(prefab_name), factory_id);
     }
+
+    /// Register a prefab that uses an `In<Entity>` system for full control over
+    /// the spawned entity (adding children, running queries, etc.).
+    pub fn register_prefab_spawner<M, I: IntoSystem<In<Entity>, (), M> + 'static>(
+        &mut self,
+        commands: &mut Commands,
+        name: impl Into<String>,
+        system: I,
+    ) {
+        let system_id = commands.register_system(system);
+        self.prefabs.insert(PrefabId(name.into()), system_id);
+    }
 }
 
 fn on_prefab_id_spawn(
