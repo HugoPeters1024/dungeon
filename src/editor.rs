@@ -184,7 +184,7 @@ fn spawn_gltf_node_child(
     let mut builder = commands.spawn((
         Name::new(node.name.clone()),
         InheritedVisibility::default(),
-        Transform::default(),
+        node.transform,
     ));
     if let Some(mesh_handle) = node.mesh.as_ref()
         && let Some(mesh) = meshes.get(mesh_handle.id()).as_ref()

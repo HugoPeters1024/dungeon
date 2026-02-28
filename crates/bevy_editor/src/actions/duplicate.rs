@@ -1,5 +1,6 @@
-use bevy::camera::primitives::Aabb;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use bevy::{camera::primitives::Aabb, platform::collections::HashSet};
 
 use crate::actions::{TrashRoot, move_to_trash, restore_from_trash};
 
@@ -91,6 +92,22 @@ fn compute_offset(world: &World, entity: Entity, direction: Vec3) -> Vec3 {
     }
 }
 
+fn collect_subtree_entities(world: &World, root: Entity) -> Vec<Entity> {
+    let mut result = Vec::new();
+    let mut stack = vec![root];
+
+    while let Some(entity) = stack.pop() {
+        result.push(entity);
+        if let Some(children) = world.get::<Children>(entity) {
+            for child in children.iter().rev() {
+                stack.push(child);
+            }
+        }
+    }
+
+    result
+}
+
 impl Action for DuplicateAction {
     fn apply(&mut self, world: &mut World) {
         if let Some(existing) = self.created_entity {
@@ -102,25 +119,52 @@ impl Action for DuplicateAction {
                 .computed_offset
                 .get_or_insert_with(|| compute_offset(world, self.entity, self.direction));
 
-            let original_transform = world
-                .get::<Transform>(self.entity)
-                .copied()
-                .unwrap_or_default();
+            let source_entities = collect_subtree_entities(world, self.entity);
+            let source_set = source_entities.iter().copied().collect::<HashSet<_>>();
+            let source_parents: Vec<(Entity, Option<Entity>)> = source_entities
+                .iter()
+                .map(|&entity| {
+                    let parent = world.get::<ChildOf>(entity).map(|c| c.parent());
+                    let parent_in_subtree =
+                        parent.filter(|p| source_set.contains(p) || entity == self.entity);
+                    (entity, parent_in_subtree)
+                })
+                .collect();
 
-            let mut new_transform = original_transform;
-            new_transform.translation += offset;
-
-            let new_entity = {
-                let e = world
-                    .entity_mut(self.entity)
+            let mut cloned_entities: HashMap<Entity, Entity> = HashMap::default();
+            for &source_entity in &source_entities {
+                let cloned = world
+                    .entity_mut(source_entity)
                     .clone_and_spawn_with_opt_out(|builder| {
-                        builder.linked_cloning(true);
+                        // Prevent recursive cloning through linked relationships.
+                        builder.linked_cloning(false);
+                        // Rebuild hierarchy explicitly for the selected subtree only.
+                        builder.deny::<(ChildOf, Children)>();
                     });
-                if let Some(mut transform) = world.get_mut::<Transform>(e) {
-                    transform.translation += offset;
+                cloned_entities.insert(source_entity, cloned);
+            }
+
+            for (source_entity, maybe_parent) in source_parents {
+                let Some(&cloned_entity) = cloned_entities.get(&source_entity) else {
+                    continue;
+                };
+                if let Some(source_parent) = maybe_parent {
+                    if let Some(&cloned_parent) = cloned_entities.get(&source_parent) {
+                        world
+                            .entity_mut(cloned_entity)
+                            .insert(ChildOf(cloned_parent));
+                    } else if source_entity == self.entity {
+                        world
+                            .entity_mut(cloned_entity)
+                            .insert(ChildOf(source_parent));
+                    }
                 }
-                e
-            };
+            }
+
+            let new_entity = cloned_entities[&self.entity];
+            if let Some(mut transform) = world.get_mut::<Transform>(new_entity) {
+                transform.translation += offset;
+            }
 
             self.created_entity = Some(new_entity);
         }

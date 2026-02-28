@@ -86,8 +86,6 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     assets: Res<GameAssets>,
 ) {
-    commands.spawn(SceneRoot(assets.castle.clone()));
-
     commands.spawn((
         DirectionalLight {
             illuminance: light_consts::lux::OVERCAST_DAY,

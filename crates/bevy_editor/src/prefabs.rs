@@ -40,13 +40,11 @@ impl From<String> for PrefabId {
 #[derive(Resource, Default)]
 pub struct Prefabs {
     prefabs: HashMap<PrefabId, SystemId<In<Entity>, ()>>,
-    /// Legacy spawner systems that spawn their own entities
-    spawners: HashMap<PrefabId, SystemId>,
 }
 
 impl Prefabs {
     pub fn get_prefab_ids(&self) -> impl Iterator<Item = &PrefabId> {
-        self.prefabs.keys().chain(self.spawners.keys())
+        self.prefabs.keys()
     }
 
     pub fn register_prefab<M, B: Bundle + 'static, I: IntoSystem<(), B, M> + 'static>(
