@@ -71,12 +71,7 @@ fn update_merged_aabbs(
     for entity in target_set.iter().copied() {
         let child_count = children_query
             .get(entity)
-            .map(|children| {
-                children
-                    .iter()
-                    .filter(|c| target_set.contains(c))
-                    .count() as u32
-            })
+            .map(|children| children.iter().filter(|c| target_set.contains(c)).count() as u32)
             .unwrap_or(0);
         in_degree.insert(entity, child_count);
 

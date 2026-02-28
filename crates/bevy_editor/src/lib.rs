@@ -1,5 +1,6 @@
 mod actions;
 mod asset_ref;
+mod editor_camera;
 pub mod merged_aabb;
 mod orientation_gizmo;
 mod plugin;

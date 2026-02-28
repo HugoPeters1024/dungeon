@@ -164,7 +164,8 @@ pub fn show(ctx: &egui::Context, viewport: egui::Rect, world: &mut World) {
 
     let selected_plane_depth = world.get_resource::<Selected>().and_then(|selected| {
         if let Some(SelectedAction::Grab {
-            initial_primary_pos, ..
+            initial_primary_pos,
+            ..
         }) = selected.action.as_ref()
         {
             return Some(initial_primary_pos.dot(grid_plane.normal));
@@ -173,7 +174,8 @@ pub fn show(ctx: &egui::Context, viewport: egui::Rect, world: &mut World) {
             .get::<GlobalTransform>(selected.primary())
             .map(|transform| transform.translation().dot(grid_plane.normal))
     });
-    let depth = selected_plane_depth.unwrap_or_else(|| pan_orbit.target_focus.dot(grid_plane.normal));
+    let depth =
+        selected_plane_depth.unwrap_or_else(|| pan_orbit.target_focus.dot(grid_plane.normal));
     let plane_origin = grid_plane.normal * depth;
 
     let Ok(center) = camera.world_to_viewport(camera_transform, plane_origin) else {
