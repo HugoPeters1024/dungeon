@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use avian3d::math::PI;
 use avian3d::prelude::*;
 use bevy::{platform::collections::HashSet, prelude::*};
-use bevy_tnua::builtins::{TnuaBuiltinJumpConfig, TnuaBuiltinWalkConfig};
+use bevy_tnua::builtins::{TnuaBuiltinJumpConfig, TnuaBuiltinJumpMemory, TnuaBuiltinWalkConfig};
 use bevy_tnua::prelude::*;
 use bevy_tnua_avian3d::prelude::*;
 
@@ -243,79 +243,82 @@ pub fn controller_update_sensors(
             distance_to_ground,
             running_velocity,
         };
-        dbg!(snapshot.facing_direction);
-        dbg!(snapshot.actual_velocity);
-        dbg!(snapshot.running_velocity);
 
         commands.entity(entity).insert(snapshot);
     }
 }
 
 pub fn update_controller_state(
-    mut q: Query<(&mut ControllerState, &ControllerSensors, Forces)>,
+    mut q: Query<(
+        &mut ControllerState,
+        &ControllerSensors,
+        Forces,
+        &TnuaController<PlayerControlScheme>,
+    )>,
     caster_and_hit: Single<(&RayCaster, &RayHits), With<FootRayCaster>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
 ) {
-    for (mut state, sensors, mut forces) in q.iter_mut() {
+    for (mut state, sensors, mut forces, controller) in q.iter_mut() {
         use ControllerState::*;
+
+        if keyboard.just_pressed(KeyCode::KeyO) {
+            *state = DropKicking(
+                Timer::from_seconds(1.2, TimerMode::Once),
+                Timer::from_seconds(2.0, TimerMode::Once),
+            );
+            continue;
+        }
+
+        if keyboard.just_pressed(KeyCode::KeyV) {
+            *state = Attacking(Timer::from_seconds(0.9, TimerMode::Once));
+            continue;
+        }
+
+        let jump_memory = match controller.current_action.as_ref() {
+            Some(PlayerControlSchemeActionState::Jump(state)) => Some(&state.memory),
+            None => None,
+        };
+        // A jump action can still be active while falling if jump is held.
+        let jump_is_fall_section = matches!(jump_memory, Some(TnuaBuiltinJumpMemory::FallSection));
+        let jumping = jump_memory.is_some() && !jump_is_fall_section;
+        let grounded = sensors.standing_on_ground;
+        let moving = sensors.running_velocity.length() > 0.1;
+
         match state.deref_mut() {
-            Moving => {
-                if !sensors.standing_on_ground {
-                    *state = Falling;
-                }
-                if sensors.running_velocity.length() < 0.1 {
-                    *state = Idle;
-                }
-
-                if keyboard.just_pressed(KeyCode::Space) {
-                    *state = Jumping;
-                }
-
-                if keyboard.just_pressed(KeyCode::KeyO) {
-                    *state = DropKicking(
-                        Timer::from_seconds(1.2, TimerMode::Once),
-                        Timer::from_seconds(2.0, TimerMode::Once),
-                    );
-                }
-
-                if keyboard.just_pressed(KeyCode::KeyV) {
-                    *state = Attacking(Timer::from_seconds(0.9, TimerMode::Once));
-                }
-            }
             Idle => {
-                if sensors.actual_velocity.xz().length() > 0.1 {
+                if jumping {
+                    *state = Jumping;
+                } else if jump_is_fall_section || !grounded {
+                    *state = Falling;
+                } else if moving {
                     *state = Moving;
                 }
-
-                if !sensors.standing_on_ground {
-                    *state = Falling;
-                }
-
-                if keyboard.just_pressed(KeyCode::Space) {
+            }
+            Moving => {
+                if jumping {
                     *state = Jumping;
-                }
-
-                if keyboard.just_pressed(KeyCode::KeyO) {
-                    *state = DropKicking(
-                        Timer::from_seconds(1.2, TimerMode::Once),
-                        Timer::from_seconds(2.0, TimerMode::Once),
-                    );
-                }
-
-                if keyboard.just_pressed(KeyCode::KeyV) {
-                    *state = Attacking(Timer::from_seconds(0.9, TimerMode::Once));
+                } else if jump_is_fall_section || !grounded {
+                    *state = Falling;
+                } else if !moving {
+                    *state = Idle;
                 }
             }
             Jumping => {
-                if sensors.standing_on_ground {
-                    *state = Idle;
-                } else if sensors.actual_velocity.y < 0.0 {
+                if jumping {
+                    // Stay in Jumping while Tnua jump action is active.
+                } else if jump_is_fall_section || !grounded {
                     *state = Falling;
+                } else if moving {
+                    *state = Moving;
                 }
             }
             Falling => {
-                if sensors.standing_on_ground {
+                if jumping {
+                    *state = Jumping;
+                } else if grounded && moving {
+                    *state = Moving;
+                } else if grounded {
                     *state = Idle;
                 }
             }
@@ -324,7 +327,6 @@ pub fn update_controller_state(
                 time_to_complete.tick(time.delta());
 
                 if time_to_force.just_finished() && !caster_and_hit.1.is_empty() {
-                    dbg!(-caster_and_hit.0.global_direction());
                     forces.apply_force(200.0 * -caster_and_hit.0.global_direction().as_vec3());
                 }
 
@@ -334,12 +336,11 @@ pub fn update_controller_state(
             }
             Attacking(timer) => {
                 timer.tick(time.delta());
-
                 if timer.just_finished() {
                     *state = Idle;
                 }
             }
-        };
+        }
     }
 }
 
