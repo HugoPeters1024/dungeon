@@ -117,7 +117,7 @@ fn setup_prefabs(
 
     let gltf = gltfs.get(assets.castle_test.id()).unwrap();
     for (name, node) in gltf.named_nodes.iter() {
-        prefabs.register_prefab_spawner(
+        prefabs.register_prefab(
             &mut commands,
             name.clone(),
             spawn_gltf_node_system(node.clone()),

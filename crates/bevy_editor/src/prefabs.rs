@@ -76,16 +76,6 @@ impl Prefabs {
         let factory_id = commands.register_system(wrapper);
         self.prefabs.insert(PrefabId(prefab_name), factory_id);
     }
-
-    pub fn register_prefab_spawner<M>(
-        &mut self,
-        commands: &mut Commands,
-        name: impl Into<String>,
-        spawner: impl IntoSystem<(), (), M> + 'static,
-    ) {
-        let system_id = commands.register_system(spawner);
-        self.spawners.insert(PrefabId(name.into()), system_id);
-    }
 }
 
 fn on_prefab_id_spawn(
@@ -103,6 +93,8 @@ fn on_prefab_id_spawn(
     if let Some(factory) = prefabs.prefabs.get(prefab_id) {
         commands.entity(entity).remove::<PrefabId>();
         commands.run_system_with(*factory, entity);
+    } else {
+        warn!("No prefab factory registered for '{}'", prefab_id.name());
     };
 }
 
