@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 
-use crate::EditorCamera;
+use crate::{EditorCamera, Selected, SelectedAction};
 
 const ALIGN_DOT_THRESHOLD: f32 = 0.9999;
 const TARGET_MAJOR_PIXELS: f32 = 72.0;
@@ -162,7 +162,18 @@ pub fn show(ctx: &egui::Context, viewport: egui::Rect, world: &mut World) {
         return;
     };
 
-    let depth = pan_orbit.target_focus.dot(grid_plane.normal);
+    let selected_plane_depth = world.get_resource::<Selected>().and_then(|selected| {
+        if let Some(SelectedAction::Grab {
+            initial_primary_pos, ..
+        }) = selected.action.as_ref()
+        {
+            return Some(initial_primary_pos.dot(grid_plane.normal));
+        }
+        world
+            .get::<GlobalTransform>(selected.primary())
+            .map(|transform| transform.translation().dot(grid_plane.normal))
+    });
+    let depth = selected_plane_depth.unwrap_or_else(|| pan_orbit.target_focus.dot(grid_plane.normal));
     let plane_origin = grid_plane.normal * depth;
 
     let Ok(center) = camera.world_to_viewport(camera_transform, plane_origin) else {
