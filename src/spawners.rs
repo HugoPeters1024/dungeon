@@ -31,6 +31,8 @@ fn on_spawn_torch(
 ) {
     let root = on.event_target();
 
+    commands.entity(on.event_target()).remove::<SpawnTorch>();
+
     // cube with stone texture
     let cube = commands
         .spawn((

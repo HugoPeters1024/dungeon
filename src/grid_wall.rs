@@ -119,6 +119,7 @@ fn on_grid_wall_added(
     mut grid_meshes_q: Query<&mut GridMeshes>,
 ) {
     let entity = on.event_target();
+    commands.entity(entity).remove::<GridWall>();
     let gltf = gltf_assets.get(&assets.castle_test).unwrap();
 
     // Spawn floor
