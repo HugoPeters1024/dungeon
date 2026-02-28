@@ -11,7 +11,7 @@ pub enum MyStates {
     Editor,
 }
 
-#[derive(Resource, AssetCollection)]
+#[derive(AssetCollection, Resource)]
 pub struct GameAssets {
     #[asset(path = "stones.png")]
     #[asset(image(sampler(filter = linear, wrap = repeat)))]

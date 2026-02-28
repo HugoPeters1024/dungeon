@@ -1,4 +1,5 @@
 use crate::assets::MyStates;
+use crate::player::controller::PlayerControlScheme;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::window::CursorOptions;
@@ -112,7 +113,7 @@ pub fn update_camera_position(
     player_query: Query<
         (&Transform, &LinearVelocity),
         (
-            With<bevy_tnua::prelude::TnuaController>,
+            With<bevy_tnua::prelude::TnuaController<PlayerControlScheme>>,
             Without<ThirdPersonCamera>,
         ),
     >,

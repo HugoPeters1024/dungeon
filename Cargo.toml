@@ -73,6 +73,7 @@ bevy = { version = "0.18.0", default-features = false, features = [
     "serialize"
 ] }
 bevy-inspector-egui = "0.36.0"
+bevy_asset_loader = { version = "0.25.0", features = ["3d"] }
 bevy_egui = { version = "0.39.1", features = ["bevy_picking"] }
 bevy_panorbit_camera = { version = "0.34.0", features = [] }
 egui_dock = "0.18"
@@ -109,8 +110,8 @@ dev = [
 #   and android_shared_stdcxx/android-game-activity, since those are covered in `mobile`
 [dependencies]
 bevy = { workspace = true }
+bevy_asset_loader = { workspace = true }
 bevy_kira_audio = { version = "0.24", features = ["android_shared_stdcxx"] }
-bevy_asset_loader = { version = "0.24.0-rc.1", features = ["3d"] }
 rand = { version = "0.9.2" }
 webbrowser = { version = "1", features = ["hardened"] }
 noise = "0.9"

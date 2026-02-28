@@ -14,7 +14,7 @@ use crate::assets::*;
 use crate::camera::ThirdPersonCameraPlugin;
 use crate::chunks::ChunkObserver;
 use crate::platform::PlatformPath;
-use crate::player::controller::PlayerRoot;
+use crate::player::controller::{PlayerControlScheme, PlayerRoot};
 use crate::spawners::*;
 
 pub struct GamePlugin;
@@ -27,7 +27,9 @@ impl Plugin for GamePlugin {
         app.add_plugins(avian3d::prelude::PhysicsPlugins::default());
         app.insert_resource(avian3d::prelude::Gravity(Vec3::NEG_Y * 9.0));
         //app.add_plugins(avian3d::prelude::PhysicsDebugPlugin::default());
-        app.add_plugins(TnuaControllerPlugin::new(FixedUpdate));
+        app.add_plugins(TnuaControllerPlugin::<PlayerControlScheme>::new(
+            FixedUpdate,
+        ));
         app.add_plugins(TnuaAvian3dPlugin::new(FixedUpdate));
         app.add_plugins(EguiPlugin::default());
 
@@ -82,11 +84,8 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut ambient_light: ResMut<AmbientLight>,
     assets: Res<GameAssets>,
 ) {
-    ambient_light.brightness = 100.0;
-
     commands.spawn(SceneRoot(assets.castle.clone()));
 
     commands.spawn((
@@ -236,6 +235,10 @@ fn setup(
     commands.spawn((
         Name::new("Player Camera"),
         Camera3d::default(),
+        AmbientLight {
+            brightness: 100.0,
+            ..default()
+        },
         crate::camera::ThirdPersonCamera::default(),
         crate::player::controller::ControllerCamera,
         Transform::from_xyz(0.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),

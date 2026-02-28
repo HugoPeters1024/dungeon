@@ -3,13 +3,20 @@ use std::ops::DerefMut;
 use avian3d::math::PI;
 use avian3d::prelude::*;
 use bevy::{platform::collections::HashSet, prelude::*};
-use bevy_tnua::{builtins::TnuaBuiltinJumpState, prelude::*};
+use bevy_tnua::builtins::{TnuaBuiltinJumpConfig, TnuaBuiltinWalkConfig};
+use bevy_tnua::prelude::*;
 use bevy_tnua_avian3d::prelude::*;
 
 use crate::assets::GameAssets;
 use bevy_hanabi::prelude::*;
 
 use crate::game::Pickupable;
+
+#[derive(TnuaScheme)]
+#[scheme(basis = TnuaBuiltinWalk)]
+pub enum PlayerControlScheme {
+    Jump(TnuaBuiltinJump),
+}
 
 #[derive(Component, Default)]
 #[require(Transform, InheritedVisibility)]
@@ -38,7 +45,6 @@ pub struct ControllerSensors {
     pub facing_direction: Vec3,
     pub standing_on_ground: bool,
     pub distance_to_ground: f32,
-    pub jump_state: Option<TnuaBuiltinJumpState>,
 }
 
 #[derive(Component, Debug, Default, Clone)]
@@ -46,7 +52,7 @@ pub enum ControllerState {
     #[default]
     Idle,
     Moving,
-    Jumping(TnuaBuiltinJump),
+    Jumping,
     Falling,
     DropKicking(Timer, Timer),
     Attacking(Timer),
@@ -55,7 +61,28 @@ pub enum ControllerState {
 #[derive(Component)]
 pub struct FootRayCaster;
 
-pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: Res<GameAssets>) {
+pub fn on_player_spawn(
+    on: On<Add, PlayerRoot>,
+    mut commands: Commands,
+    assets: Res<GameAssets>,
+    mut control_scheme_configs: ResMut<Assets<PlayerControlSchemeConfig>>,
+) {
+    let control_scheme_config = control_scheme_configs.add(PlayerControlSchemeConfig {
+        basis: TnuaBuiltinWalkConfig {
+            speed: 2.7,
+            float_height: 0.85,
+            max_slope: PI / 3.0,
+            acceleration: 20.0,
+            spring_strength: 700.0,
+            ..default()
+        },
+        jump: TnuaBuiltinJumpConfig {
+            height: 2.5,
+            fall_extra_gravity: 7.5,
+            ..default()
+        },
+    });
+
     commands.entity(on.event_target()).insert((
         // Spawn at appropriate height: ground is at Y=0.05 (top of 0.1 thick floor)
         // Capsule bottom should be at ground level, so center at 0.05 + 0.8 = 0.85
@@ -65,15 +92,16 @@ pub fn on_player_spawn(on: On<Add, PlayerRoot>, mut commands: Commands, assets: 
         RigidBody::Dynamic,
         Friction::new(0.1),
         //Collider::cuboid(0.1, 0.1, 0.1),
-        TnuaController::default(),
+        TnuaController::<PlayerControlScheme>::default(),
+        TnuaConfig::<PlayerControlScheme>(control_scheme_config),
         TnuaAvian3dSensorShape(Collider::cylinder(0.20, 0.1)),
         RayCaster::new(Vec3::new(0.0, 0.0, 0.05), Dir3::NEG_Y),
         ControllerSensors::default(),
         ControllerState::Idle,
-        //LockedAxes::ROTATION_LOCKED,
+        LockedAxes::ROTATION_LOCKED,
         children![(
             SceneRoot(assets.player.clone()),
-            Transform::from_scale(Vec3::splat(0.008)),
+            Transform::from_scale(Vec3::splat(0.008)).with_rotation(Quat::from_rotation_y(PI)),
         )],
     ));
 }
@@ -194,7 +222,7 @@ pub fn controller_update_sensors(
     mut commands: Commands,
     q: Query<(
         Entity,
-        &TnuaController,
+        &TnuaController<PlayerControlScheme>,
         &RayHits,
         &Transform,
         &LinearVelocity,
@@ -203,35 +231,9 @@ pub fn controller_update_sensors(
     for (entity, controller, hits, transform, velocity) in q.iter() {
         let distance_to_ground = hits.iter_sorted().next().map_or(0.0, |h| h.distance);
         let actual_velocity = velocity.0;
-        let facing_direction = transform.rotation * Vec3::Z;
-        let mut running_velocity = Vec3::default();
-        let mut standing_on_ground = false;
-        let mut jump_state = None;
-
-        match controller.action_name() {
-            Some(TnuaBuiltinJump::NAME) => {
-                // In case of jump, we want to cast it so that we can get the concrete jump
-                // state.
-                let (_, jump_state_inner) = controller
-                    .concrete_action::<TnuaBuiltinJump>()
-                    .expect("action name mismatch");
-                // Depending on the state of the jump, we need to decide if we want to play the
-                // jump animation or the fall animation.
-                jump_state = Some(jump_state_inner.clone());
-            }
-            Some(other) => {
-                warn!("Unknown action: {other}");
-            }
-            None => {
-                // If there is no action going on, we'll base the animation on the state of the
-                // basis.
-            }
-        };
-
-        if let Some((_, basis_state)) = controller.concrete_basis::<TnuaBuiltinWalk>() {
-            standing_on_ground = basis_state.standing_on_entity().is_some();
-            running_velocity = basis_state.running_velocity;
-        }
+        let facing_direction = transform.rotation * Vec3::NEG_Z;
+        let standing_on_ground = controller.basis_memory.standing_on_entity().is_some();
+        let running_velocity = controller.basis_memory.running_velocity;
 
         // Construct the struct at the end - this will error if any field is missing
         let snapshot = ControllerSensors {
@@ -239,9 +241,11 @@ pub fn controller_update_sensors(
             facing_direction,
             standing_on_ground,
             distance_to_ground,
-            jump_state,
             running_velocity,
         };
+        dbg!(snapshot.facing_direction);
+        dbg!(snapshot.actual_velocity);
+        dbg!(snapshot.running_velocity);
 
         commands.entity(entity).insert(snapshot);
     }
@@ -253,12 +257,6 @@ pub fn update_controller_state(
     keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
 ) {
-    let jump_action = TnuaBuiltinJump {
-        height: 2.5,
-        fall_extra_gravity: 7.5,
-        ..default()
-    };
-
     for (mut state, sensors, mut forces) in q.iter_mut() {
         use ControllerState::*;
         match state.deref_mut() {
@@ -271,7 +269,7 @@ pub fn update_controller_state(
                 }
 
                 if keyboard.just_pressed(KeyCode::Space) {
-                    *state = Jumping(jump_action.clone());
+                    *state = Jumping;
                 }
 
                 if keyboard.just_pressed(KeyCode::KeyO) {
@@ -295,7 +293,7 @@ pub fn update_controller_state(
                 }
 
                 if keyboard.just_pressed(KeyCode::Space) {
-                    *state = Jumping(jump_action.clone());
+                    *state = Jumping;
                 }
 
                 if keyboard.just_pressed(KeyCode::KeyO) {
@@ -309,19 +307,12 @@ pub fn update_controller_state(
                     *state = Attacking(Timer::from_seconds(0.9, TimerMode::Once));
                 }
             }
-            Jumping(_) => {
-                match sensors.jump_state {
-                    Some(
-                        TnuaBuiltinJumpState::FallSection
-                        | TnuaBuiltinJumpState::StoppedMaintainingJump,
-                    ) => {
-                        *state = Falling;
-                    }
-                    Some(TnuaBuiltinJumpState::NoJump) => {
-                        *state = Idle;
-                    }
-                    _ => {}
-                };
+            Jumping => {
+                if sensors.standing_on_ground {
+                    *state = Idle;
+                } else if sensors.actual_velocity.y < 0.0 {
+                    *state = Falling;
+                }
             }
             Falling => {
                 if sensors.standing_on_ground {
@@ -354,7 +345,7 @@ pub fn update_controller_state(
 
 pub fn apply_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut controller_query: Query<(&mut TnuaController, &ControllerState)>,
+    mut controller_query: Query<(&mut TnuaController<PlayerControlScheme>, &ControllerState)>,
     camera: Single<&Transform, With<ControllerCamera>>,
 ) {
     let Ok((mut controller, state)) = controller_query.single_mut() else {
@@ -365,7 +356,6 @@ pub fn apply_controls(
     let forward = Vec3::new(forward.x, 0.0, forward.y);
     let sideways = (camera.rotation * Vec3::NEG_X).xz().normalize_or_zero();
     let sideways = Vec3::new(sideways.x, 0.0, sideways.y);
-    const SPEED: f32 = 2.7;
 
     let sprint_factor = if keyboard.pressed(KeyCode::ShiftLeft) {
         2.0
@@ -391,47 +381,43 @@ pub fn apply_controls(
         state,
         ControllerState::Idle
             | ControllerState::Moving
-            | ControllerState::Jumping { .. }
+            | ControllerState::Jumping
             | ControllerState::Falling,
     ) {
         direction = Vec3::ZERO;
     }
 
-    // Feed the basis every frame. Even if the player doesn't move - just use `desired_velocity:
-    // Vec3::ZERO`. `TnuaController` starts without a basis, which will make the character collider
-    // just fall.
-    controller.basis(TnuaBuiltinWalk {
-        // The `desired_velocity` determines how the character will move.
-        desired_velocity: direction.normalize_or_zero() * SPEED * sprint_factor,
-        // The `float_height` must be greater (even if by little) from the distance between the
-        // character's center and the lowest point of its collider.
-        float_height: 0.85,
-        max_slope: PI / 3.0,
-        acceleration: 20.0,
-        spring_strength: 700.0,
-        ..Default::default()
-    });
+    controller.initiate_action_feeding();
+    controller.basis = TnuaBuiltinWalk {
+        desired_motion: direction.normalize_or_zero() * sprint_factor,
+        desired_forward: Dir3::new(direction).ok(),
+    };
 
-    if let ControllerState::Jumping(jump) = state
-        && keyboard.pressed(KeyCode::Space)
+    if keyboard.pressed(KeyCode::Space)
+        && matches!(
+            state,
+            ControllerState::Idle
+                | ControllerState::Moving
+                | ControllerState::Jumping
+                | ControllerState::Falling
+        )
     {
-        controller.action(jump.clone());
+        controller.action(PlayerControlScheme::Jump(TnuaBuiltinJump::default()));
     }
 }
 
 /// Rotates the character to always face away from the camera (like Elden Ring)
 pub fn rotate_character_to_movement(
-    mut query: Query<(&mut Transform, &mut ControllerSensors), With<TnuaController>>,
+    mut query: Query<
+        (&mut Transform, &mut ControllerSensors),
+        With<TnuaController<PlayerControlScheme>>,
+    >,
     time: Res<Time>,
 ) {
     for (mut transform, sensors) in query.iter_mut() {
-        if sensors.running_velocity.length() > 0.1 {
-            let target_rotation = Quat::from_rotation_y(
-                PI - sensors
-                    .running_velocity
-                    .x
-                    .atan2(-sensors.running_velocity.z),
-            );
+        let movement = sensors.running_velocity.normalize_or_zero();
+        if movement.length_squared() > 0.1 {
+            let target_rotation = Transform::IDENTITY.looking_to(movement, Vec3::Y).rotation;
 
             // Smoothly rotate character to match target
             const ROTATION_SPEED: f32 = 4.0; // radians per second

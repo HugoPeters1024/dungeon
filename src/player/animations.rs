@@ -1,9 +1,6 @@
 use std::ops::Deref;
 
-use bevy::{
-    animation::{AnimationTarget, AnimationTargetId},
-    prelude::*,
-};
+use bevy::{animation::AnimationTargetId, prelude::*};
 use bevy_inspector_egui::egui::ahash::HashMap;
 
 use crate::{
@@ -58,7 +55,7 @@ pub fn on_animation_player_loaded(
     mut players: Query<&mut AnimationPlayer>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut commands: Commands,
-    bones: Query<(&Name, &AnimationTarget)>,
+    bones: Query<(&Name, &AnimationTargetId)>,
     children: Query<&Children>,
 ) -> Result {
     let mut graph = AnimationGraph::new();
@@ -68,7 +65,7 @@ pub fn on_animation_player_loaded(
         .flat_map(|e| {
             bones
                 .get(e)
-                .map(|(name, target)| (name.as_str(), (e, target.id)))
+                .map(|(name, target)| (name.as_str(), (e, target.clone())))
         })
         .collect();
 
@@ -163,7 +160,7 @@ pub fn animations_from_controller(
                 w.right_strafe = right;
                 *weights = w;
             }
-            Jumping(_) => {
+            Jumping => {
                 if state_transioned {
                     player.start(clips.jump).set_seek_time(0.66);
                 }
