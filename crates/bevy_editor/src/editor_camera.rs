@@ -69,12 +69,11 @@ pub(crate) fn sync_axis_aligned_projection(
             }
             Projection::Orthographic(orthographic) => orthographic.clone(),
             Projection::Custom(_) => {
-                let fallback = PerspectiveProjection {
-                    fov: std::f32::consts::FRAC_PI_4,
-                    aspect_ratio: 1.0,
-                    near: 0.01,
-                    far: 10_000.0,
-                };
+                let mut fallback = PerspectiveProjection::default();
+                fallback.fov = std::f32::consts::FRAC_PI_4;
+                fallback.aspect_ratio = 1.0;
+                fallback.near = 0.01;
+                fallback.far = 10_000.0;
                 matched_orthographic_from_perspective(&fallback)
             }
         };
@@ -107,12 +106,11 @@ mod tests {
         let height = 1080.0;
         let radii = [3.0, 7.5, 12.0];
 
-        let mut perspective = PerspectiveProjection {
-            fov: 55.0_f32.to_radians(),
-            aspect_ratio: width / height,
-            near: 0.05,
-            far: 5000.0,
-        };
+        let mut perspective = PerspectiveProjection::default();
+        perspective.fov = 55.0_f32.to_radians();
+        perspective.aspect_ratio = width / height;
+        perspective.near = 0.05;
+        perspective.far = 5000.0;
         perspective.update(width, height);
 
         for radius in radii {

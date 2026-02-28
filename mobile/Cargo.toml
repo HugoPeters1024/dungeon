@@ -13,7 +13,7 @@ crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
 dungeon = { path = ".." }
-bevy = { version = "0.17.2", default-features = false, features = ["android-native-activity"] }
+bevy = { workspace = true, default-features = false, features = ["android-native-activity"] }
 
 [target."cfg(target_os = \"ios\")".dependencies]
 objc2-avf-audio = { version = "0.3.0", features = [

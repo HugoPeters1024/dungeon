@@ -340,7 +340,7 @@ fn draw_aabb(
             let size: Vec3 = Vec3::from(merged.half_extents) * 2.0;
             let aabb_transform =
                 GlobalTransform::from(Transform::from_translation(center).with_scale(size));
-            gizmos.cuboid(aabb_transform, PINK_100);
+            gizmos.cube(aabb_transform, PINK_100);
         }
     }
 }
