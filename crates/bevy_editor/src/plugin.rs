@@ -16,6 +16,7 @@ use bevy_panorbit_camera::PanOrbitCamera;
 use crate::actions::{
     ActionQueue, FocusCameraAction, RemoveAction, TransformAction, TransformSelectionAction,
     TrashRoot, TrashRootMarker, handle_undo_redo_input, process_action_queue,
+    world_position_to_local, world_scale_to_local,
 };
 use crate::editor_camera::{AxisAlignedProjectionState, sync_axis_aligned_projection};
 use crate::state::{AxisMask, UiDockState, UiState};
@@ -388,10 +389,9 @@ fn set_hover_normal(
 }
 
 fn handle_selected_action_keys(
+    world: &World,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut transforms: Query<&mut Transform>,
-    parents: Query<&ChildOf>,
-    parent_globals: Query<&GlobalTransform>,
     mut selected: ResMut<Selected>,
     global_transforms: Query<&GlobalTransform>,
     mut action_queue: ResMut<ActionQueue>,
@@ -399,7 +399,6 @@ fn handle_selected_action_keys(
 ) {
     let primary = selected.primary();
 
-    // F key: Focus camera on selected object
     if keyboard_input.just_pressed(KeyCode::KeyF)
         && let Ok(global_transform) = global_transforms.get(primary)
     {
@@ -418,6 +417,11 @@ fn handle_selected_action_keys(
         );
     }
 
+    let axis_key = [KeyCode::KeyX, KeyCode::KeyY, KeyCode::KeyZ]
+        .into_iter()
+        .find(|k| keyboard_input.just_pressed(*k))
+        .and_then(AxisMask::from_key);
+
     match &mut selected.action {
         None if keyboard_input.just_pressed(KeyCode::KeyG) => {
             let initial_world_positions =
@@ -428,7 +432,6 @@ fn handle_selected_action_keys(
             else {
                 return;
             };
-            // Store the world positions for grab calculations
             selected.action = Some(SelectedAction::Grab {
                 mask: None,
                 initial_primary_pos: *initial_primary_pos,
@@ -443,7 +446,6 @@ fn handle_selected_action_keys(
             {
                 return;
             }
-            // Store the world scale for scale calculations
             selected.action = Some(SelectedAction::Scale {
                 mask: None,
                 initial_cursor_pos: None,
@@ -451,7 +453,6 @@ fn handle_selected_action_keys(
             });
         }
         None if keyboard_input.just_pressed(KeyCode::KeyX) => {
-            // Remove all selected entities
             for &entity in &selected.entities {
                 action_queue.push(RemoveAction::new(entity).into());
             }
@@ -462,24 +463,12 @@ fn handle_selected_action_keys(
             initial_world_positions,
             ..
         }) => {
-            if keyboard_input.just_pressed(KeyCode::KeyX) {
-                *mask = Some(AxisMask::X);
+            if let Some(new_mask) = axis_key {
+                *mask = Some(new_mask);
             }
-            if keyboard_input.just_pressed(KeyCode::KeyY) {
-                *mask = Some(AxisMask::Y);
-            }
-            if keyboard_input.just_pressed(KeyCode::KeyZ) {
-                *mask = Some(AxisMask::Z);
-            }
-
             if keyboard_input.just_pressed(KeyCode::Escape) {
                 for (entity, initial_world_pos) in initial_world_positions.iter().copied() {
-                    let local_pos = world_position_to_local(
-                        entity,
-                        initial_world_pos,
-                        &parents,
-                        &parent_globals,
-                    );
+                    let local_pos = world_position_to_local(world, entity, initial_world_pos);
                     if let Ok(mut transform) = transforms.get_mut(entity) {
                         transform.translation = local_pos;
                     }
@@ -489,28 +478,15 @@ fn handle_selected_action_keys(
         }
         Some(SelectedAction::Scale {
             mask,
-            initial_cursor_pos: _,
             initial_world_scales,
             ..
         }) => {
-            if keyboard_input.just_pressed(KeyCode::KeyX) {
-                *mask = Some(AxisMask::X);
+            if let Some(new_mask) = axis_key {
+                *mask = Some(new_mask);
             }
-            if keyboard_input.just_pressed(KeyCode::KeyY) {
-                *mask = Some(AxisMask::Y);
-            }
-            if keyboard_input.just_pressed(KeyCode::KeyZ) {
-                *mask = Some(AxisMask::Z);
-            }
-
             if keyboard_input.just_pressed(KeyCode::Escape) {
                 for (entity, initial_world_scale) in initial_world_scales.iter().copied() {
-                    let local_scale = world_scale_to_local(
-                        entity,
-                        initial_world_scale,
-                        &parents,
-                        &parent_globals,
-                    );
+                    let local_scale = world_scale_to_local(world, entity, initial_world_scale);
                     if let Ok(mut transform) = transforms.get_mut(entity) {
                         transform.scale = local_scale;
                     }
@@ -521,11 +497,30 @@ fn handle_selected_action_keys(
     }
 }
 
+/// Cast a ray from the camera through `cursor_pos` and intersect it with a plane
+/// perpendicular to the camera's forward direction passing through `plane_point`.
+fn cursor_ray_to_plane(
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    cursor_pos: Vec2,
+    plane_point: Vec3,
+) -> Option<Vec3> {
+    let ray = camera
+        .viewport_to_world(camera_transform, cursor_pos)
+        .ok()?;
+    let plane_normal = *camera_transform.forward();
+    let denominator = ray.direction.dot(plane_normal);
+    if denominator.abs() < 1e-6 {
+        return None;
+    }
+    let t = (plane_point - ray.origin).dot(plane_normal) / denominator;
+    Some(ray.origin + *ray.direction * t)
+}
+
 fn handle_grab_mode_movement(
+    world: &World,
     ui: Res<UiState>,
     mut transforms: Query<&mut Transform>,
-    parents: Query<&ChildOf>,
-    parent_globals: Query<&GlobalTransform>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut selected: ResMut<Selected>,
@@ -552,44 +547,22 @@ fn handle_grab_mode_movement(
         return;
     };
 
-    // Use Bevy's built-in viewport_to_world to get a ray from camera through cursor
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
+    let Some(intersection) =
+        cursor_ray_to_plane(camera, camera_transform, cursor_pos, *initial_primary_pos)
+    else {
         return;
     };
 
-    let camera_forward = camera_transform.forward();
-
-    // Define plane perpendicular to camera forward, passing through initial entity position (world space)
-    // This keeps the object at a constant "depth" from the camera
-    let plane_normal = *camera_forward;
-    let plane_point = *initial_primary_pos;
-
-    // Ray-plane intersection (in world space)
-    let denominator = ray.direction.dot(plane_normal);
-    if denominator.abs() < 1e-6 {
-        return;
-    }
-
-    let t = (plane_point - ray.origin).dot(plane_normal) / denominator;
-    let intersection = ray.origin + *ray.direction * t;
-
-    // Apply axis mask in world space
-    let new_primary_world_pos = if let Some(axis) = &mask {
-        match axis {
-            AxisMask::X => initial_primary_pos.with_x(intersection.x),
-            AxisMask::Y => initial_primary_pos.with_y(intersection.y),
-            AxisMask::Z => initial_primary_pos.with_z(intersection.z),
-        }
-    } else {
-        intersection
+    let new_primary_world_pos = match mask {
+        Some(axis) => axis.apply(*initial_primary_pos, intersection),
+        None => intersection,
     };
 
     let delta_world = new_primary_world_pos - *initial_primary_pos;
 
     for (entity, initial_world_pos) in initial_world_positions.iter().copied() {
         let new_world_pos = initial_world_pos + delta_world;
-        let new_local_pos =
-            world_position_to_local(entity, new_world_pos, &parents, &parent_globals);
+        let new_local_pos = world_position_to_local(world, entity, new_world_pos);
         if let Ok(mut transform) = transforms.get_mut(entity) {
             transform.translation = new_local_pos;
         }
@@ -597,11 +570,10 @@ fn handle_grab_mode_movement(
 }
 
 fn handle_scale_mode_movement(
+    world: &World,
     ui: Res<UiState>,
     mut transforms: Query<&mut Transform>,
     global_transforms: Query<&GlobalTransform>,
-    parents: Query<&ChildOf>,
-    parent_globals: Query<&GlobalTransform>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut selected: ResMut<Selected>,
@@ -630,7 +602,6 @@ fn handle_scale_mode_movement(
         return;
     };
 
-    // Initialize the initial cursor position on first frame
     let initial_cursor = match initial_cursor_pos {
         Some(pos) => *pos,
         None => {
@@ -639,61 +610,37 @@ fn handle_scale_mode_movement(
         }
     };
 
-    // Get the entity's world position for the reference plane
     let entity_world_pos = global_transforms
         .get(primary)
         .map(|t| t.translation())
         .unwrap_or(Vec3::ZERO);
 
-    // Calculate distances from entity center for both initial and current cursor positions
-    let camera_forward = camera_transform.forward();
-    let plane_normal = *camera_forward;
-    let plane_point = entity_world_pos;
-
-    // Get initial intersection point
-    let Ok(initial_ray) = camera.viewport_to_world(camera_transform, initial_cursor) else {
+    let Some(initial_intersection) =
+        cursor_ray_to_plane(camera, camera_transform, initial_cursor, entity_world_pos)
+    else {
         return;
     };
-    let initial_denominator = initial_ray.direction.dot(plane_normal);
-    if initial_denominator.abs() < 1e-6 {
+    let Some(current_intersection) =
+        cursor_ray_to_plane(camera, camera_transform, cursor_pos, entity_world_pos)
+    else {
         return;
-    }
-    let initial_t = (plane_point - initial_ray.origin).dot(plane_normal) / initial_denominator;
-    let initial_intersection = initial_ray.origin + *initial_ray.direction * initial_t;
+    };
+
     let initial_distance = (initial_intersection - entity_world_pos).length();
+    let current_distance = (current_intersection - entity_world_pos).length();
 
-    // Get current intersection point
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
-        return;
-    };
-    let denominator = ray.direction.dot(plane_normal);
-    if denominator.abs() < 1e-6 {
-        return;
-    }
-    let t = (plane_point - ray.origin).dot(plane_normal) / denominator;
-    let intersection = ray.origin + *ray.direction * t;
-    let current_distance = (intersection - entity_world_pos).length();
-
-    // Calculate scale factor based on the ratio of distances
-    // When cursor hasn't moved, distances are equal, so scale_factor = 1.0
     let scale_factor = if initial_distance > 1e-6 {
         (current_distance / initial_distance).max(0.01)
     } else {
         1.0
     };
 
-    // Apply axis mask
     for (entity, initial_world_scale) in initial_world_scales.iter().copied() {
-        let new_world_scale = if let Some(axis) = &mask {
-            match axis {
-                AxisMask::X => initial_world_scale.with_x(initial_world_scale.x * scale_factor),
-                AxisMask::Y => initial_world_scale.with_y(initial_world_scale.y * scale_factor),
-                AxisMask::Z => initial_world_scale.with_z(initial_world_scale.z * scale_factor),
-            }
-        } else {
-            initial_world_scale * scale_factor
+        let new_world_scale = match mask {
+            Some(axis) => axis.apply_scale(initial_world_scale, scale_factor),
+            None => initial_world_scale * scale_factor,
         };
-        let local_scale = world_scale_to_local(entity, new_world_scale, &parents, &parent_globals);
+        let local_scale = world_scale_to_local(world, entity, new_world_scale);
         if let Ok(mut transform) = transforms.get_mut(entity) {
             transform.scale = local_scale;
         }
@@ -803,48 +750,4 @@ fn collect_world_scales(
         }
     }
     scales
-}
-
-fn world_position_to_local(
-    entity: Entity,
-    world_position: Vec3,
-    parents: &Query<&ChildOf>,
-    parent_globals: &Query<&GlobalTransform>,
-) -> Vec3 {
-    let parent_global: Option<&GlobalTransform> = parents
-        .get(entity)
-        .ok()
-        .and_then(|child_of| parent_globals.get(child_of.parent()).ok());
-
-    if let Some(parent_global) = parent_global {
-        parent_global
-            .affine()
-            .inverse()
-            .transform_point3(world_position)
-    } else {
-        world_position
-    }
-}
-
-fn world_scale_to_local(
-    entity: Entity,
-    world_scale: Vec3,
-    parents: &Query<&ChildOf>,
-    parent_globals: &Query<&GlobalTransform>,
-) -> Vec3 {
-    let parent_global: Option<&GlobalTransform> = parents
-        .get(entity)
-        .ok()
-        .and_then(|child_of| parent_globals.get(child_of.parent()).ok());
-
-    if let Some(parent_global) = parent_global {
-        parent_global
-            .affine()
-            .inverse()
-            .to_scale_rotation_translation()
-            .0
-            * world_scale
-    } else {
-        world_scale
-    }
 }

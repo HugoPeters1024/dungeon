@@ -19,6 +19,35 @@ pub enum AxisMask {
     Z,
 }
 
+impl AxisMask {
+    /// Replace only the masked axis of `original` with the corresponding component from `new`.
+    pub fn apply(&self, original: Vec3, new: Vec3) -> Vec3 {
+        match self {
+            AxisMask::X => original.with_x(new.x),
+            AxisMask::Y => original.with_y(new.y),
+            AxisMask::Z => original.with_z(new.z),
+        }
+    }
+
+    /// Scale only the masked axis, leaving the others unchanged.
+    pub fn apply_scale(&self, original: Vec3, factor: f32) -> Vec3 {
+        match self {
+            AxisMask::X => original.with_x(original.x * factor),
+            AxisMask::Y => original.with_y(original.y * factor),
+            AxisMask::Z => original.with_z(original.z * factor),
+        }
+    }
+
+    pub fn from_key(key: KeyCode) -> Option<Self> {
+        match key {
+            KeyCode::KeyX => Some(AxisMask::X),
+            KeyCode::KeyY => Some(AxisMask::Y),
+            KeyCode::KeyZ => Some(AxisMask::Z),
+            _ => None,
+        }
+    }
+}
+
 pub enum ContextMenu {
     Closed,
     Open {

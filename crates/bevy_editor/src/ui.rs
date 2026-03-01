@@ -209,7 +209,9 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                         if query.is_empty() {
                             Some((id, 0i64))
                         } else {
-                            matcher.fuzzy_match(id.name(), query).map(|score| (id, score))
+                            matcher
+                                .fuzzy_match(id.name(), query)
+                                .map(|score| (id, score))
                         }
                     })
                     .collect();
