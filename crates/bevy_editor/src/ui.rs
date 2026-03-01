@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_world};
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 
 use crate::{
     ActionQueue, ContextMenu, DuplicateAction, EditorAction, EditorCamera, FocusCameraAction,
@@ -181,8 +183,12 @@ impl egui_dock::TabViewer for UiViewer<'_> {
             }
             EguiWindow::Prefabs => {
                 ui.label("Prefabs");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.state.prefab_search)
+                        .hint_text("Search prefabs…"),
+                );
+                ui.add_space(4.0);
 
-                // Calculate spawn position from editor camera
                 let spawn_pos = self
                     .world
                     .query_filtered::<&Transform, With<EditorCamera>>()
@@ -194,8 +200,23 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                     })
                     .unwrap_or(Vec3::ZERO);
 
+                let query = &self.state.prefab_search;
+                let matcher = SkimMatcherV2::default();
+                let mut matched: Vec<_> = self
+                    .prefabs
+                    .get_prefab_ids()
+                    .filter_map(|id| {
+                        if query.is_empty() {
+                            Some((id, 0i64))
+                        } else {
+                            matcher.fuzzy_match(id.name(), query).map(|score| (id, score))
+                        }
+                    })
+                    .collect();
+                matched.sort_by(|a, b| b.1.cmp(&a.1));
+
                 let mut action_queue = self.world.resource_mut::<ActionQueue>();
-                for id in self.prefabs.get_prefab_ids() {
+                for (id, _) in matched {
                     if ui.button(id.name()).clicked() {
                         action_queue.push(SpawnPrefabAction::new(id.clone(), spawn_pos).into());
                     }

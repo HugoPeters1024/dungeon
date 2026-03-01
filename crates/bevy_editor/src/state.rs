@@ -124,6 +124,7 @@ pub struct UiState {
     pub context_menu: ContextMenu,
     pub egui_wants_pointer_input: bool,
     pub spawn_distance: f32,
+    pub prefab_search: String,
 }
 
 impl Default for UiState {
@@ -134,6 +135,7 @@ impl Default for UiState {
             context_menu: ContextMenu::Closed,
             egui_wants_pointer_input: false,
             spawn_distance: 3.0,
+            prefab_search: String::new(),
         }
     }
 }

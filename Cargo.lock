@@ -1109,6 +1109,7 @@ dependencies = [
  "bevy_egui",
  "bevy_panorbit_camera",
  "egui_dock",
+ "fuzzy-matcher",
 ]
 
 [[package]]
