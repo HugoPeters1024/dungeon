@@ -2,37 +2,55 @@ use bevy::prelude::*;
 
 use super::Action;
 
+fn parent_inverse_affine(world: &World, entity: Entity) -> Option<bevy::math::Affine3A> {
+    let parent = world.get::<ChildOf>(entity)?.parent();
+    Some(world.get::<GlobalTransform>(parent)?.affine().inverse())
+}
+
+fn parent_inverse_affine_from_queries(
+    entity: Entity,
+    parents: &Query<&ChildOf>,
+    globals: &Query<&GlobalTransform>,
+) -> Option<bevy::math::Affine3A> {
+    let parent = parents.get(entity).ok()?.parent();
+    Some(globals.get(parent).ok()?.affine().inverse())
+}
+
 pub(crate) fn world_position_to_local(world: &World, entity: Entity, world_position: Vec3) -> Vec3 {
-    if let Some(child_of) = world.get::<ChildOf>(entity) {
-        let parent = child_of.parent();
-        if let Some(parent_global) = world.get::<GlobalTransform>(parent) {
-            parent_global
-                .affine()
-                .inverse()
-                .transform_point3(world_position)
-        } else {
-            world_position
-        }
-    } else {
-        world_position
+    match parent_inverse_affine(world, entity) {
+        Some(inv) => inv.transform_point3(world_position),
+        None => world_position,
     }
 }
 
 pub(crate) fn world_scale_to_local(world: &World, entity: Entity, world_scale: Vec3) -> Vec3 {
-    if let Some(child_of) = world.get::<ChildOf>(entity) {
-        let parent = child_of.parent();
-        if let Some(parent_global) = world.get::<GlobalTransform>(parent) {
-            parent_global
-                .affine()
-                .inverse()
-                .to_scale_rotation_translation()
-                .0
-                * world_scale
-        } else {
-            world_scale
-        }
-    } else {
-        world_scale
+    match parent_inverse_affine(world, entity) {
+        Some(inv) => inv.to_scale_rotation_translation().0 * world_scale,
+        None => world_scale,
+    }
+}
+
+pub(crate) fn world_position_to_local_q(
+    entity: Entity,
+    world_position: Vec3,
+    parents: &Query<&ChildOf>,
+    globals: &Query<&GlobalTransform>,
+) -> Vec3 {
+    match parent_inverse_affine_from_queries(entity, parents, globals) {
+        Some(inv) => inv.transform_point3(world_position),
+        None => world_position,
+    }
+}
+
+pub(crate) fn world_scale_to_local_q(
+    entity: Entity,
+    world_scale: Vec3,
+    parents: &Query<&ChildOf>,
+    globals: &Query<&GlobalTransform>,
+) -> Vec3 {
+    match parent_inverse_affine_from_queries(entity, parents, globals) {
+        Some(inv) => inv.to_scale_rotation_translation().0 * world_scale,
+        None => world_scale,
     }
 }
 

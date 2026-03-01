@@ -18,6 +18,7 @@ pub use asset_ref::{AssetBundle, AssetComponent, AssetRef, AssetRefRegistry};
 pub use bevy_panorbit_camera::{self, PanOrbitCamera, TrackpadBehavior};
 pub use plugin::{EditorCamera, EditorPlugin};
 pub use prefabs::*;
+pub use scene::SceneCommands;
 pub use state::{
     AxisMask, ContextMenu, EguiWindow, HoverNormal, Selected, SelectedAction, UiDockState, UiState,
 };

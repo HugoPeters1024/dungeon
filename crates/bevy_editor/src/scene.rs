@@ -2,11 +2,22 @@ use bevy::{platform::collections::HashSet, prelude::*};
 
 use crate::{actions::TrashRoot, asset_ref::AssetRef};
 
+/// Pending scene commands requested by the UI or keyboard shortcuts.
+#[derive(Resource, Default)]
+pub struct SceneCommands {
+    pub save_requested: bool,
+    pub load_requested: bool,
+}
+
 pub struct ScenePlugin;
 
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (save_scene, load_scene));
+        app.init_resource::<SceneCommands>();
+        app.add_systems(
+            Update,
+            (scene_keyboard_shortcuts, process_scene_commands).chain(),
+        );
     }
 }
 
@@ -58,13 +69,32 @@ fn collect_descendants(world: &World, entity: Entity, out: &mut HashSet<Entity>)
     }
 }
 
-fn save_scene(
-    mut commands: Commands,
+fn scene_keyboard_shortcuts(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mut scene_commands: ResMut<SceneCommands>,
+) {
+    let ctrl = keyboard.pressed(KeyCode::ControlLeft)
+        || keyboard.pressed(KeyCode::ControlRight)
+        || keyboard.pressed(KeyCode::SuperLeft)
+        || keyboard.pressed(KeyCode::SuperRight);
+
+    if ctrl && keyboard.just_pressed(KeyCode::KeyS) {
+        scene_commands.save_requested = true;
+    }
+    if ctrl && keyboard.just_pressed(KeyCode::KeyL) {
+        scene_commands.load_requested = true;
+    }
+}
+
+fn process_scene_commands(
+    mut commands: Commands,
+    mut scene_commands: ResMut<SceneCommands>,
     trash: Res<TrashRoot>,
     children: Query<&Children>,
+    asset_server: Res<AssetServer>,
 ) {
-    if keyboard.just_pressed(KeyCode::KeyP) {
+    if scene_commands.save_requested {
+        scene_commands.save_requested = false;
         commands.run_system_cached_with(
             do_the_save,
             std::iter::once(trash.0)
@@ -72,14 +102,9 @@ fn save_scene(
                 .collect(),
         );
     }
-}
 
-fn load_scene(
-    mut commands: Commands,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    asset_server: Res<AssetServer>,
-) {
-    if keyboard.just_pressed(KeyCode::KeyL) {
+    if scene_commands.load_requested {
+        scene_commands.load_requested = false;
         commands.spawn((
             DynamicSceneRoot(asset_server.load("scene.scn.ron")),
             Name::new("Loaded Scene"),

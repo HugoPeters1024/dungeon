@@ -15,7 +15,7 @@ pub use remove::RemoveAction;
 pub use spawn_prefab::SpawnPrefabAction;
 pub use traits::Action;
 pub use transform::{TransformAction, TransformKind, TransformSelectionAction};
-pub(crate) use transform::{world_position_to_local, world_scale_to_local};
+pub(crate) use transform::{world_position_to_local_q, world_scale_to_local_q};
 
 use bevy::prelude::*;
 

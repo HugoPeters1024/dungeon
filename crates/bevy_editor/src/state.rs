@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 
-use crate::{prefabs::Prefabs, ui::UiViewer};
+use crate::{prefabs::Prefabs, scene::SceneCommands, ui::UiViewer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EguiWindow {
@@ -175,6 +175,27 @@ impl UiState {
     }
 
     pub fn ui(&mut self, world: &mut World, ctx: &mut egui::Context) {
+        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui
+                        .add(egui::Button::new("Save Scene").shortcut_text("Ctrl+S"))
+                        .clicked()
+                    {
+                        world.resource_mut::<SceneCommands>().save_requested = true;
+                        ui.close();
+                    }
+                    if ui
+                        .add(egui::Button::new("Load Scene").shortcut_text("Ctrl+L"))
+                        .clicked()
+                    {
+                        world.resource_mut::<SceneCommands>().load_requested = true;
+                        ui.close();
+                    }
+                });
+            });
+        });
+
         world.resource_scope::<Prefabs, _>(|world, prefabs| {
             world.resource_scope::<UiDockState, _>(|world, mut dock_state| {
                 let mut viewer = UiViewer {

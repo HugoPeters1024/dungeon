@@ -16,7 +16,7 @@ use bevy_panorbit_camera::PanOrbitCamera;
 use crate::actions::{
     ActionQueue, FocusCameraAction, RemoveAction, TransformAction, TransformSelectionAction,
     TrashRoot, TrashRootMarker, handle_undo_redo_input, process_action_queue,
-    world_position_to_local, world_scale_to_local,
+    world_position_to_local_q, world_scale_to_local_q,
 };
 use crate::editor_camera::{AxisAlignedProjectionState, sync_axis_aligned_projection};
 use crate::state::{AxisMask, UiDockState, UiState};
@@ -389,9 +389,10 @@ fn set_hover_normal(
 }
 
 fn handle_selected_action_keys(
-    world: &World,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut transforms: Query<&mut Transform>,
+    parents: Query<&ChildOf>,
+    parent_globals: Query<&GlobalTransform>,
     mut selected: ResMut<Selected>,
     global_transforms: Query<&GlobalTransform>,
     mut action_queue: ResMut<ActionQueue>,
@@ -468,7 +469,12 @@ fn handle_selected_action_keys(
             }
             if keyboard_input.just_pressed(KeyCode::Escape) {
                 for (entity, initial_world_pos) in initial_world_positions.iter().copied() {
-                    let local_pos = world_position_to_local(world, entity, initial_world_pos);
+                    let local_pos = world_position_to_local_q(
+                        entity,
+                        initial_world_pos,
+                        &parents,
+                        &parent_globals,
+                    );
                     if let Ok(mut transform) = transforms.get_mut(entity) {
                         transform.translation = local_pos;
                     }
@@ -486,7 +492,12 @@ fn handle_selected_action_keys(
             }
             if keyboard_input.just_pressed(KeyCode::Escape) {
                 for (entity, initial_world_scale) in initial_world_scales.iter().copied() {
-                    let local_scale = world_scale_to_local(world, entity, initial_world_scale);
+                    let local_scale = world_scale_to_local_q(
+                        entity,
+                        initial_world_scale,
+                        &parents,
+                        &parent_globals,
+                    );
                     if let Ok(mut transform) = transforms.get_mut(entity) {
                         transform.scale = local_scale;
                     }
@@ -518,9 +529,10 @@ fn cursor_ray_to_plane(
 }
 
 fn handle_grab_mode_movement(
-    world: &World,
     ui: Res<UiState>,
     mut transforms: Query<&mut Transform>,
+    parents: Query<&ChildOf>,
+    parent_globals: Query<&GlobalTransform>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     window: Single<&Window, With<PrimaryWindow>>,
     mut selected: ResMut<Selected>,
@@ -562,7 +574,8 @@ fn handle_grab_mode_movement(
 
     for (entity, initial_world_pos) in initial_world_positions.iter().copied() {
         let new_world_pos = initial_world_pos + delta_world;
-        let new_local_pos = world_position_to_local(world, entity, new_world_pos);
+        let new_local_pos =
+            world_position_to_local_q(entity, new_world_pos, &parents, &parent_globals);
         if let Ok(mut transform) = transforms.get_mut(entity) {
             transform.translation = new_local_pos;
         }
@@ -570,9 +583,10 @@ fn handle_grab_mode_movement(
 }
 
 fn handle_scale_mode_movement(
-    world: &World,
     ui: Res<UiState>,
     mut transforms: Query<&mut Transform>,
+    parents: Query<&ChildOf>,
+    parent_globals: Query<&GlobalTransform>,
     global_transforms: Query<&GlobalTransform>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     window: Single<&Window, With<PrimaryWindow>>,
@@ -640,7 +654,8 @@ fn handle_scale_mode_movement(
             Some(axis) => axis.apply_scale(initial_world_scale, scale_factor),
             None => initial_world_scale * scale_factor,
         };
-        let local_scale = world_scale_to_local(world, entity, new_world_scale);
+        let local_scale =
+            world_scale_to_local_q(entity, new_world_scale, &parents, &parent_globals);
         if let Ok(mut transform) = transforms.get_mut(entity) {
             transform.scale = local_scale;
         }
