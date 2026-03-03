@@ -48,6 +48,47 @@ impl AxisMask {
     }
 }
 
+/// Result of parsing typed numeric input like "x3.5", "z-4", "4z", "3.5".
+pub struct TypedTransformInput {
+    pub axis: Option<AxisMask>,
+    pub value: f32,
+}
+
+impl TypedTransformInput {
+    /// Parse a typed input string. Accepts:
+    /// - "x3.5" or "3.5x" (axis + value in either order)
+    /// - "z-4" or "-4z"
+    /// - "3.5" (value only, no axis)
+    /// - ".5" or "-.5"
+    pub fn parse(input: &str) -> Option<Self> {
+        let s = input.trim();
+        if s.is_empty() {
+            return None;
+        }
+
+        let first = s.as_bytes()[0];
+        let last = s.as_bytes()[s.len() - 1];
+
+        let axis_from_byte = |b: u8| match b {
+            b'x' | b'X' => Some(AxisMask::X),
+            b'y' | b'Y' => Some(AxisMask::Y),
+            b'z' | b'Z' => Some(AxisMask::Z),
+            _ => None,
+        };
+
+        if let Some(axis) = axis_from_byte(first) {
+            let value: f32 = s[1..].parse().ok()?;
+            Some(Self { axis: Some(axis), value })
+        } else if let Some(axis) = axis_from_byte(last) {
+            let value: f32 = s[..s.len() - 1].parse().ok()?;
+            Some(Self { axis: Some(axis), value })
+        } else {
+            let value: f32 = s.parse().ok()?;
+            Some(Self { axis: None, value })
+        }
+    }
+}
+
 pub enum ContextMenu {
     Closed,
     Open {
@@ -87,11 +128,15 @@ pub enum SelectedAction {
         mask: Option<AxisMask>,
         initial_primary_pos: Vec3,
         initial_world_positions: Vec<(Entity, Vec3)>,
+        initial_local_transforms: Vec<(Entity, Transform)>,
+        typed_input: String,
     },
     Scale {
         mask: Option<AxisMask>,
         initial_cursor_pos: Option<Vec2>,
         initial_world_scales: Vec<(Entity, Vec3)>,
+        initial_local_transforms: Vec<(Entity, Transform)>,
+        typed_input: String,
     },
 }
 
@@ -211,5 +256,76 @@ impl UiState {
                 self.egui_wants_pointer_input = ctx.wants_pointer_input();
             });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_axis_prefix_positive() {
+        let r = TypedTransformInput::parse("x3.5").unwrap();
+        assert!(matches!(r.axis, Some(AxisMask::X)));
+        assert!((r.value - 3.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_axis_prefix_negative() {
+        let r = TypedTransformInput::parse("z-4").unwrap();
+        assert!(matches!(r.axis, Some(AxisMask::Z)));
+        assert!((r.value - -4.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_axis_suffix() {
+        let r = TypedTransformInput::parse("4z").unwrap();
+        assert!(matches!(r.axis, Some(AxisMask::Z)));
+        assert!((r.value - 4.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_axis_suffix_negative() {
+        let r = TypedTransformInput::parse("-2.5y").unwrap();
+        assert!(matches!(r.axis, Some(AxisMask::Y)));
+        assert!((r.value - -2.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_no_axis() {
+        let r = TypedTransformInput::parse("3.5").unwrap();
+        assert!(r.axis.is_none());
+        assert!((r.value - 3.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_no_axis_negative() {
+        let r = TypedTransformInput::parse("-1.0").unwrap();
+        assert!(r.axis.is_none());
+        assert!((r.value - -1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_empty_returns_none() {
+        assert!(TypedTransformInput::parse("").is_none());
+    }
+
+    #[test]
+    fn parse_only_axis_returns_none() {
+        assert!(TypedTransformInput::parse("x").is_none());
+    }
+
+    #[test]
+    fn parse_decimal_no_leading_zero() {
+        let r = TypedTransformInput::parse(".5").unwrap();
+        assert!(r.axis.is_none());
+        assert!((r.value - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parse_uppercase_axis() {
+        let r = TypedTransformInput::parse("Y2").unwrap();
+        assert!(matches!(r.axis, Some(AxisMask::Y)));
+        assert!((r.value - 2.0).abs() < f32::EPSILON);
     }
 }

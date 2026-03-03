@@ -20,5 +20,6 @@ pub use plugin::{EditorCamera, EditorPlugin};
 pub use prefabs::*;
 pub use scene::SceneCommands;
 pub use state::{
-    AxisMask, ContextMenu, EguiWindow, HoverNormal, Selected, SelectedAction, UiDockState, UiState,
+    AxisMask, ContextMenu, EguiWindow, HoverNormal, Selected, SelectedAction, TypedTransformInput,
+    UiDockState, UiState,
 };
