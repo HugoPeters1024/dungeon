@@ -123,7 +123,10 @@ impl Plugin for EditorPlugin {
                 .run_if(resource_exists::<Selected>)
                 .run_if(editor_enabled),
         );
-        app.add_systems(Update, sync_axis_aligned_projection.run_if(editor_enabled));
+        app.add_systems(
+            Update,
+            (sync_axis_aligned_projection, draw_ground_grid).run_if(editor_enabled),
+        );
 
         app.add_systems(
             Update,
@@ -419,6 +422,90 @@ fn draw_aabb(
                 GlobalTransform::from(Transform::from_translation(center).with_scale(size));
             gizmos.cube(aabb_transform, PINK_100);
         }
+    }
+}
+
+fn draw_ground_grid(
+    mut gizmos: Gizmos,
+    camera_query: Query<(&Projection, &GlobalTransform), With<EditorCamera>>,
+) {
+    let Ok((projection, camera_transform)) = camera_query.single() else {
+        return;
+    };
+
+    if !matches!(projection, Projection::Perspective(_)) {
+        return;
+    }
+
+    let cam_pos = camera_transform.translation();
+    let cam_y = cam_pos.y.abs().max(5.0);
+
+    let raw_step = cam_y / 8.0;
+    let exponent = raw_step.log10().floor();
+    let base = 10.0f32.powf(exponent);
+    let fraction = raw_step / base;
+    let step = base
+        * if fraction <= 1.0 {
+            1.0
+        } else if fraction <= 2.0 {
+            2.0
+        } else if fraction <= 5.0 {
+            5.0
+        } else {
+            10.0
+        };
+
+    let half_extent = step * 20.0;
+
+    let snap = |v: f32| (v / step).round() * step;
+    let center_x = snap(cam_pos.x);
+    let center_z = snap(cam_pos.z);
+
+    let count = (half_extent / step).ceil() as i32;
+
+    let minor_color = Color::srgba(1.0, 1.0, 1.0, 0.04);
+    let major_color = Color::srgba(1.0, 1.0, 1.0, 0.1);
+    let x_axis_color = Color::srgba(0.9, 0.27, 0.27, 0.6);
+    let z_axis_color = Color::srgba(0.27, 0.47, 1.0, 0.6);
+
+    let major_step = step * 10.0;
+    let is_major = |world_coord: f32| {
+        (world_coord / major_step).round() * major_step - world_coord < step * 0.01
+            && world_coord.abs() >= step * 0.01
+    };
+
+    for i in -count..=count {
+        let offset = i as f32 * step;
+
+        let world_x = center_x + offset;
+        let on_origin = world_x.abs() < step * 0.01;
+        let color = if on_origin {
+            z_axis_color
+        } else if is_major(world_x) {
+            major_color
+        } else {
+            minor_color
+        };
+        gizmos.line(
+            Vec3::new(world_x, 0.0, center_z - half_extent),
+            Vec3::new(world_x, 0.0, center_z + half_extent),
+            color,
+        );
+
+        let world_z = center_z + offset;
+        let on_origin = world_z.abs() < step * 0.01;
+        let color = if on_origin {
+            x_axis_color
+        } else if is_major(world_z) {
+            major_color
+        } else {
+            minor_color
+        };
+        gizmos.line(
+            Vec3::new(center_x - half_extent, 0.0, world_z),
+            Vec3::new(center_x + half_extent, 0.0, world_z),
+            color,
+        );
     }
 }
 
