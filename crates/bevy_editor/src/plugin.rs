@@ -4,10 +4,10 @@ use std::time::Duration;
 use bevy::camera::Viewport;
 use bevy::camera::visibility::RenderLayers;
 use bevy::color::palettes::tailwind::{PINK_100, RED_500};
-use bevy::picking::pointer::PointerInteraction;
-use bevy::picking::prelude::Pickable;
 use bevy::ecs::message::MessageReader;
 use bevy::input::keyboard::KeyboardInput;
+use bevy::picking::pointer::PointerInteraction;
+use bevy::picking::prelude::Pickable;
 use bevy::prelude::*;
 use bevy::{ecs::schedule::BoxedCondition, window::PrimaryWindow};
 use bevy_egui::prelude::*;
@@ -202,16 +202,18 @@ fn show_ui_system(world: &mut World) -> Result {
     world.resource_scope::<UiState, _>(|world, mut ui_state| {
         ui_state.ui(world, egui_context.get_mut());
 
-        let (mode_label, typed, has_mask) =
-            match world.get_resource::<Selected>().and_then(|s| s.action.as_ref()) {
-                Some(SelectedAction::Grab { typed_input, mask, .. }) => {
-                    ("Grab", typed_input.as_str(), mask.is_some())
-                }
-                Some(SelectedAction::Scale { typed_input, mask, .. }) => {
-                    ("Scale", typed_input.as_str(), mask.is_some())
-                }
-                _ => return,
-            };
+        let (mode_label, typed, has_mask) = match world
+            .get_resource::<Selected>()
+            .and_then(|s| s.action.as_ref())
+        {
+            Some(SelectedAction::Grab {
+                typed_input, mask, ..
+            }) => ("Grab", typed_input.as_str(), mask.is_some()),
+            Some(SelectedAction::Scale {
+                typed_input, mask, ..
+            }) => ("Scale", typed_input.as_str(), mask.is_some()),
+            _ => return,
+        };
 
         if typed.is_empty() && !has_mask {
             return;
@@ -787,10 +789,7 @@ fn handle_typed_input(
 }
 
 /// Apply the current typed input as a live preview, always relative to the stored initial transforms.
-fn apply_typed_input_live(
-    selected: &mut ResMut<Selected>,
-    transforms: &mut Query<&mut Transform>,
-) {
+fn apply_typed_input_live(selected: &mut ResMut<Selected>, transforms: &mut Query<&mut Transform>) {
     match &selected.action {
         Some(SelectedAction::Grab {
             mask,
@@ -855,8 +854,14 @@ fn commit_typed_input(
     let Some(parsed) = parsed else {
         // Invalid input — revert was already handled by live preview restoring to initial
         match &selected.action {
-            Some(SelectedAction::Grab { initial_local_transforms, .. })
-            | Some(SelectedAction::Scale { initial_local_transforms, .. }) => {
+            Some(SelectedAction::Grab {
+                initial_local_transforms,
+                ..
+            })
+            | Some(SelectedAction::Scale {
+                initial_local_transforms,
+                ..
+            }) => {
                 let _ = initial_local_transforms; // already restored by live preview
             }
             _ => {}

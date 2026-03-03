@@ -78,10 +78,16 @@ impl TypedTransformInput {
 
         if let Some(axis) = axis_from_byte(first) {
             let value: f32 = s[1..].parse().ok()?;
-            Some(Self { axis: Some(axis), value })
+            Some(Self {
+                axis: Some(axis),
+                value,
+            })
         } else if let Some(axis) = axis_from_byte(last) {
             let value: f32 = s[..s.len() - 1].parse().ok()?;
-            Some(Self { axis: Some(axis), value })
+            Some(Self {
+                axis: Some(axis),
+                value,
+            })
         } else {
             let value: f32 = s.parse().ok()?;
             Some(Self { axis: None, value })
