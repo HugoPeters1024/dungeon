@@ -42,7 +42,7 @@ fn project_axes(inv_rotation: Quat) -> Vec<AxisEnd> {
         ends.push(AxisEnd {
             screen_x: v.x,
             screen_y: -v.y,
-            depth: v.z,
+            depth: -v.z,
             color,
             label: pos_label,
             radius: POS_ENDPOINT_RADIUS,
@@ -51,13 +51,12 @@ fn project_axes(inv_rotation: Quat) -> Vec<AxisEnd> {
         });
 
         let nv = inv_rotation * (-axis);
-        let dim = egui::Color32::from_rgba_unmultiplied(rgb[0] / 2, rgb[1] / 2, rgb[2] / 2, 180);
         let (neg_yaw, neg_pitch) = negate_snap(snap_yaw, snap_pitch, neg_label);
         ends.push(AxisEnd {
             screen_x: nv.x,
             screen_y: -nv.y,
-            depth: nv.z,
-            color: dim,
+            depth: -nv.z,
+            color,
             label: neg_label,
             radius: NEG_ENDPOINT_RADIUS,
             snap_yaw: neg_yaw,
@@ -81,6 +80,21 @@ fn negate_snap(pos_yaw: f32, pos_pitch: f32, neg_label: &str) -> (f32, f32) {
     }
 }
 
+/// Map depth (-1 = far back, +1 = front) to a brightness multiplier and a radius scale.
+fn depth_factors(depth: f32) -> (f32, f32) {
+    let t = (depth + 1.0) * 0.5; // 0..1, 0 = back, 1 = front
+    let brightness = 0.45 + 0.55 * t;
+    let size = 0.75 + 0.25 * t;
+    (brightness, size)
+}
+
+fn shade(color: egui::Color32, brightness: f32) -> egui::Color32 {
+    let r = (color.r() as f32 * brightness) as u8;
+    let g = (color.g() as f32 * brightness) as u8;
+    let b = (color.b() as f32 * brightness) as u8;
+    egui::Color32::from_rgba_unmultiplied(r, g, b, color.a())
+}
+
 fn paint(painter: &egui::Painter, center: egui::Pos2, ends: &[AxisEnd]) {
     painter.circle_filled(
         center,
@@ -94,6 +108,8 @@ fn paint(painter: &egui::Painter, center: egui::Pos2, ends: &[AxisEnd]) {
     );
 
     for end in ends {
+        let (brightness, _) = depth_factors(end.depth);
+        let col = shade(end.color, brightness);
         let ep = egui::pos2(
             center.x + end.screen_x * AXIS_LEN,
             center.y + end.screen_y * AXIS_LEN,
@@ -103,15 +119,17 @@ fn paint(painter: &egui::Painter, center: egui::Pos2, ends: &[AxisEnd]) {
         } else {
             1.5
         };
-        painter.line_segment([center, ep], egui::Stroke::new(width, end.color));
+        painter.line_segment([center, ep], egui::Stroke::new(width, col));
     }
 
     for end in ends {
+        let (brightness, size) = depth_factors(end.depth);
+        let col = shade(end.color, brightness);
         let ep = egui::pos2(
             center.x + end.screen_x * AXIS_LEN,
             center.y + end.screen_y * AXIS_LEN,
         );
-        painter.circle_filled(ep, end.radius, end.color);
+        painter.circle_filled(ep, end.radius * size, col);
         let font_size = if end.radius >= POS_ENDPOINT_RADIUS {
             11.0
         } else {
@@ -121,8 +139,8 @@ fn paint(painter: &egui::Painter, center: egui::Pos2, ends: &[AxisEnd]) {
             ep,
             egui::Align2::CENTER_CENTER,
             end.label,
-            egui::FontId::proportional(font_size),
-            egui::Color32::WHITE,
+            egui::FontId::proportional(font_size * size),
+            shade(egui::Color32::WHITE, brightness),
         );
     }
 

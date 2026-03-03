@@ -49,9 +49,12 @@ impl AxisMask {
 }
 
 /// Result of parsing typed numeric input like "x3.5", "z-4", "4z", "3.5".
+/// When `exact` is true (triggered by `=` anywhere in the input), the value
+/// is interpreted as an absolute target rather than an offset or multiplier.
 pub struct TypedTransformInput {
     pub axis: Option<AxisMask>,
     pub value: f32,
+    pub exact: bool,
 }
 
 impl TypedTransformInput {
@@ -60,8 +63,15 @@ impl TypedTransformInput {
     /// - "z-4" or "-4z"
     /// - "3.5" (value only, no axis)
     /// - ".5" or "-.5"
+    /// - "=x3.5", "x=3.5", "x3.5=" etc. — `=` anywhere makes it an exact/absolute value
     pub fn parse(input: &str) -> Option<Self> {
         let s = input.trim();
+        if s.is_empty() {
+            return None;
+        }
+
+        let exact = s.contains('=');
+        let s: String = s.chars().filter(|&c| c != '=').collect();
         if s.is_empty() {
             return None;
         }
@@ -81,16 +91,22 @@ impl TypedTransformInput {
             Some(Self {
                 axis: Some(axis),
                 value,
+                exact,
             })
         } else if let Some(axis) = axis_from_byte(last) {
             let value: f32 = s[..s.len() - 1].parse().ok()?;
             Some(Self {
                 axis: Some(axis),
                 value,
+                exact,
             })
         } else {
             let value: f32 = s.parse().ok()?;
-            Some(Self { axis: None, value })
+            Some(Self {
+                axis: None,
+                value,
+                exact,
+            })
         }
     }
 }
@@ -274,6 +290,7 @@ mod tests {
         let r = TypedTransformInput::parse("x3.5").unwrap();
         assert!(matches!(r.axis, Some(AxisMask::X)));
         assert!((r.value - 3.5).abs() < f32::EPSILON);
+        assert!(!r.exact);
     }
 
     #[test]
@@ -281,6 +298,7 @@ mod tests {
         let r = TypedTransformInput::parse("z-4").unwrap();
         assert!(matches!(r.axis, Some(AxisMask::Z)));
         assert!((r.value - -4.0).abs() < f32::EPSILON);
+        assert!(!r.exact);
     }
 
     #[test]
@@ -288,6 +306,7 @@ mod tests {
         let r = TypedTransformInput::parse("4z").unwrap();
         assert!(matches!(r.axis, Some(AxisMask::Z)));
         assert!((r.value - 4.0).abs() < f32::EPSILON);
+        assert!(!r.exact);
     }
 
     #[test]
@@ -295,6 +314,7 @@ mod tests {
         let r = TypedTransformInput::parse("-2.5y").unwrap();
         assert!(matches!(r.axis, Some(AxisMask::Y)));
         assert!((r.value - -2.5).abs() < f32::EPSILON);
+        assert!(!r.exact);
     }
 
     #[test]
@@ -302,6 +322,7 @@ mod tests {
         let r = TypedTransformInput::parse("3.5").unwrap();
         assert!(r.axis.is_none());
         assert!((r.value - 3.5).abs() < f32::EPSILON);
+        assert!(!r.exact);
     }
 
     #[test]
@@ -309,6 +330,7 @@ mod tests {
         let r = TypedTransformInput::parse("-1.0").unwrap();
         assert!(r.axis.is_none());
         assert!((r.value - -1.0).abs() < f32::EPSILON);
+        assert!(!r.exact);
     }
 
     #[test]
@@ -326,6 +348,7 @@ mod tests {
         let r = TypedTransformInput::parse(".5").unwrap();
         assert!(r.axis.is_none());
         assert!((r.value - 0.5).abs() < f32::EPSILON);
+        assert!(!r.exact);
     }
 
     #[test]
@@ -333,5 +356,43 @@ mod tests {
         let r = TypedTransformInput::parse("Y2").unwrap();
         assert!(matches!(r.axis, Some(AxisMask::Y)));
         assert!((r.value - 2.0).abs() < f32::EPSILON);
+        assert!(!r.exact);
+    }
+
+    #[test]
+    fn parse_exact_prefix() {
+        let r = TypedTransformInput::parse("=x3.5").unwrap();
+        assert!(matches!(r.axis, Some(AxisMask::X)));
+        assert!((r.value - 3.5).abs() < f32::EPSILON);
+        assert!(r.exact);
+    }
+
+    #[test]
+    fn parse_exact_between_axis_and_value() {
+        let r = TypedTransformInput::parse("y=2").unwrap();
+        assert!(matches!(r.axis, Some(AxisMask::Y)));
+        assert!((r.value - 2.0).abs() < f32::EPSILON);
+        assert!(r.exact);
+    }
+
+    #[test]
+    fn parse_exact_suffix() {
+        let r = TypedTransformInput::parse("z-4=").unwrap();
+        assert!(matches!(r.axis, Some(AxisMask::Z)));
+        assert!((r.value - -4.0).abs() < f32::EPSILON);
+        assert!(r.exact);
+    }
+
+    #[test]
+    fn parse_exact_no_axis() {
+        let r = TypedTransformInput::parse("=5").unwrap();
+        assert!(r.axis.is_none());
+        assert!((r.value - 5.0).abs() < f32::EPSILON);
+        assert!(r.exact);
+    }
+
+    #[test]
+    fn parse_only_equals_returns_none() {
+        assert!(TypedTransformInput::parse("=").is_none());
     }
 }

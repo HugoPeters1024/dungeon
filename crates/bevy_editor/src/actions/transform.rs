@@ -42,18 +42,6 @@ pub(crate) fn world_position_to_local_q(
     }
 }
 
-pub(crate) fn world_scale_to_local_q(
-    entity: Entity,
-    world_scale: Vec3,
-    parents: &Query<&ChildOf>,
-    globals: &Query<&GlobalTransform>,
-) -> Vec3 {
-    match parent_inverse_affine_from_queries(entity, parents, globals) {
-        Some(inv) => inv.to_scale_rotation_translation().0 * world_scale,
-        None => world_scale,
-    }
-}
-
 fn world_rotation_to_local(world: &World, entity: Entity, world_rotation: Quat) -> Quat {
     if let Some(child_of) = world.get::<ChildOf>(entity) {
         let parent = child_of.parent();
@@ -166,14 +154,8 @@ impl TransformAction {
                 }
             }
             TransformKind::Full => {
-                let local_translation =
-                    world_position_to_local(world, self.entity, target.translation);
-                let local_rotation = world_rotation_to_local(world, self.entity, target.rotation);
-                let local_scale = world_scale_to_local(world, self.entity, target.scale);
                 if let Some(mut transform) = world.get_mut::<Transform>(self.entity) {
-                    transform.translation = local_translation;
-                    transform.rotation = local_rotation;
-                    transform.scale = local_scale;
+                    *transform = *target;
                 }
             }
         }
@@ -514,6 +496,67 @@ mod tests {
     }
 
     // === Kind tests ===
+
+    #[test]
+    fn test_full_transform_child_preserves_local_transform() {
+        let mut world = World::new();
+        let parent = world
+            .spawn(Transform {
+                translation: Vec3::new(10.0, 0.0, 0.0),
+                rotation: Quat::from_rotation_y(PI / 2.0),
+                scale: Vec3::splat(3.0),
+            })
+            .id();
+
+        let old_local = Transform {
+            translation: Vec3::new(1.0, 2.0, 3.0),
+            rotation: Quat::IDENTITY,
+            scale: Vec3::ONE,
+        };
+        let child = world.spawn((old_local, ChildOf(parent))).id();
+
+        let new_local = Transform {
+            translation: Vec3::new(1.0, 2.0, 3.0),
+            rotation: Quat::IDENTITY,
+            scale: Vec3::splat(2.0),
+        };
+
+        let mut action = TransformAction::full(child, old_local, new_local);
+        action.apply(&mut world);
+
+        let transform = world.get::<Transform>(child).unwrap();
+        assert_eq!(transform.translation, new_local.translation);
+        assert_eq!(transform.scale, new_local.scale);
+
+        action.revert(&mut world);
+
+        let transform = world.get::<Transform>(child).unwrap();
+        assert_eq!(transform.translation, old_local.translation);
+        assert_eq!(transform.scale, old_local.scale);
+    }
+
+    #[test]
+    fn test_full_transform_child_scale_does_not_affect_translation() {
+        let mut world = World::new();
+        let parent = world
+            .spawn(Transform::from_xyz(5.0, 5.0, 5.0).with_scale(Vec3::splat(2.0)))
+            .id();
+
+        let old_local = Transform::from_xyz(1.0, 2.0, 3.0);
+        let child = world.spawn((old_local, ChildOf(parent))).id();
+
+        let new_local = old_local.with_scale(Vec3::splat(4.0));
+
+        let mut action = TransformAction::full(child, old_local, new_local);
+        action.apply(&mut world);
+
+        let transform = world.get::<Transform>(child).unwrap();
+        assert_eq!(
+            transform.translation, old_local.translation,
+            "scaling via full action must not move the child"
+        );
+        assert_eq!(transform.scale, Vec3::splat(4.0));
+    }
 
     #[test]
     fn test_kind_is_correct() {

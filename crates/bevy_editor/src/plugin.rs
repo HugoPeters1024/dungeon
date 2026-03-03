@@ -18,7 +18,7 @@ use bevy_panorbit_camera::PanOrbitCamera;
 use crate::actions::{
     ActionQueue, FocusCameraAction, RemoveAction, TransformAction, TransformSelectionAction,
     TrashRoot, TrashRootMarker, handle_undo_redo_input, process_action_queue,
-    world_position_to_local_q, world_scale_to_local_q,
+    world_position_to_local_q,
 };
 use crate::editor_camera::{AxisAlignedProjectionState, sync_axis_aligned_projection};
 use crate::state::{AxisMask, TypedTransformInput, UiDockState, UiState};
@@ -272,6 +272,7 @@ fn on_click_in_void(
     windows: Query<&Window>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut selected: Option<ResMut<Selected>>,
+    local_transforms: Query<&Transform>,
     global_transforms: Query<&GlobalTransform>,
     mut action_queue: ResMut<ActionQueue>,
     editor_enabled: Res<EditorEnabled>,
@@ -295,7 +296,12 @@ fn on_click_in_void(
     if is_primary {
         ui_state.context_menu = ContextMenu::Closed;
         if let Some(selected) = selected.as_mut() {
-            if finalize_action_if_active(selected, &global_transforms, &mut action_queue) {
+            if finalize_action_if_active(
+                selected,
+                &local_transforms,
+                &global_transforms,
+                &mut action_queue,
+            ) {
                 return;
             }
             if !shift_pressed && selected.action.is_none() {
@@ -323,6 +329,7 @@ fn on_click_object(
     parents: Query<&ChildOf>,
     windows: Query<&Window>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    local_transforms: Query<&Transform>,
     global_transforms: Query<&GlobalTransform>,
     mut action_queue: ResMut<ActionQueue>,
     editor_enabled: Res<EditorEnabled>,
@@ -348,7 +355,12 @@ fn on_click_object(
     if is_primary {
         ui_state.context_menu = ContextMenu::Closed;
         if let Some(selected) = selected.as_mut()
-            && finalize_action_if_active(selected, &global_transforms, &mut action_queue)
+            && finalize_action_if_active(
+                selected,
+                &local_transforms,
+                &global_transforms,
+                &mut action_queue,
+            )
         {
             return;
         }
@@ -539,6 +551,21 @@ fn handle_selected_action_keys(
                 if let Some(new_mask) = axis_key {
                     *mask = Some(new_mask);
                 }
+                if keyboard_input.just_pressed(KeyCode::KeyS) {
+                    restore_local_transforms(initial_local_transforms, &mut transforms);
+                    let initial_world_scales =
+                        collect_world_scales(&selected.entities, &global_transforms);
+                    let initial_local_transforms =
+                        collect_local_transforms(&selected.entities, &transforms);
+                    selected.action = Some(SelectedAction::Scale {
+                        mask: None,
+                        initial_cursor_pos: None,
+                        initial_world_scales,
+                        initial_local_transforms,
+                        typed_input: String::new(),
+                    });
+                    return;
+                }
             }
             if keyboard_input.just_pressed(KeyCode::Escape) {
                 restore_local_transforms(initial_local_transforms, &mut transforms);
@@ -554,6 +581,27 @@ fn handle_selected_action_keys(
             if typed_input.is_empty() {
                 if let Some(new_mask) = axis_key {
                     *mask = Some(new_mask);
+                }
+                if keyboard_input.just_pressed(KeyCode::KeyG) {
+                    restore_local_transforms(initial_local_transforms, &mut transforms);
+                    let initial_world_positions =
+                        collect_world_positions(&selected.entities, &global_transforms);
+                    let initial_local_transforms =
+                        collect_local_transforms(&selected.entities, &transforms);
+                    let Some((_, initial_primary_pos)) = initial_world_positions
+                        .iter()
+                        .find(|(entity, _)| *entity == primary)
+                    else {
+                        return;
+                    };
+                    selected.action = Some(SelectedAction::Grab {
+                        mask: None,
+                        initial_primary_pos: *initial_primary_pos,
+                        initial_world_positions,
+                        initial_local_transforms,
+                        typed_input: String::new(),
+                    });
+                    return;
                 }
             }
             if keyboard_input.just_pressed(KeyCode::Escape) {
@@ -646,8 +694,6 @@ fn handle_grab_mode_movement(
 fn handle_scale_mode_movement(
     ui: Res<UiState>,
     mut transforms: Query<&mut Transform>,
-    parents: Query<&ChildOf>,
-    parent_globals: Query<&GlobalTransform>,
     global_transforms: Query<&GlobalTransform>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     window: Single<&Window, With<PrimaryWindow>>,
@@ -662,7 +708,7 @@ fn handle_scale_mode_movement(
     let Some(SelectedAction::Scale {
         mask,
         initial_cursor_pos,
-        initial_world_scales,
+        initial_local_transforms,
         typed_input,
         ..
     }) = &mut selected.action
@@ -715,15 +761,12 @@ fn handle_scale_mode_movement(
         1.0
     };
 
-    for (entity, initial_world_scale) in initial_world_scales.iter().copied() {
-        let new_world_scale = match mask {
-            Some(axis) => axis.apply_scale(initial_world_scale, scale_factor),
-            None => initial_world_scale * scale_factor,
-        };
-        let local_scale =
-            world_scale_to_local_q(entity, new_world_scale, &parents, &parent_globals);
+    for (entity, initial_local) in initial_local_transforms.iter().copied() {
         if let Ok(mut transform) = transforms.get_mut(entity) {
-            transform.scale = local_scale;
+            transform.scale = match mask {
+                Some(axis) => axis.apply_scale(initial_local.scale, scale_factor),
+                None => initial_local.scale * scale_factor,
+            };
         }
     }
 }
@@ -752,7 +795,7 @@ fn handle_typed_input(
                 let c = c.as_str();
                 for ch in c.chars() {
                     match ch {
-                        '0'..='9' | '.' | '-' | 'x' | 'X' | 'y' | 'Y' | 'z' | 'Z' => {
+                        '0'..='9' | '.' | '-' | '=' | 'x' | 'X' | 'y' | 'Y' | 'z' | 'Z' => {
                             typed_input.push(ch);
                             changed = true;
                         }
@@ -803,15 +846,24 @@ fn apply_typed_input_live(selected: &mut ResMut<Selected>, transforms: &mut Quer
 
             if let Some(parsed) = parsed {
                 let axis = parsed.axis.as_ref().or(mask.as_ref());
-                let delta = match axis {
-                    Some(AxisMask::X) => Vec3::new(parsed.value, 0.0, 0.0),
-                    Some(AxisMask::Y) => Vec3::new(0.0, parsed.value, 0.0),
-                    Some(AxisMask::Z) => Vec3::new(0.0, 0.0, parsed.value),
-                    None => Vec3::splat(parsed.value),
-                };
                 for (entity, _) in initial.iter().copied() {
                     if let Ok(mut transform) = transforms.get_mut(entity) {
-                        transform.translation += delta;
+                        if parsed.exact {
+                            match axis {
+                                Some(AxisMask::X) => transform.translation.x = parsed.value,
+                                Some(AxisMask::Y) => transform.translation.y = parsed.value,
+                                Some(AxisMask::Z) => transform.translation.z = parsed.value,
+                                None => transform.translation = Vec3::splat(parsed.value),
+                            }
+                        } else {
+                            let delta = match axis {
+                                Some(AxisMask::X) => Vec3::new(parsed.value, 0.0, 0.0),
+                                Some(AxisMask::Y) => Vec3::new(0.0, parsed.value, 0.0),
+                                Some(AxisMask::Z) => Vec3::new(0.0, 0.0, parsed.value),
+                                None => Vec3::splat(parsed.value),
+                            };
+                            transform.translation += delta;
+                        }
                     }
                 }
             }
@@ -830,11 +882,20 @@ fn apply_typed_input_live(selected: &mut ResMut<Selected>, transforms: &mut Quer
                 let axis = parsed.axis.as_ref().or(mask.as_ref());
                 for (entity, _) in initial.iter().copied() {
                     if let Ok(mut transform) = transforms.get_mut(entity) {
-                        match axis {
-                            Some(AxisMask::X) => transform.scale.x *= parsed.value,
-                            Some(AxisMask::Y) => transform.scale.y *= parsed.value,
-                            Some(AxisMask::Z) => transform.scale.z *= parsed.value,
-                            None => transform.scale *= parsed.value,
+                        if parsed.exact {
+                            match axis {
+                                Some(AxisMask::X) => transform.scale.x = parsed.value,
+                                Some(AxisMask::Y) => transform.scale.y = parsed.value,
+                                Some(AxisMask::Z) => transform.scale.z = parsed.value,
+                                None => transform.scale = Vec3::splat(parsed.value),
+                            }
+                        } else {
+                            match axis {
+                                Some(AxisMask::X) => transform.scale.x *= parsed.value,
+                                Some(AxisMask::Y) => transform.scale.y *= parsed.value,
+                                Some(AxisMask::Z) => transform.scale.z *= parsed.value,
+                                None => transform.scale *= parsed.value,
+                            }
                         }
                     }
                 }
@@ -877,16 +938,25 @@ fn commit_typed_input(
             ..
         }) => {
             let axis = parsed.axis.as_ref().or(mask.as_ref());
-            let delta = match axis {
-                Some(AxisMask::X) => Vec3::new(parsed.value, 0.0, 0.0),
-                Some(AxisMask::Y) => Vec3::new(0.0, parsed.value, 0.0),
-                Some(AxisMask::Z) => Vec3::new(0.0, 0.0, parsed.value),
-                None => Vec3::splat(parsed.value),
-            };
             let mut action_transforms = Vec::new();
             for (entity, old_local) in initial_local_transforms.iter().copied() {
                 let mut new_local = old_local;
-                new_local.translation += delta;
+                if parsed.exact {
+                    match axis {
+                        Some(AxisMask::X) => new_local.translation.x = parsed.value,
+                        Some(AxisMask::Y) => new_local.translation.y = parsed.value,
+                        Some(AxisMask::Z) => new_local.translation.z = parsed.value,
+                        None => new_local.translation = Vec3::splat(parsed.value),
+                    }
+                } else {
+                    let delta = match axis {
+                        Some(AxisMask::X) => Vec3::new(parsed.value, 0.0, 0.0),
+                        Some(AxisMask::Y) => Vec3::new(0.0, parsed.value, 0.0),
+                        Some(AxisMask::Z) => Vec3::new(0.0, 0.0, parsed.value),
+                        None => Vec3::splat(parsed.value),
+                    };
+                    new_local.translation += delta;
+                }
                 action_transforms.push(TransformAction::full(entity, old_local, new_local));
             }
             if !action_transforms.is_empty() {
@@ -902,11 +972,20 @@ fn commit_typed_input(
             let mut action_transforms = Vec::new();
             for (entity, old_local) in initial_local_transforms.iter().copied() {
                 let mut new_local = old_local;
-                match axis {
-                    Some(AxisMask::X) => new_local.scale.x *= parsed.value,
-                    Some(AxisMask::Y) => new_local.scale.y *= parsed.value,
-                    Some(AxisMask::Z) => new_local.scale.z *= parsed.value,
-                    None => new_local.scale *= parsed.value,
+                if parsed.exact {
+                    match axis {
+                        Some(AxisMask::X) => new_local.scale.x = parsed.value,
+                        Some(AxisMask::Y) => new_local.scale.y = parsed.value,
+                        Some(AxisMask::Z) => new_local.scale.z = parsed.value,
+                        None => new_local.scale = Vec3::splat(parsed.value),
+                    }
+                } else {
+                    match axis {
+                        Some(AxisMask::X) => new_local.scale.x *= parsed.value,
+                        Some(AxisMask::Y) => new_local.scale.y *= parsed.value,
+                        Some(AxisMask::Z) => new_local.scale.z *= parsed.value,
+                        None => new_local.scale *= parsed.value,
+                    }
                 }
                 action_transforms.push(TransformAction::full(entity, old_local, new_local));
             }
@@ -922,6 +1001,7 @@ fn commit_typed_input(
 
 fn record_selected_actions(
     selected: &Selected,
+    local_transforms: &Query<&Transform>,
     global_transforms: &Query<&GlobalTransform>,
     action_queue: &mut ActionQueue,
 ) {
@@ -948,16 +1028,14 @@ fn record_selected_actions(
             }
         }
         Some(SelectedAction::Scale {
-            initial_world_scales,
-            initial_cursor_pos: _,
+            initial_local_transforms,
             ..
         }) => {
             let mut transforms = Vec::new();
-            for (entity, old_scale) in initial_world_scales.iter().copied() {
-                if let Ok(global_transform) = global_transforms.get(entity) {
-                    let new_scale = global_transform.to_scale_rotation_translation().0;
-                    if (old_scale - new_scale).length_squared() > 1e-6 {
-                        transforms.push(TransformAction::scale(entity, old_scale, new_scale));
+            for (entity, old_local) in initial_local_transforms.iter().copied() {
+                if let Ok(&new_local) = local_transforms.get(entity) {
+                    if (old_local.scale - new_local.scale).length_squared() > 1e-6 {
+                        transforms.push(TransformAction::full(entity, old_local, new_local));
                     }
                 }
             }
@@ -988,11 +1066,12 @@ fn shift_is_pressed(keyboard_input: &ButtonInput<KeyCode>) -> bool {
 
 fn finalize_action_if_active(
     selected: &mut Selected,
+    local_transforms: &Query<&Transform>,
     global_transforms: &Query<&GlobalTransform>,
     action_queue: &mut ActionQueue,
 ) -> bool {
     if selected.action.is_some() {
-        record_selected_actions(selected, global_transforms, action_queue);
+        record_selected_actions(selected, local_transforms, global_transforms, action_queue);
         selected.action = None;
         return true;
     }

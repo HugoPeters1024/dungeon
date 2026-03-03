@@ -14,8 +14,8 @@ pub use queue::{ActionQueue, handle_undo_redo_input, process_action_queue};
 pub use remove::RemoveAction;
 pub use spawn_prefab::SpawnPrefabAction;
 pub use traits::Action;
+pub(crate) use transform::world_position_to_local_q;
 pub use transform::{TransformAction, TransformKind, TransformSelectionAction};
-pub(crate) use transform::{world_position_to_local_q, world_scale_to_local_q};
 
 use bevy::prelude::*;
 
