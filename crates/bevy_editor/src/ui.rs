@@ -408,9 +408,9 @@ fn hierarchy_graph_tab(ui: &mut egui::Ui, world: &mut World) {
         return;
     }
 
-    let node_width = 140.0_f32;
-    let node_height = 28.0_f32;
-    let level_height = 60.0_f32;
+    let node_width = 90.0_f32;
+    let node_height = 24.0_f32;
+    let level_height = 52.0_f32;
 
     let mut positions: HashMap<usize, egui::Pos2> = HashMap::new();
     assign_positions(&nodes, 0, 0.0, node_width, level_height, &mut positions);
@@ -466,7 +466,7 @@ fn hierarchy_graph_tab(ui: &mut egui::Ui, world: &mut World) {
 
                 let node_rect = egui::Rect::from_center_size(
                     egui::pos2(screen_pos.x, screen_pos.y),
-                    egui::vec2(node_width - 10.0, node_height),
+                    egui::vec2(node_width - 6.0, node_height),
                 );
 
                 let is_selected = node.entity == selected;
@@ -492,8 +492,8 @@ fn hierarchy_graph_tab(ui: &mut egui::Ui, world: &mut World) {
                     egui::epaint::StrokeKind::Outside,
                 );
 
-                let truncated = if node.label.len() > 16 {
-                    format!("{}...", &node.label[..13])
+                let truncated = if node.label.len() > 10 {
+                    format!("{}…", &node.label[..9])
                 } else {
                     node.label.clone()
                 };
@@ -502,7 +502,7 @@ fn hierarchy_graph_tab(ui: &mut egui::Ui, world: &mut World) {
                     node_rect.center(),
                     egui::Align2::CENTER_CENTER,
                     &truncated,
-                    egui::FontId::proportional(11.0),
+                    egui::FontId::proportional(10.0),
                     text_color,
                 );
 
