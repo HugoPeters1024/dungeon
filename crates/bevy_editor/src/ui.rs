@@ -492,8 +492,8 @@ fn hierarchy_graph_tab(ui: &mut egui::Ui, world: &mut World) {
                     egui::epaint::StrokeKind::Outside,
                 );
 
-                let truncated = if node.label.len() > 10 {
-                    format!("{}…", &node.label[..9])
+                let truncated = if node.label.chars().count() > 10 {
+                    format!("{}…", node.label.chars().take(9).collect::<String>())
                 } else {
                     node.label.clone()
                 };
