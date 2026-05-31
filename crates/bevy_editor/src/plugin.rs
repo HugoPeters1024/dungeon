@@ -21,7 +21,7 @@ use crate::actions::{
     world_position_to_local_q,
 };
 use crate::editor_camera::{AxisAlignedProjectionState, sync_axis_aligned_projection};
-use crate::state::{AxisMask, TypedTransformInput, UiDockState, UiState};
+use crate::state::{AxisMask, TypedTransformInput, UiDockState, UiState, is_typed_value_char};
 use crate::{ContextMenu, HoverNormal, PrefabPlugin, Selected, SelectedAction};
 
 const CLICK_DURATION: Duration = Duration::from_millis(500);
@@ -879,14 +879,10 @@ fn handle_typed_input(
         }
         match &event.logical_key {
             bevy::input::keyboard::Key::Character(c) => {
-                let c = c.as_str();
-                for ch in c.chars() {
-                    match ch {
-                        '0'..='9' | '.' | '-' | '=' | 'x' | 'X' | 'y' | 'Y' | 'z' | 'Z' => {
-                            typed_input.push(ch);
-                            changed = true;
-                        }
-                        _ => {}
+                for ch in c.as_str().chars() {
+                    if is_typed_value_char(ch) {
+                        typed_input.push(ch);
+                        changed = true;
                     }
                 }
             }
@@ -1210,5 +1206,230 @@ fn restore_local_transforms(
         if let Ok(mut transform) = transforms.get_mut(entity) {
             *transform = initial_transform;
         }
+    }
+}
+
+#[cfg(test)]
+mod grab_mode_tests {
+    use super::*;
+    use bevy::input::ButtonState;
+    use bevy::input::keyboard::{Key, KeyboardInput};
+
+    /// Builds a minimal app wired up with the two systems responsible for the
+    /// grab/scale interaction (`handle_selected_action_keys` translates key
+    /// presses into action/axis state, `handle_typed_input` consumes typed
+    /// characters), plus a single selected entity at the origin.
+    fn editor_test_app() -> (App, Entity) {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.init_resource::<ActionQueue>();
+        app.add_message::<KeyboardInput>();
+
+        let entity = app
+            .world_mut()
+            .spawn((Transform::default(), GlobalTransform::default()))
+            .id();
+        app.insert_resource(Selected::new(entity));
+
+        app.add_systems(
+            Update,
+            (handle_selected_action_keys, handle_typed_input).chain(),
+        );
+
+        (app, entity)
+    }
+
+    /// Simulate a real key press: both the `ButtonInput` resource (used for
+    /// shortcuts / axis constraints) and the `KeyboardInput` message stream
+    /// (used for typed numeric input) are updated, exactly like the winit input
+    /// pipeline would do.
+    fn press(app: &mut App, key: KeyCode, text: &str) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
+        app.world_mut().write_message(KeyboardInput {
+            key_code: key,
+            logical_key: Key::Character(text.into()),
+            state: ButtonState::Pressed,
+            text: Some(text.into()),
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+    }
+
+    /// Clears the per-frame `just_pressed` state, mirroring what the input
+    /// plugin does between frames.
+    fn clear_input(app: &mut App) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .clear();
+    }
+
+    fn mask_axis(mask: &Option<AxisMask>) -> Option<char> {
+        mask.as_ref().map(|m| match m {
+            AxisMask::X => 'x',
+            AxisMask::Y => 'y',
+            AxisMask::Z => 'z',
+        })
+    }
+
+    /// Returns `(mask_axis, typed_input)` of the active grab action, panicking
+    /// if the active action is not a grab.
+    fn grab_snapshot(app: &App) -> (Option<char>, String) {
+        match app.world().resource::<Selected>().action.as_ref() {
+            Some(SelectedAction::Grab {
+                mask, typed_input, ..
+            }) => (mask_axis(mask), typed_input.clone()),
+            other => panic!("expected an active grab action, found {:?}", other.is_some()),
+        }
+    }
+
+    fn scale_snapshot(app: &App) -> (Option<char>, String) {
+        match app.world().resource::<Selected>().action.as_ref() {
+            Some(SelectedAction::Scale {
+                mask, typed_input, ..
+            }) => (mask_axis(mask), typed_input.clone()),
+            other => panic!("expected an active scale action, found {:?}", other.is_some()),
+        }
+    }
+
+    #[test]
+    fn pressing_g_enters_grab_mode_unconstrained() {
+        let (mut app, _entity) = editor_test_app();
+
+        press(&mut app, KeyCode::KeyG, "g");
+        app.update();
+
+        let (mask, typed) = grab_snapshot(&app);
+        assert_eq!(mask, None, "fresh grab must not be axis constrained");
+        assert!(typed.is_empty(), "fresh grab must have an empty typed buffer");
+    }
+
+    /// Regression test for the Blender-parity bug: in grab mode, pressing X
+    /// should constrain the movement to the X axis while the object keeps
+    /// following the mouse. Previously the X key was *also* swallowed into the
+    /// typed buffer, which switched the action into "waiting for a typed value"
+    /// and stopped the cursor-driven movement.
+    #[test]
+    fn grab_then_axis_key_constrains_without_buffering_letter() {
+        let (mut app, _entity) = editor_test_app();
+
+        press(&mut app, KeyCode::KeyG, "g");
+        app.update();
+        clear_input(&mut app);
+
+        press(&mut app, KeyCode::KeyX, "x");
+        app.update();
+
+        let (mask, typed) = grab_snapshot(&app);
+        assert_eq!(mask, Some('x'), "X must constrain the grab to the X axis");
+        assert!(
+            typed.is_empty(),
+            "axis key must not populate the typed buffer (got {typed:?}); \
+             otherwise mouse movement stops and the action waits for a value"
+        );
+    }
+
+    #[test]
+    fn grab_axis_keys_cover_all_three_axes() {
+        for (key, text, expected) in [
+            (KeyCode::KeyX, "x", 'x'),
+            (KeyCode::KeyY, "y", 'y'),
+            (KeyCode::KeyZ, "z", 'z'),
+        ] {
+            let (mut app, _entity) = editor_test_app();
+
+            press(&mut app, KeyCode::KeyG, "g");
+            app.update();
+            clear_input(&mut app);
+
+            press(&mut app, key, text);
+            app.update();
+
+            let (mask, typed) = grab_snapshot(&app);
+            assert_eq!(mask, Some(expected));
+            assert!(typed.is_empty());
+        }
+    }
+
+    #[test]
+    fn pressing_a_different_axis_switches_the_constraint() {
+        let (mut app, _entity) = editor_test_app();
+
+        press(&mut app, KeyCode::KeyG, "g");
+        app.update();
+        clear_input(&mut app);
+
+        press(&mut app, KeyCode::KeyX, "x");
+        app.update();
+        assert_eq!(grab_snapshot(&app).0, Some('x'));
+        clear_input(&mut app);
+
+        press(&mut app, KeyCode::KeyZ, "z");
+        app.update();
+        assert_eq!(grab_snapshot(&app).0, Some('z'));
+    }
+
+    #[test]
+    fn typing_digits_populates_the_buffer() {
+        let (mut app, _entity) = editor_test_app();
+
+        press(&mut app, KeyCode::KeyG, "g");
+        app.update();
+        clear_input(&mut app);
+
+        for (key, text) in [
+            (KeyCode::Digit2, "2"),
+            (KeyCode::Period, "."),
+            (KeyCode::Digit5, "5"),
+        ] {
+            press(&mut app, key, text);
+            app.update();
+            clear_input(&mut app);
+        }
+
+        let (mask, typed) = grab_snapshot(&app);
+        assert_eq!(mask, None);
+        assert_eq!(typed, "2.5");
+    }
+
+    /// Pressing X to constrain the axis and then typing a number is the common
+    /// "move N units along X" flow. The axis comes from the mask, the value from
+    /// the typed buffer.
+    #[test]
+    fn axis_key_then_digit_keeps_mask_and_buffers_only_the_number() {
+        let (mut app, _entity) = editor_test_app();
+
+        press(&mut app, KeyCode::KeyG, "g");
+        app.update();
+        clear_input(&mut app);
+
+        press(&mut app, KeyCode::KeyX, "x");
+        app.update();
+        clear_input(&mut app);
+
+        press(&mut app, KeyCode::Digit2, "2");
+        app.update();
+
+        let (mask, typed) = grab_snapshot(&app);
+        assert_eq!(mask, Some('x'));
+        assert_eq!(typed, "2");
+    }
+
+    #[test]
+    fn scale_then_axis_key_constrains_without_buffering_letter() {
+        let (mut app, _entity) = editor_test_app();
+
+        press(&mut app, KeyCode::KeyS, "s");
+        app.update();
+        clear_input(&mut app);
+
+        press(&mut app, KeyCode::KeyY, "y");
+        app.update();
+
+        let (mask, typed) = scale_snapshot(&app);
+        assert_eq!(mask, Some('y'));
+        assert!(typed.is_empty());
     }
 }

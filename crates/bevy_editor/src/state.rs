@@ -48,6 +48,18 @@ impl AxisMask {
     }
 }
 
+/// Returns whether `ch` should be appended to the typed numeric buffer of a
+/// grab/scale action (digits, decimal point, sign, or the exact-value marker).
+///
+/// Axis letters (x/y/z) are deliberately excluded: while a transform action is
+/// active they act as axis constraints driven by the mouse (handled via key
+/// presses), matching Blender. If they were also pushed into the numeric buffer
+/// the action would switch to "waiting for a typed value" and stop following the
+/// cursor, which is the bug this guards against.
+pub fn is_typed_value_char(ch: char) -> bool {
+    matches!(ch, '0'..='9' | '.' | '-' | '=')
+}
+
 /// Result of parsing typed numeric input like "x3.5", "z-4", "4z", "3.5".
 /// When `exact` is true (triggered by `=` anywhere in the input), the value
 /// is interpreted as an absolute target rather than an offset or multiplier.
@@ -394,5 +406,36 @@ mod tests {
     #[test]
     fn parse_only_equals_returns_none() {
         assert!(TypedTransformInput::parse("=").is_none());
+    }
+
+    #[test]
+    fn typed_value_char_accepts_digits() {
+        for ch in '0'..='9' {
+            assert!(is_typed_value_char(ch), "digit {ch} should be accepted");
+        }
+    }
+
+    #[test]
+    fn typed_value_char_accepts_punctuation() {
+        assert!(is_typed_value_char('.'));
+        assert!(is_typed_value_char('-'));
+        assert!(is_typed_value_char('='));
+    }
+
+    #[test]
+    fn typed_value_char_rejects_axis_letters() {
+        for ch in ['x', 'X', 'y', 'Y', 'z', 'Z'] {
+            assert!(
+                !is_typed_value_char(ch),
+                "axis letter {ch} must not enter the typed buffer; it is an axis constraint"
+            );
+        }
+    }
+
+    #[test]
+    fn typed_value_char_rejects_other_letters() {
+        for ch in ['a', 'g', 's', 'q', ' ', '+', '/'] {
+            assert!(!is_typed_value_char(ch), "{ch} should be rejected");
+        }
     }
 }
