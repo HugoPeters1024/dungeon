@@ -586,41 +586,12 @@ fn handle_selected_action_keys(
 
     match &mut selected.action {
         None if keyboard_input.just_pressed(KeyCode::KeyG) => {
-            let initial_world_positions =
-                collect_world_positions(&selected.entities, &global_transforms);
-            let initial_local_transforms =
-                collect_local_transforms(&selected.entities, &transforms);
-            let Some((_, initial_primary_pos)) = initial_world_positions
-                .iter()
-                .find(|(entity, _)| *entity == primary)
-            else {
-                return;
-            };
-            selected.action = Some(SelectedAction::Grab {
-                mask: None,
-                initial_primary_pos: *initial_primary_pos,
-                initial_world_positions,
-                initial_local_transforms,
-                typed_input: String::new(),
-            });
+            selected.action =
+                make_grab_action(&selected.entities, primary, &transforms, &global_transforms);
         }
         None if keyboard_input.just_pressed(KeyCode::KeyS) => {
-            let initial_world_scales = collect_world_scales(&selected.entities, &global_transforms);
-            let initial_local_transforms =
-                collect_local_transforms(&selected.entities, &transforms);
-            if !initial_world_scales
-                .iter()
-                .any(|(entity, _)| *entity == primary)
-            {
-                return;
-            }
-            selected.action = Some(SelectedAction::Scale {
-                mask: None,
-                initial_cursor_pos: None,
-                initial_world_scales,
-                initial_local_transforms,
-                typed_input: String::new(),
-            });
+            selected.action =
+                make_scale_action(&selected.entities, primary, &transforms, &global_transforms);
         }
         None if keyboard_input.just_pressed(KeyCode::KeyX) => {
             for &entity in &selected.entities {
@@ -628,35 +599,34 @@ fn handle_selected_action_keys(
             }
         }
         None => {}
+        // Grab and Scale share the same controls: an axis key constrains the
+        // action, the *other* mode's key switches to it (restoring transforms
+        // first), and Escape cancels. Only the switch target differs.
         Some(SelectedAction::Grab {
             mask,
             initial_local_transforms,
             typed_input,
             ..
         }) => {
-            if typed_input.is_empty() {
-                if let Some(new_mask) = axis_key {
-                    *mask = Some(new_mask);
-                }
-                if keyboard_input.just_pressed(KeyCode::KeyS) {
-                    restore_local_transforms(initial_local_transforms, &mut transforms);
-                    let initial_world_scales =
-                        collect_world_scales(&selected.entities, &global_transforms);
-                    let initial_local_transforms =
-                        collect_local_transforms(&selected.entities, &transforms);
-                    selected.action = Some(SelectedAction::Scale {
-                        mask: None,
-                        initial_cursor_pos: None,
-                        initial_world_scales,
-                        initial_local_transforms,
-                        typed_input: String::new(),
-                    });
-                    return;
-                }
+            let switch = typed_input.is_empty() && keyboard_input.just_pressed(KeyCode::KeyS);
+            let cancel = keyboard_input.just_pressed(KeyCode::Escape);
+            if typed_input.is_empty()
+                && let Some(new_mask) = axis_key
+            {
+                *mask = Some(new_mask);
             }
-            if keyboard_input.just_pressed(KeyCode::Escape) {
+            if switch || cancel {
                 restore_local_transforms(initial_local_transforms, &mut transforms);
-                selected.action = None;
+                selected.action = switch
+                    .then(|| {
+                        make_scale_action(
+                            &selected.entities,
+                            primary,
+                            &transforms,
+                            &global_transforms,
+                        )
+                    })
+                    .flatten();
             }
         }
         Some(SelectedAction::Scale {
@@ -665,35 +635,25 @@ fn handle_selected_action_keys(
             typed_input,
             ..
         }) => {
-            if typed_input.is_empty() {
-                if let Some(new_mask) = axis_key {
-                    *mask = Some(new_mask);
-                }
-                if keyboard_input.just_pressed(KeyCode::KeyG) {
-                    restore_local_transforms(initial_local_transforms, &mut transforms);
-                    let initial_world_positions =
-                        collect_world_positions(&selected.entities, &global_transforms);
-                    let initial_local_transforms =
-                        collect_local_transforms(&selected.entities, &transforms);
-                    let Some((_, initial_primary_pos)) = initial_world_positions
-                        .iter()
-                        .find(|(entity, _)| *entity == primary)
-                    else {
-                        return;
-                    };
-                    selected.action = Some(SelectedAction::Grab {
-                        mask: None,
-                        initial_primary_pos: *initial_primary_pos,
-                        initial_world_positions,
-                        initial_local_transforms,
-                        typed_input: String::new(),
-                    });
-                    return;
-                }
+            let switch = typed_input.is_empty() && keyboard_input.just_pressed(KeyCode::KeyG);
+            let cancel = keyboard_input.just_pressed(KeyCode::Escape);
+            if typed_input.is_empty()
+                && let Some(new_mask) = axis_key
+            {
+                *mask = Some(new_mask);
             }
-            if keyboard_input.just_pressed(KeyCode::Escape) {
+            if switch || cancel {
                 restore_local_transforms(initial_local_transforms, &mut transforms);
-                selected.action = None;
+                selected.action = switch
+                    .then(|| {
+                        make_grab_action(
+                            &selected.entities,
+                            primary,
+                            &transforms,
+                            &global_transforms,
+                        )
+                    })
+                    .flatten();
             }
         }
     }
@@ -1099,6 +1059,50 @@ fn finalize_action_if_active(
     false
 }
 
+/// Build a fresh `Grab` action from the current state, or `None` if the primary
+/// entity has no global transform to anchor the move.
+fn make_grab_action(
+    entities: &[Entity],
+    primary: Entity,
+    transforms: &Query<&mut Transform>,
+    global_transforms: &Query<&GlobalTransform>,
+) -> Option<SelectedAction> {
+    let initial_world_positions = collect_world_positions(entities, global_transforms);
+    let initial_local_transforms = collect_local_transforms(entities, transforms);
+    let (_, initial_primary_pos) = initial_world_positions
+        .iter()
+        .find(|(entity, _)| *entity == primary)?;
+    Some(SelectedAction::Grab {
+        mask: None,
+        initial_primary_pos: *initial_primary_pos,
+        initial_world_positions,
+        initial_local_transforms,
+        typed_input: String::new(),
+    })
+}
+
+/// Build a fresh `Scale` action from the current state, or `None` if the primary
+/// entity has no global transform.
+fn make_scale_action(
+    entities: &[Entity],
+    primary: Entity,
+    transforms: &Query<&mut Transform>,
+    global_transforms: &Query<&GlobalTransform>,
+) -> Option<SelectedAction> {
+    let initial_world_scales = collect_world_scales(entities, global_transforms);
+    let initial_local_transforms = collect_local_transforms(entities, transforms);
+    if !initial_world_scales.iter().any(|(e, _)| *e == primary) {
+        return None;
+    }
+    Some(SelectedAction::Scale {
+        mask: None,
+        initial_cursor_pos: None,
+        initial_world_scales,
+        initial_local_transforms,
+        typed_input: String::new(),
+    })
+}
+
 fn collect_world_positions(
     entities: &[Entity],
     global_transforms: &Query<&GlobalTransform>,
@@ -1219,7 +1223,10 @@ mod grab_mode_tests {
             Some(SelectedAction::Grab {
                 mask, typed_input, ..
             }) => (mask_axis(mask), typed_input.clone()),
-            other => panic!("expected an active grab action, found {:?}", other.is_some()),
+            other => panic!(
+                "expected an active grab action, found {:?}",
+                other.is_some()
+            ),
         }
     }
 
@@ -1228,7 +1235,10 @@ mod grab_mode_tests {
             Some(SelectedAction::Scale {
                 mask, typed_input, ..
             }) => (mask_axis(mask), typed_input.clone()),
-            other => panic!("expected an active scale action, found {:?}", other.is_some()),
+            other => panic!(
+                "expected an active scale action, found {:?}",
+                other.is_some()
+            ),
         }
     }
 
@@ -1241,7 +1251,10 @@ mod grab_mode_tests {
 
         let (mask, typed) = grab_snapshot(&app);
         assert_eq!(mask, None, "fresh grab must not be axis constrained");
-        assert!(typed.is_empty(), "fresh grab must have an empty typed buffer");
+        assert!(
+            typed.is_empty(),
+            "fresh grab must have an empty typed buffer"
+        );
     }
 
     /// Regression test for the Blender-parity bug: in grab mode, pressing X
