@@ -235,7 +235,6 @@ pub fn controller_update_sensors(
         let standing_on_ground = controller.basis_memory.standing_on_entity().is_some();
         let running_velocity = controller.basis_memory.running_velocity;
 
-        // Construct the struct at the end - this will error if any field is missing
         let snapshot = ControllerSensors {
             actual_velocity,
             facing_direction,
