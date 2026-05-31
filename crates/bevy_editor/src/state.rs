@@ -38,6 +38,35 @@ impl AxisMask {
         }
     }
 
+    /// A unit vector along the masked axis, used to turn a scalar offset into a delta.
+    pub fn unit(&self) -> Vec3 {
+        match self {
+            AxisMask::X => Vec3::X,
+            AxisMask::Y => Vec3::Y,
+            AxisMask::Z => Vec3::Z,
+        }
+    }
+
+    /// Set the masked component of `target` to `value`, leaving the others untouched.
+    fn set_component(target: &mut Vec3, axis: Option<&AxisMask>, value: f32) {
+        match axis {
+            Some(AxisMask::X) => target.x = value,
+            Some(AxisMask::Y) => target.y = value,
+            Some(AxisMask::Z) => target.z = value,
+            None => *target = Vec3::splat(value),
+        }
+    }
+
+    /// Multiply the masked component of `target` by `factor`, leaving the others untouched.
+    fn scale_component(target: &mut Vec3, axis: Option<&AxisMask>, factor: f32) {
+        match axis {
+            Some(AxisMask::X) => target.x *= factor,
+            Some(AxisMask::Y) => target.y *= factor,
+            Some(AxisMask::Z) => target.z *= factor,
+            None => *target *= factor,
+        }
+    }
+
     pub fn from_key(key: KeyCode) -> Option<Self> {
         match key {
             KeyCode::KeyX => Some(AxisMask::X),
@@ -119,6 +148,29 @@ impl TypedTransformInput {
                 value,
                 exact,
             })
+        }
+    }
+
+    /// Apply this typed input as a translation to `translation`, using `mask` as
+    /// the axis fallback when the input itself doesn't name one.
+    pub fn apply_to_translation(&self, translation: &mut Vec3, mask: Option<&AxisMask>) {
+        let axis = self.axis.as_ref().or(mask);
+        if self.exact {
+            AxisMask::set_component(translation, axis, self.value);
+        } else {
+            let delta = axis.map_or(Vec3::splat(self.value), |a| a.unit() * self.value);
+            *translation += delta;
+        }
+    }
+
+    /// Apply this typed input as a scale to `scale`, using `mask` as the axis
+    /// fallback when the input itself doesn't name one.
+    pub fn apply_to_scale(&self, scale: &mut Vec3, mask: Option<&AxisMask>) {
+        let axis = self.axis.as_ref().or(mask);
+        if self.exact {
+            AxisMask::set_component(scale, axis, self.value);
+        } else {
+            AxisMask::scale_component(scale, axis, self.value);
         }
     }
 }

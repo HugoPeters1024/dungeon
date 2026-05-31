@@ -928,25 +928,9 @@ fn apply_typed_input_live(selected: &mut ResMut<Selected>, transforms: &mut Quer
             restore_local_transforms(&initial, transforms);
 
             if let Some(parsed) = parsed {
-                let axis = parsed.axis.as_ref().or(mask.as_ref());
                 for (entity, _) in initial.iter().copied() {
                     if let Ok(mut transform) = transforms.get_mut(entity) {
-                        if parsed.exact {
-                            match axis {
-                                Some(AxisMask::X) => transform.translation.x = parsed.value,
-                                Some(AxisMask::Y) => transform.translation.y = parsed.value,
-                                Some(AxisMask::Z) => transform.translation.z = parsed.value,
-                                None => transform.translation = Vec3::splat(parsed.value),
-                            }
-                        } else {
-                            let delta = match axis {
-                                Some(AxisMask::X) => Vec3::new(parsed.value, 0.0, 0.0),
-                                Some(AxisMask::Y) => Vec3::new(0.0, parsed.value, 0.0),
-                                Some(AxisMask::Z) => Vec3::new(0.0, 0.0, parsed.value),
-                                None => Vec3::splat(parsed.value),
-                            };
-                            transform.translation += delta;
-                        }
+                        parsed.apply_to_translation(&mut transform.translation, mask.as_ref());
                     }
                 }
             }
@@ -962,24 +946,9 @@ fn apply_typed_input_live(selected: &mut ResMut<Selected>, transforms: &mut Quer
             restore_local_transforms(&initial, transforms);
 
             if let Some(parsed) = parsed {
-                let axis = parsed.axis.as_ref().or(mask.as_ref());
                 for (entity, _) in initial.iter().copied() {
                     if let Ok(mut transform) = transforms.get_mut(entity) {
-                        if parsed.exact {
-                            match axis {
-                                Some(AxisMask::X) => transform.scale.x = parsed.value,
-                                Some(AxisMask::Y) => transform.scale.y = parsed.value,
-                                Some(AxisMask::Z) => transform.scale.z = parsed.value,
-                                None => transform.scale = Vec3::splat(parsed.value),
-                            }
-                        } else {
-                            match axis {
-                                Some(AxisMask::X) => transform.scale.x *= parsed.value,
-                                Some(AxisMask::Y) => transform.scale.y *= parsed.value,
-                                Some(AxisMask::Z) => transform.scale.z *= parsed.value,
-                                None => transform.scale *= parsed.value,
-                            }
-                        }
+                        parsed.apply_to_scale(&mut transform.scale, mask.as_ref());
                     }
                 }
             }
@@ -1020,26 +989,10 @@ fn commit_typed_input(
             initial_local_transforms,
             ..
         }) => {
-            let axis = parsed.axis.as_ref().or(mask.as_ref());
             let mut action_transforms = Vec::new();
             for (entity, old_local) in initial_local_transforms.iter().copied() {
                 let mut new_local = old_local;
-                if parsed.exact {
-                    match axis {
-                        Some(AxisMask::X) => new_local.translation.x = parsed.value,
-                        Some(AxisMask::Y) => new_local.translation.y = parsed.value,
-                        Some(AxisMask::Z) => new_local.translation.z = parsed.value,
-                        None => new_local.translation = Vec3::splat(parsed.value),
-                    }
-                } else {
-                    let delta = match axis {
-                        Some(AxisMask::X) => Vec3::new(parsed.value, 0.0, 0.0),
-                        Some(AxisMask::Y) => Vec3::new(0.0, parsed.value, 0.0),
-                        Some(AxisMask::Z) => Vec3::new(0.0, 0.0, parsed.value),
-                        None => Vec3::splat(parsed.value),
-                    };
-                    new_local.translation += delta;
-                }
+                parsed.apply_to_translation(&mut new_local.translation, mask.as_ref());
                 action_transforms.push(TransformAction::full(entity, old_local, new_local));
             }
             if !action_transforms.is_empty() {
@@ -1051,25 +1004,10 @@ fn commit_typed_input(
             initial_local_transforms,
             ..
         }) => {
-            let axis = parsed.axis.as_ref().or(mask.as_ref());
             let mut action_transforms = Vec::new();
             for (entity, old_local) in initial_local_transforms.iter().copied() {
                 let mut new_local = old_local;
-                if parsed.exact {
-                    match axis {
-                        Some(AxisMask::X) => new_local.scale.x = parsed.value,
-                        Some(AxisMask::Y) => new_local.scale.y = parsed.value,
-                        Some(AxisMask::Z) => new_local.scale.z = parsed.value,
-                        None => new_local.scale = Vec3::splat(parsed.value),
-                    }
-                } else {
-                    match axis {
-                        Some(AxisMask::X) => new_local.scale.x *= parsed.value,
-                        Some(AxisMask::Y) => new_local.scale.y *= parsed.value,
-                        Some(AxisMask::Z) => new_local.scale.z *= parsed.value,
-                        None => new_local.scale *= parsed.value,
-                    }
-                }
+                parsed.apply_to_scale(&mut new_local.scale, mask.as_ref());
                 action_transforms.push(TransformAction::full(entity, old_local, new_local));
             }
             if !action_transforms.is_empty() {
