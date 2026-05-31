@@ -65,7 +65,7 @@ pub fn on_animation_player_loaded(
         .flat_map(|e| {
             bones
                 .get(e)
-                .map(|(name, target)| (name.as_str(), (e, target.clone())))
+                .map(|(name, target)| (name.as_str(), (e, *target)))
         })
         .collect();
 

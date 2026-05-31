@@ -274,10 +274,7 @@ pub fn update_controller_state(
             continue;
         }
 
-        let jump_memory = match controller.current_action.as_ref() {
-            Some(PlayerControlSchemeActionState::Jump(state)) => Some(&state.memory),
-            None => None,
-        };
+        let jump_memory = controller.current_action.as_ref().map(|PlayerControlSchemeActionState::Jump(state)| &state.memory);
         // A jump action can still be active while falling if jump is held.
         let jump_is_fall_section = matches!(jump_memory, Some(TnuaBuiltinJumpMemory::FallSection));
         let jumping = jump_memory.is_some() && !jump_is_fall_section;
