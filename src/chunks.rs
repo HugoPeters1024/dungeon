@@ -28,7 +28,9 @@ fn update_chunk_index(
 ) {
     let (gt, _) = *q;
 
-    let loc = gt.translation().xz().as_ivec2() / IVec2::splat(FLOOR_SIZE);
+    let loc = (gt.translation().xz() / FLOOR_SIZE as f32)
+        .floor()
+        .as_ivec2();
     for y in -1..=1 {
         for x in -1..=1 {
             let key = loc + IVec2::new(x, y);
