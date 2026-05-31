@@ -22,6 +22,7 @@ use crate::actions::{
 };
 use crate::editor_camera::{AxisAlignedProjectionState, sync_axis_aligned_projection};
 use crate::state::{AxisMask, TypedTransformInput, UiDockState, UiState, is_typed_value_char};
+use crate::thumbnails::{PrefabThumbnails, manage_prefab_thumbnails};
 use crate::{ContextMenu, HoverNormal, PrefabPlugin, Selected, SelectedAction};
 
 const CLICK_DURATION: Duration = Duration::from_millis(500);
@@ -134,6 +135,9 @@ impl Plugin for EditorPlugin {
                 .chain()
                 .run_if(editor_enabled),
         );
+
+        app.init_resource::<PrefabThumbnails>();
+        app.add_systems(Update, manage_prefab_thumbnails.run_if(editor_enabled));
 
         {
             let mut system = show_ui_system.into_configs();

@@ -217,12 +217,36 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                     .collect();
                 matched.sort_by(|a, b| b.1.cmp(&a.1));
 
+                // Resolve each prefab's thumbnail texture (if rendered yet) before
+                // taking a mutable borrow of the world for the action queue.
+                let entries: Vec<(crate::PrefabId, Option<egui::TextureId>)> = {
+                    let thumbnails = self.world.resource::<crate::PrefabThumbnails>();
+                    matched
+                        .iter()
+                        .map(|(id, _)| ((*id).clone(), thumbnails.texture_id(id.name())))
+                        .collect()
+                };
+
                 let mut action_queue = self.world.resource_mut::<ActionQueue>();
-                for (id, _) in matched {
-                    if ui.button(id.name()).clicked() {
-                        action_queue.push(SpawnPrefabAction::new(id.clone(), spawn_pos).into());
+                ui.horizontal_wrapped(|ui| {
+                    for (id, thumbnail) in entries {
+                        let clicked = match thumbnail {
+                            Some(texture) => {
+                                let image = egui::Image::new(egui::load::SizedTexture::new(
+                                    texture,
+                                    egui::vec2(64.0, 64.0),
+                                ));
+                                ui.add(egui::Button::image(image))
+                                    .on_hover_text(id.name())
+                                    .clicked()
+                            }
+                            None => ui.button(id.name()).clicked(),
+                        };
+                        if clicked {
+                            action_queue.push(SpawnPrefabAction::new(id, spawn_pos).into());
+                        }
                     }
-                }
+                });
             }
             EguiWindow::WorldInspector => {
                 ui_for_world(self.world, ui);

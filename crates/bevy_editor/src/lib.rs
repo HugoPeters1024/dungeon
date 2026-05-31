@@ -8,6 +8,7 @@ mod prefabs;
 mod scene;
 mod screen_grid;
 mod state;
+mod thumbnails;
 mod ui;
 
 pub use actions::{
@@ -23,3 +24,4 @@ pub use state::{
     AxisMask, ContextMenu, EguiWindow, HoverNormal, Selected, SelectedAction, TypedTransformInput,
     UiDockState, UiState,
 };
+pub use thumbnails::PrefabThumbnails;
