@@ -32,6 +32,22 @@ impl MergeAction {
     }
 }
 
+/// Convert a child's world-space transform into the local transform it should
+/// have under `parent_transform`, and write it onto the entity.
+fn apply_local_under_parent(
+    world: &mut World,
+    entity: Entity,
+    parent_transform: &Transform,
+    world_transform: &Transform,
+) {
+    let parent_inverse = parent_transform.compute_affine().inverse();
+    if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+        transform.translation = parent_inverse.transform_point3(world_transform.translation);
+        transform.rotation = parent_transform.rotation.inverse() * world_transform.rotation;
+        transform.scale = world_transform.scale / parent_transform.scale;
+    }
+}
+
 impl Action for MergeAction {
     fn apply(&mut self, world: &mut World) {
         if let Some(state) = &self.state {
@@ -44,18 +60,8 @@ impl Action for MergeAction {
                 world.entity_mut(entity).set_parent_in_place(state.parent);
             }
 
-            let parent_inverse = state.parent_transform.compute_affine().inverse();
             for (entity, world_transform) in &state.original_world_transforms {
-                let local_pos = parent_inverse.transform_point3(world_transform.translation);
-                let local_rotation =
-                    state.parent_transform.rotation.inverse() * world_transform.rotation;
-                let local_scale = world_transform.scale / state.parent_transform.scale;
-
-                if let Some(mut transform) = world.get_mut::<Transform>(*entity) {
-                    transform.translation = local_pos;
-                    transform.rotation = local_rotation;
-                    transform.scale = local_scale;
-                }
+                apply_local_under_parent(world, *entity, &state.parent_transform, world_transform);
             }
 
             if let Some(mut selected) = world.get_resource_mut::<Selected>() {
@@ -122,17 +128,8 @@ impl Action for MergeAction {
                 .add_children(&self.entities)
                 .id();
 
-            let parent_inverse = parent_transform.compute_affine().inverse();
-            for (entity, world_transform) in world_transforms {
-                let local_pos = parent_inverse.transform_point3(world_transform.translation);
-                let local_rotation = parent_transform.rotation.inverse() * world_transform.rotation;
-                let local_scale = world_transform.scale / parent_transform.scale;
-
-                if let Some(mut transform) = world.get_mut::<Transform>(entity) {
-                    transform.translation = local_pos;
-                    transform.rotation = local_rotation;
-                    transform.scale = local_scale;
-                }
+            for (entity, world_transform) in &world_transforms {
+                apply_local_under_parent(world, *entity, &parent_transform, world_transform);
             }
 
             if let Some(mut selected) = world.get_resource_mut::<Selected>() {
