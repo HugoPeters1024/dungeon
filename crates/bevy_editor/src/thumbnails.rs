@@ -150,7 +150,10 @@ fn start_job(commands: &mut Commands, images: &mut Assets<Image>, prefab: String
 
     // Spawning the `PrefabId` triggers the prefab factory on this entity.
     let instance = commands
-        .spawn((crate::prefabs::PrefabId::new(prefab.clone()), ChildOf(staging)))
+        .spawn((
+            crate::prefabs::PrefabId::new(prefab.clone()),
+            ChildOf(staging),
+        ))
         .id();
 
     let light = commands
@@ -206,7 +209,10 @@ fn apply_layer_recursive(commands: &mut Commands, root: Entity, children: &Query
 
 /// World-space `(center, half_extents)` of the instance, or `None` until it has
 /// reported a non-degenerate bounding box.
-fn prefab_world_bounds(merged_aabbs: &Query<&MergedAabb>, instance: Entity) -> Option<(Vec3, Vec3)> {
+fn prefab_world_bounds(
+    merged_aabbs: &Query<&MergedAabb>,
+    instance: Entity,
+) -> Option<(Vec3, Vec3)> {
     let merged = merged_aabbs.get(instance).ok()?;
     let half_extents: Vec3 = merged.half_extents.into();
     (half_extents.length() > 1e-3).then(|| (Vec3::from(merged.center), half_extents))

@@ -38,7 +38,7 @@ impl Plugin for GamePlugin {
             config: FpsOverlayConfig {
                 text_config: TextFont {
                     font: default(),
-                    font_size: 24.0,
+                    font_size: FontSize::Px(24.0),
                     ..default()
                 },
                 // We can also change color of the overlay
@@ -89,7 +89,7 @@ fn setup(
     commands.spawn((
         DirectionalLight {
             illuminance: light_consts::lux::OVERCAST_DAY,
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             ..default()
         },
         Transform {

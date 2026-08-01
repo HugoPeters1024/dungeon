@@ -34,7 +34,8 @@ fn do_the_save(In(trashed): In<Vec<Entity>>, world: &mut World) {
         collect_descendants(world, *root, &mut all_entities);
     }
 
-    let scene = DynamicSceneBuilder::from_world(world)
+    let type_registery = world.resource::<AppTypeRegistry>().read();
+    let scene = DynamicWorldBuilder::from_world(world, &type_registery)
         .deny_all_components()
         .allow_component::<AssetRef>()
         .allow_component::<Transform>()
@@ -106,7 +107,7 @@ fn process_scene_commands(
     if scene_commands.load_requested {
         scene_commands.load_requested = false;
         commands.spawn((
-            DynamicSceneRoot(asset_server.load("scene.scn.ron")),
+            DynamicWorldRoot(asset_server.load("scene.scn.ron")),
             Name::new("Loaded Scene"),
         ));
         info!("Loading scene from scene.scn.ron");
@@ -125,9 +126,10 @@ mod tests {
         app
     }
 
-    fn build_save_scene(world: &mut World) -> DynamicScene {
+    fn build_save_scene(world: &mut World) -> DynamicWorld {
         let all_entities: Vec<Entity> = world.query::<Entity>().iter(world).collect();
-        DynamicSceneBuilder::from_world(world)
+        let type_registery = world.resource::<AppTypeRegistry>().read();
+        DynamicWorldBuilder::from_world(world, &type_registery)
             .deny_all_components()
             .allow_component::<AssetRef>()
             .allow_component::<Transform>()

@@ -179,7 +179,7 @@ fn set_camera_viewport(
         return;
     };
     for mut camera in cameras.iter_mut() {
-        let scale_factor = window.scale_factor() * egui_settings.scale_factor;
+        let scale_factor = window.scale_factor();
 
         let viewport_pos = ui_state.viewport.left_top().to_vec2() * scale_factor;
         let viewport_size = ui_state.viewport.size() * scale_factor;

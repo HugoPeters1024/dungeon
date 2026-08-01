@@ -336,7 +336,7 @@ impl UiState {
                 };
 
                 egui_dock::DockArea::new(&mut dock_state.0)
-                    .style(egui_dock::Style::from_egui(ctx.style().as_ref()))
+                    .style(egui_dock::Style::from_egui(ctx.global_style().as_ref()))
                     .show(ctx, &mut viewer);
 
                 self.egui_wants_pointer_input = ctx.wants_pointer_input();

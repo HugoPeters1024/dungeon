@@ -53,7 +53,7 @@ fn on_spawn_torch(
     let torch = commands
         .spawn((
             ChildOf(cube),
-            SceneRoot(assets.torch.clone()),
+            WorldAssetRoot(assets.torch.clone()),
             Transform::from_xyz(0.0, 0.0, 0.55)
                 .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
         ))
@@ -71,7 +71,7 @@ fn on_spawn_torch(
     // light
     commands.spawn((
         PointLight {
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             intensity: light_consts::lumens::LUMENS_PER_LED_WATTS * 150.0,
             color: Color::srgb(1.0, 0.6, 0.2),
             ..default()

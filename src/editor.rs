@@ -1,5 +1,5 @@
 use crate::{
-    assets::{GameAssets, MyStates},
+    assets::{GameAssets, MyStates, standard_material_handle},
     game::Pickupable,
     grid_wall::GridWall,
     player::controller::ControllerCamera,
@@ -86,6 +86,7 @@ fn setup_prefabs(
     mut commands: Commands,
     mut prefabs: ResMut<Prefabs>,
     mut asset_refs: ResMut<AssetRefRegistry>,
+    asset_server: Res<AssetServer>,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
     gltf_meshes: Res<Assets<GltfMesh>>,
@@ -125,7 +126,11 @@ fn setup_prefabs(
         };
         for primitive in gltf_mesh.primitives.iter() {
             let mesh_h = primitive.mesh.clone();
-            if let Some(mat_h) = primitive.material.clone() {
+            if let Some(mat_h) = primitive
+                .material
+                .as_ref()
+                .and_then(|material| standard_material_handle(&asset_server, material))
+            {
                 asset_refs.register(&mut commands, &primitive.name, move || {
                     (Mesh3d(mesh_h.clone()), MeshMaterial3d(mat_h.clone()))
                 });

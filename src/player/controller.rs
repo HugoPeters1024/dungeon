@@ -100,7 +100,7 @@ pub fn on_player_spawn(
         ControllerState::Idle,
         LockedAxes::ROTATION_LOCKED,
         children![(
-            SceneRoot(assets.player.clone()),
+            WorldAssetRoot(assets.player.clone()),
             Transform::from_scale(Vec3::splat(0.008)).with_rotation(Quat::from_rotation_y(PI)),
         )],
     ));
@@ -208,7 +208,7 @@ pub fn add_mixamo_colliders(
 
         if name.as_str() == "mixamorigRightHand" {
             commands.entity(entity).with_child((
-                SceneRoot(assets.sword.clone()),
+                WorldAssetRoot(assets.sword.clone()),
                 Transform::from_translation(Vec3::new(88.3, 26.9, 0.0))
                     .with_scale(Vec3::splat(40.0))
                     .with_rotation(Quat::from_rotation_z(8.0)),
@@ -274,7 +274,10 @@ pub fn update_controller_state(
             continue;
         }
 
-        let jump_memory = controller.current_action.as_ref().map(|PlayerControlSchemeActionState::Jump(state)| &state.memory);
+        let jump_memory = controller
+            .current_action
+            .as_ref()
+            .map(|PlayerControlSchemeActionState::Jump(state)| &state.memory);
         // A jump action can still be active while falling if jump is held.
         let jump_is_fall_section = matches!(jump_memory, Some(TnuaBuiltinJumpMemory::FallSection));
         let jumping = jump_memory.is_some() && !jump_is_fall_section;

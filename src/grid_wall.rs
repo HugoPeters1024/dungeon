@@ -4,7 +4,7 @@ use bevy::{
 };
 use rstar::RTree;
 
-use crate::assets::GameAssets;
+use crate::assets::{GameAssets, standard_material_handle};
 
 struct MeshBounds {
     extents: [f32; 3],
@@ -102,6 +102,7 @@ impl Plugin for GridWallPlugin {
 
 fn initialize_grid_walls(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
     assets: Res<GameAssets>,
     gltf_assets: Res<Assets<Gltf>>,
     gltf_nodes: Res<Assets<GltfNode>>,
@@ -132,6 +133,11 @@ fn initialize_grid_walls(
     let wall_gltf_mesh = gltf_meshes.get(wall_mesh_handle).unwrap();
     let wall_primitive = &wall_gltf_mesh.primitives[0];
     let fitted_wall = FittedMesh::from_mesh(meshes.get(&wall_primitive.mesh));
+    let wall_material = wall_primitive
+        .material
+        .as_ref()
+        .and_then(|material| standard_material_handle(&asset_server, material))
+        .unwrap();
 
     for entity in entities_to_init {
         commands.entity(entity).with_children(|parent| {
@@ -143,7 +149,9 @@ fn initialize_grid_walls(
                     Transform::from_translation(offset).with_scale(Vec3::splat(fitted.scale)),
                 ));
                 if let Some(material) = primitive.material.as_ref() {
-                    child.insert(MeshMaterial3d(material.clone()));
+                    if let Some(material) = standard_material_handle(&asset_server, material) {
+                        child.insert(MeshMaterial3d(material));
+                    }
                 }
             }
         });
@@ -154,7 +162,7 @@ fn initialize_grid_walls(
             commands.spawn((
                 WallSegment(i),
                 Mesh3d(wall_primitive.mesh.clone()),
-                MeshMaterial3d(wall_primitive.material.clone().unwrap()),
+                MeshMaterial3d(wall_material.clone()),
                 Transform::from_translation(offset)
                     .with_rotation(rotation)
                     .with_scale(Vec3::splat(fitted_wall.scale)),

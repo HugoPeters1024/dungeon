@@ -1,6 +1,16 @@
-use bevy::prelude::*;
+use bevy::{gltf::GltfMaterial, prelude::*};
 use bevy_asset_loader::prelude::*;
 use bevy_hanabi::prelude::*;
+
+pub(crate) fn standard_material_handle(
+    asset_server: &AssetServer,
+    gltf_material: &Handle<GltfMaterial>,
+) -> Option<Handle<StandardMaterial>> {
+    let path = gltf_material.path()?;
+    let label = path.label()?;
+
+    Some(asset_server.load(path.clone().with_label(format!("{label}/std"))))
+}
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
 pub enum MyStates {
@@ -35,17 +45,17 @@ pub struct GameAssets {
     #[asset(path = "wineglass.glb#Mesh0/Primitive0")]
     pub wineglass: Handle<Mesh>,
 
-    #[asset(path = "wineglass.glb#Material0")]
+    #[asset(path = "wineglass.glb#Material0/std")]
     pub wineglass_material: Handle<StandardMaterial>,
 
     #[asset(path = "trophy.glb#Mesh0/Primitive0")]
     pub trophy: Handle<Mesh>,
 
-    #[asset(path = "trophy.glb#Material0")]
+    #[asset(path = "trophy.glb#Material0/std")]
     pub trophy_material: Handle<StandardMaterial>,
 
     #[asset(path = "castle.glb#Scene0")]
-    pub castle: Handle<Scene>,
+    pub castle: Handle<WorldAsset>,
 
     #[asset(path = "castle.glb")]
     pub castle_test: Handle<Gltf>,
@@ -53,17 +63,17 @@ pub struct GameAssets {
     #[asset(path = "bong.glb#Mesh0/Primitive0")]
     pub bong: Handle<Mesh>,
 
-    #[asset(path = "bong.glb#Material0")]
+    #[asset(path = "bong.glb#Material0/std")]
     pub bong_material: Handle<StandardMaterial>,
 
     #[asset(path = "sword.glb#Scene0")]
-    pub sword: Handle<Scene>,
+    pub sword: Handle<WorldAsset>,
 
     #[asset(path = "torch.glb#Scene0")]
-    pub torch: Handle<Scene>,
+    pub torch: Handle<WorldAsset>,
 
     #[asset(path = "player.glb#Scene0")]
-    pub player: Handle<Scene>,
+    pub player: Handle<WorldAsset>,
 
     #[asset(
         paths(
@@ -187,12 +197,12 @@ fn create_fire_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<Effec
         .update(update_accel) // Buoyancy
         .update(update_drag) // Air resistance
         .render(ColorOverLifetimeModifier {
-            gradient: color_gradient,
+            gradient: color_gradient.into(),
             blend: ColorBlendMode::Modulate, // Modulate blending (Additive not available in this version)
             mask: ColorBlendMask::RGBA,
         })
         .render(SizeOverLifetimeModifier {
-            gradient: size_gradient,
+            gradient: size_gradient.into(),
             screen_space_size: false,
         })
         .render(OrientModifier {
@@ -256,12 +266,12 @@ fn create_void_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Handle<Effec
         .init(init_lifetime)
         .update(update_drag)
         .render(ColorOverLifetimeModifier {
-            gradient: color_gradient,
+            gradient: color_gradient.into(),
             blend: ColorBlendMode::Modulate, // Modulate blending for void particles
             mask: ColorBlendMask::RGBA,
         })
         .render(SizeOverLifetimeModifier {
-            gradient: size_gradient,
+            gradient: size_gradient.into(),
             screen_space_size: false,
         }),
     )
@@ -332,12 +342,12 @@ fn create_golden_pickup_effect(effects: &mut ResMut<Assets<EffectAsset>>) -> Han
         .update(update_accel) // Gravity
         .update(update_drag) // Air resistance
         .render(ColorOverLifetimeModifier {
-            gradient: color_gradient,
+            gradient: color_gradient.into(),
             blend: ColorBlendMode::Modulate,
             mask: ColorBlendMask::RGBA,
         })
         .render(SizeOverLifetimeModifier {
-            gradient: size_gradient,
+            gradient: size_gradient.into(),
             screen_space_size: false,
         })
         .render(OrientModifier {
