@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+use bevy::gizmos::transform_gizmo::{
+    TransformGizmoMode, TransformGizmoSettings, TransformGizmoSpace,
+};
 use bevy::prelude::*;
 use bevy_egui::egui;
 use bevy_inspector_egui::bevy_inspector::{ui_for_entity_with_children, ui_for_world};
@@ -39,6 +42,7 @@ impl egui_dock::TabViewer for UiViewer<'_> {
                     egui::LayerId::background(),
                     self.state.viewport.shrink(16.),
                 );
+                transform_gizmo_toolbar(ui.ctx(), self.state.viewport, self.world);
 
                 let mut should_close = false;
                 let mut pending_actions: Vec<EditorAction> = Vec::new();
@@ -322,6 +326,66 @@ impl egui_dock::TabViewer for UiViewer<'_> {
     fn clear_background(&self, tab: &Self::Tab) -> bool {
         !matches!(tab, EguiWindow::GameView)
     }
+}
+
+fn transform_gizmo_toolbar(ctx: &egui::Context, viewport: egui::Rect, world: &mut World) {
+    let Some(settings) = world.get_resource::<TransformGizmoSettings>() else {
+        return;
+    };
+    let mut mode = settings.mode;
+    let mut space = settings.space;
+
+    egui::Area::new(egui::Id::new("transform_gizmo_toolbar"))
+        .fixed_pos(viewport.left_top() + egui::vec2(12.0, 12.0))
+        .show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(egui::Color32::from_black_alpha(190))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::same(4))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .selectable_label(mode == TransformGizmoMode::Translate, "Move")
+                            .on_hover_text("Translate handles (G)")
+                            .clicked()
+                        {
+                            mode = TransformGizmoMode::Translate;
+                        }
+                        if ui
+                            .selectable_label(mode == TransformGizmoMode::Rotate, "Rotate")
+                            .on_hover_text("Rotation handles (R)")
+                            .clicked()
+                        {
+                            mode = TransformGizmoMode::Rotate;
+                        }
+                        if ui
+                            .selectable_label(mode == TransformGizmoMode::Scale, "Scale")
+                            .on_hover_text("Scale handles (S)")
+                            .clicked()
+                        {
+                            mode = TransformGizmoMode::Scale;
+                        }
+                        ui.separator();
+                        if ui
+                            .button(match space {
+                                TransformGizmoSpace::World => "World",
+                                TransformGizmoSpace::Local => "Local",
+                            })
+                            .on_hover_text("Toggle gizmo orientation")
+                            .clicked()
+                        {
+                            space = match space {
+                                TransformGizmoSpace::World => TransformGizmoSpace::Local,
+                                TransformGizmoSpace::Local => TransformGizmoSpace::World,
+                            };
+                        }
+                    });
+                });
+        });
+
+    let mut settings = world.resource_mut::<TransformGizmoSettings>();
+    settings.mode = mode;
+    settings.space = space;
 }
 
 struct GraphNode {

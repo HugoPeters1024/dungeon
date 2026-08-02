@@ -1,10 +1,15 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
+use bevy::camera::CameraUpdateSystems;
 use bevy::camera::Viewport;
 use bevy::camera::visibility::RenderLayers;
 use bevy::color::palettes::tailwind::{PINK_100, RED_500};
 use bevy::ecs::message::MessageReader;
+use bevy::gizmos::transform_gizmo::{
+    TransformGizmoCamera, TransformGizmoFocus, TransformGizmoMode, TransformGizmoPlugin,
+    TransformGizmoSettings, TransformGizmoState, TransformGizmoSystems,
+};
 use bevy::input::keyboard::KeyboardInput;
 use bevy::picking::pointer::PointerInteraction;
 use bevy::picking::prelude::Pickable;
@@ -26,8 +31,12 @@ use crate::thumbnails::{PrefabThumbnails, manage_prefab_thumbnails};
 use crate::{ContextMenu, HoverNormal, PrefabPlugin, Selected, SelectedAction};
 
 const CLICK_DURATION: Duration = Duration::from_millis(500);
+// Bevy 0.19.0's transform gizmo overlay uses this private render layer.
+// Remove this workaround once the viewport fix from bevyengine/bevy#25106 is released.
+const TRANSFORM_GIZMO_RENDER_LAYER: usize = 15;
 
 #[derive(Component)]
+#[require(TransformGizmoCamera)]
 pub struct EditorCamera;
 
 #[derive(Resource, Default)]
@@ -36,6 +45,11 @@ struct EditorEnabled(bool);
 #[derive(Resource)]
 struct EditorCondition {
     system: BoxedCondition,
+}
+
+#[derive(Resource, Default)]
+struct GizmoUndoState {
+    drag: Option<(Entity, Transform)>,
 }
 
 #[derive(Default)]
@@ -86,7 +100,11 @@ impl Plugin for EditorPlugin {
         }
 
         app.add_plugins(PanOrbitCameraPlugin);
+        if !app.is_plugin_added::<TransformGizmoPlugin>() {
+            app.add_plugins(TransformGizmoPlugin);
+        }
         app.init_resource::<ActionQueue>();
+        app.init_resource::<GizmoUndoState>();
 
         // Initialize EditorEnabled based on whether a custom condition was provided
         let has_custom_condition = self.condition.lock().unwrap().is_some();
@@ -109,7 +127,6 @@ impl Plugin for EditorPlugin {
         app.add_systems(
             Update,
             (
-                draw_axes,
                 draw_aabb,
                 set_hover_normal,
                 handle_selected_action_keys,
@@ -134,6 +151,15 @@ impl Plugin for EditorPlugin {
             (handle_undo_redo_input, process_action_queue)
                 .chain()
                 .run_if(editor_enabled),
+        );
+        app.add_systems(Update, sync_transform_gizmo_focus);
+        app.add_systems(
+            PostUpdate,
+            record_transform_gizmo_action.after(TransformGizmoSystems),
+        );
+        app.add_systems(
+            PostUpdate,
+            sync_transform_gizmo_overlay_viewport.before(CameraUpdateSystems),
         );
 
         app.init_resource::<PrefabThumbnails>();
@@ -405,14 +431,6 @@ fn on_click_object(
     }
 }
 
-fn draw_axes(mut gizmos: Gizmos, query: Query<&GlobalTransform>, selected: Res<Selected>) {
-    for entity in selected.entities.iter().copied() {
-        if let Ok(transform) = query.get(entity) {
-            gizmos.axes(*transform, 1.5);
-        }
-    }
-}
-
 fn draw_aabb(
     mut gizmos: Gizmos,
     query: Query<&crate::merged_aabb::MergedAabb>,
@@ -562,8 +580,19 @@ fn handle_selected_action_keys(
     global_transforms: Query<&GlobalTransform>,
     mut action_queue: ResMut<ActionQueue>,
     camera_query: Query<&PanOrbitCamera, With<EditorCamera>>,
+    mut gizmo_settings: ResMut<TransformGizmoSettings>,
 ) {
     let primary = selected.primary();
+
+    if selected.action.is_none() {
+        if keyboard_input.just_pressed(KeyCode::KeyG) {
+            gizmo_settings.mode = TransformGizmoMode::Translate;
+        } else if keyboard_input.just_pressed(KeyCode::KeyR) {
+            gizmo_settings.mode = TransformGizmoMode::Rotate;
+        } else if keyboard_input.just_pressed(KeyCode::KeyS) {
+            gizmo_settings.mode = TransformGizmoMode::Scale;
+        }
+    }
 
     if keyboard_input.just_pressed(KeyCode::KeyF)
         && let Ok(global_transform) = global_transforms.get(primary)
@@ -1036,6 +1065,83 @@ fn editor_enabled(enabled: Res<EditorEnabled>) -> bool {
     enabled.0
 }
 
+fn sync_transform_gizmo_focus(
+    mut commands: Commands,
+    enabled: Res<EditorEnabled>,
+    selected: Option<Res<Selected>>,
+    focused: Query<Entity, With<TransformGizmoFocus>>,
+    transforms: Query<(), With<Transform>>,
+) {
+    let desired = selected
+        .filter(|selected| enabled.0 && selected.action.is_none())
+        .map(|selected| selected.primary())
+        .filter(|entity| transforms.contains(*entity));
+
+    for entity in &focused {
+        if Some(entity) != desired {
+            commands.entity(entity).remove::<TransformGizmoFocus>();
+        }
+    }
+
+    if let Some(entity) = desired
+        && !focused.contains(entity)
+    {
+        commands.entity(entity).insert(TransformGizmoFocus);
+    }
+}
+
+fn sync_transform_gizmo_overlay_viewport(
+    editor_cameras: Query<&Camera, With<TransformGizmoCamera>>,
+    mut overlay_cameras: Query<
+        (&RenderLayers, &mut Camera),
+        (With<Camera3d>, Without<TransformGizmoCamera>),
+    >,
+) {
+    let Some(editor_camera) = editor_cameras.iter().next() else {
+        return;
+    };
+    let gizmo_layer = RenderLayers::layer(TRANSFORM_GIZMO_RENDER_LAYER);
+
+    for (layers, mut overlay_camera) in &mut overlay_cameras {
+        if overlay_camera.order == 1 && layers.intersects(&gizmo_layer) {
+            overlay_camera.viewport = editor_camera.viewport.clone();
+        }
+    }
+}
+
+fn record_transform_gizmo_action(
+    gizmo: Res<TransformGizmoState>,
+    mut undo: ResMut<GizmoUndoState>,
+    transforms: Query<&Transform>,
+    mut action_queue: ResMut<ActionQueue>,
+) {
+    if gizmo.active {
+        if undo.drag.is_none()
+            && let Some(entity) = gizmo.entity
+        {
+            undo.drag = Some((entity, gizmo.start_transform));
+        }
+        return;
+    }
+
+    let Some((entity, old_transform)) = undo.drag.take() else {
+        return;
+    };
+    let Ok(&new_transform) = transforms.get(entity) else {
+        return;
+    };
+
+    let translation_changed = old_transform
+        .translation
+        .distance_squared(new_transform.translation)
+        > 1e-8;
+    let rotation_changed = old_transform.rotation.angle_between(new_transform.rotation) > 1e-5;
+    let scale_changed = old_transform.scale.distance_squared(new_transform.scale) > 1e-8;
+    if translation_changed || rotation_changed || scale_changed {
+        action_queue.push(TransformAction::full(entity, old_transform, new_transform).into());
+    }
+}
+
 fn evaluate_editor_condition(world: &mut World) {
     let mut condition = world
         .remove_resource::<EditorCondition>()
@@ -1170,6 +1276,7 @@ mod grab_mode_tests {
         app.add_plugins(MinimalPlugins);
         app.init_resource::<ButtonInput<KeyCode>>();
         app.init_resource::<ActionQueue>();
+        app.init_resource::<TransformGizmoSettings>();
         app.add_message::<KeyboardInput>();
 
         let entity = app
@@ -1386,5 +1493,106 @@ mod grab_mode_tests {
         let (mask, typed) = scale_snapshot(&app);
         assert_eq!(mask, Some('y'));
         assert!(typed.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod transform_gizmo_tests {
+    use super::*;
+
+    #[test]
+    fn gizmo_overlay_camera_uses_the_editor_viewport() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let viewport = Viewport {
+            physical_position: UVec2::new(320, 80),
+            physical_size: UVec2::new(900, 700),
+            depth: 0.0..1.0,
+        };
+        app.world_mut().spawn((
+            Camera {
+                viewport: Some(viewport.clone()),
+                ..default()
+            },
+            TransformGizmoCamera,
+        ));
+        let overlay = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                Camera {
+                    order: 1,
+                    ..default()
+                },
+                RenderLayers::layer(TRANSFORM_GIZMO_RENDER_LAYER),
+            ))
+            .id();
+        app.add_systems(Update, sync_transform_gizmo_overlay_viewport);
+
+        app.update();
+
+        let actual = app
+            .world()
+            .get::<Camera>(overlay)
+            .unwrap()
+            .viewport
+            .as_ref();
+        assert_eq!(
+            actual.unwrap().physical_position,
+            viewport.physical_position
+        );
+        assert_eq!(actual.unwrap().physical_size, viewport.physical_size);
+    }
+
+    #[test]
+    fn selected_entity_is_the_gizmo_focus_only_while_editor_is_enabled() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(EditorEnabled(true));
+        let entity = app.world_mut().spawn(Transform::default()).id();
+        app.insert_resource(Selected::new(entity));
+        app.add_systems(Update, sync_transform_gizmo_focus);
+
+        app.update();
+        assert!(app.world().get::<TransformGizmoFocus>(entity).is_some());
+
+        app.world_mut().resource_mut::<EditorEnabled>().0 = false;
+        app.update();
+        assert!(app.world().get::<TransformGizmoFocus>(entity).is_none());
+    }
+
+    #[test]
+    fn completed_gizmo_drag_is_queued_as_an_editor_action() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ActionQueue>();
+        app.init_resource::<GizmoUndoState>();
+        app.init_resource::<TransformGizmoState>();
+        app.add_systems(Update, record_transform_gizmo_action);
+
+        let entity = app.world_mut().spawn(Transform::default()).id();
+        {
+            let mut gizmo = app.world_mut().resource_mut::<TransformGizmoState>();
+            gizmo.active = true;
+            gizmo.entity = Some(entity);
+            gizmo.start_transform = Transform::default();
+        }
+        app.update();
+
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Transform>()
+            .unwrap()
+            .translation = Vec3::X;
+        app.world_mut().resource_mut::<TransformGizmoState>().active = false;
+        app.update();
+
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<ActionQueue>()
+                .take_pending()
+                .len(),
+            1
+        );
     }
 }

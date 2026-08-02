@@ -1,10 +1,10 @@
 (
   resources: {},
   entities: {
-    4294967262: (
+    4294966922: (
       components: {
         "bevy_camera::visibility::Visibility": Inherited,
-        "bevy_ecs::hierarchy::ChildOf": (4294967264),
+        "bevy_ecs::hierarchy::ChildOf": (4294966924),
         "bevy_ecs::name::Name": "Blue Sphere",
         "bevy_editor::asset_ref::AssetRef": ("blue_sphere_assets"),
         "bevy_transform::components::transform::Transform": (
@@ -14,10 +14,10 @@
         ),
       },
     ),
-    4294967263: (
+    4294966923: (
       components: {
         "bevy_camera::visibility::Visibility": Inherited,
-        "bevy_ecs::hierarchy::ChildOf": (4294967264),
+        "bevy_ecs::hierarchy::ChildOf": (4294966924),
         "bevy_ecs::name::Name": "Red Cube",
         "bevy_editor::asset_ref::AssetRef": ("red_cube_assets"),
         "bevy_transform::components::transform::Transform": (
@@ -27,21 +27,17 @@
         ),
       },
     ),
-    4294967264: (
+    4294966924: (
       components: {
         "bevy_camera::visibility::Visibility": Inherited,
-        "bevy_ecs::hierarchy::Children": ([
-          4294967263,
-          4294967262,
-        ]),
         "bevy_transform::components::transform::Transform": (
-          translation: (-0.9894177, 1.236772, 2.4735441),
+          translation: (1.8521748, 1.9998689, -1.094049),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    4294967275: (
+    4294966958: (
       components: {
         "bevy_camera::visibility::Visibility": Inherited,
         "bevy_ecs::name::Name": "Egui Camera",
@@ -52,7 +48,7 @@
         ),
       },
     ),
-    4294967277: (
+    4294966960: (
       components: {
         "bevy_camera::visibility::Visibility": Inherited,
         "bevy_transform::components::transform::Transform": (
@@ -62,14 +58,29 @@
         ),
       },
     ),
-    4294967278: (
+    4294966961: (
       components: {
         "bevy_camera::visibility::Visibility": Inherited,
         "bevy_transform::components::transform::Transform": (
-          translation: (-2.0, 2.4999998, 5.0),
-          rotation: (-0.21171878, -0.18465967, -0.040773313, 0.9588605),
+          translation: (-1.0651009, 1.2922919, -9.169777),
+          rotation: (0.004015289, 0.995916, 0.06937009, -0.05764574),
           scale: (1.0, 1.0, 1.0),
         ),
+      },
+    ),
+    4294967031: (
+      components: {
+        "bevy_ecs::name::Name": "LineJointGizmoRenderer",
+      },
+    ),
+    4294967032: (
+      components: {
+        "bevy_ecs::name::Name": "LineStripGizmoRenderer",
+      },
+    ),
+    4294967033: (
+      components: {
+        "bevy_ecs::name::Name": "LineGizmoRenderer",
       },
     ),
   },

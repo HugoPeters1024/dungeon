@@ -78,7 +78,7 @@ pub fn on_player_spawn(
         },
         jump: TnuaBuiltinJumpConfig {
             height: 2.5,
-            fall_extra_gravity: 7.5,
+            fall_extra_gravity: 5.5,
             ..default()
         },
     });
